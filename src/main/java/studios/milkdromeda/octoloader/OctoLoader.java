@@ -11,5 +11,6 @@ public class OctoLoader implements ModInitializer {
     @Override
     public void onInitialize() {
         LOGGER.info("Octo Loader initialized");
+        studios.milkdromeda.octoloader.shims.neoforge.NeoForgeRuntime.initAll();
     }
 }

@@ -1,0 +1,31 @@
+// A genuine Quilt-format mod (quilt.mod.json, no fabric.mod.json) used to
+// verify Octo Loader's Quilt translation end-to-end. Built with the plain java
+// plugin: it only needs loader APIs, no Minecraft classes.
+plugins {
+    id 'java'
+}
+
+group = 'studios.milkdromeda.testmods'
+version = '1.0.0'
+
+base {
+    archivesName = 'quilt-sample'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
+}

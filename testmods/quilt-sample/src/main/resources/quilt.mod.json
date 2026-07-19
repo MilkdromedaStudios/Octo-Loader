@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "quilt_loader": {
+    "group": "studios.milkdromeda.testmods",
+    "id": "quilt_sample",
+    "version": "1.0.0",
+    "metadata": {
+      "name": "Quilt Sample",
+      "description": "Sample Quilt mod used to verify Octo Loader's translation.",
+      "contributors": {
+        "Milkdromeda Studios": "Owner"
+      },
+      "license": "Apache-2.0"
+    },
+    "intermediate_mappings": "net.fabricmc:intermediary",
+    "entrypoints": {
+      "init": "studios.milkdromeda.testmods.quiltsample.QuiltSampleMod"
+    },
+    "depends": [
+      {
+        "id": "quilt_loader",
+        "versions": "*"
+      },
+      {
+        "id": "minecraft",
+        "versions": "~26.2"
+      }
+    ]
+  }
+}

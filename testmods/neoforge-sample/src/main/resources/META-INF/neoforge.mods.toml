@@ -1,0 +1,17 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="Apache-2.0"
+
+[[mods]]
+modId="neoforge_sample"
+version="1.0.0"
+displayName="NeoForge Sample"
+description='''Sample NeoForge mod used to verify Octo Loader's translation.'''
+authors="Milkdromeda Studios"
+
+[[dependencies.neoforge_sample]]
+modId="minecraft"
+type="required"
+versionRange="[26.2,)"
+ordering="NONE"
+side="BOTH"

@@ -40,6 +40,7 @@ public final class McVersions {
      * major prefix or explicitly contain it.
      */
     public static boolean couldTarget(String declaredRange, String runningVersion) {
+        if (runningVersion == null || "unknown".equals(runningVersion)) return true;
         List<String> tokens = extractTokens(declaredRange);
         if (tokens.isEmpty()) return true;
         String majorPrefix = runningVersion.split("\\.")[0] + ".";

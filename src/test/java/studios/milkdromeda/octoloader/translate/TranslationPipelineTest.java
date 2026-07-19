@@ -3,23 +3,28 @@ package studios.milkdromeda.octoloader.translate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import studios.milkdromeda.octoloader.TestJars;
+import studios.milkdromeda.octoloader.bootstrap.ModInjector;
 import studios.milkdromeda.octoloader.knowledge.KnowledgeBase;
 import studios.milkdromeda.octoloader.report.CompatReport;
 import studios.milkdromeda.octoloader.report.CompatStatus;
 import studios.milkdromeda.octoloader.report.ModReportEntry;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TranslationPipelineTest {
     @TempDir
     Path gameDir;
 
     private CompatReport run() {
-        TranslationContext context = TranslationContext.create(gameDir, "26.2", KnowledgeBase.load());
+        TranslationContext context = TranslationContext.create(gameDir, "26.2", KnowledgeBase.load(),
+                ModInjector.modsDir(gameDir.resolve("mods")), id -> false);
         return new TranslationPipeline().run(gameDir.resolve("mods"), context);
     }
 
@@ -33,7 +38,7 @@ class TranslationPipelineTest {
     @Test
     void routesEachEcosystemToTheRightVerdict() throws IOException {
         Path mods = gameDir.resolve("mods");
-        java.nio.file.Files.createDirectories(mods);
+        Files.createDirectories(mods);
 
         TestJars.jar(mods, "native-fabric.jar",
                 Map.of("fabric.mod.json", "{\"schemaVersion\":1,\"id\":\"native\",\"version\":\"1.0\"}"));
@@ -67,20 +72,73 @@ class TranslationPipelineTest {
     }
 
     @Test
-    void modernQuiltModWithoutTranslatorReportsUnsupportedEcosystemForNow() throws IOException {
+    void modernQuiltModIsTranslatedAndCachedOnRerun() throws IOException {
         Path mods = gameDir.resolve("mods");
-        java.nio.file.Files.createDirectories(mods);
+        Files.createDirectories(mods);
         TestJars.jar(mods, "quilt-modern.jar", Map.of("quilt.mod.json", """
                 {
                   "schema_version": 1,
                   "quilt_loader": {
                     "id": "modernquilt",
                     "version": "1.0.0",
+                    "entrypoints": {"init": "org.example.Mod"},
                     "depends": [{"id": "minecraft", "versions": "~26.2"}]
                   }
                 }"""));
 
+        CompatReport first = run();
+        assertEquals(CompatStatus.TRANSLATED, statusOf(first, "quilt-modern.jar"));
+        Path generated = mods.resolve("quilt-modern.octo.jar");
+        assertTrue(Files.isRegularFile(generated), "translated jar should be in mods/");
+
+        // Second run: cache hit, and the generated jar itself must not get a report row.
+        CompatReport second = run();
+        assertEquals(1, second.entries().size());
+        ModReportEntry entry = second.entries().getFirst();
+        assertEquals(CompatStatus.TRANSLATED, entry.status());
+        assertTrue(entry.reason().contains("cache"), entry.reason());
+    }
+
+    @Test
+    void qslDependentQuiltModIsFlaggedPartial() throws IOException {
+        Path mods = gameDir.resolve("mods");
+        Files.createDirectories(mods);
+        TestJars.jar(mods, "quilt-qsl.jar", Map.of("quilt.mod.json", """
+                {
+                  "schema_version": 1,
+                  "quilt_loader": {
+                    "id": "qslmod",
+                    "version": "1.0.0",
+                    "depends": [
+                      {"id": "minecraft", "versions": "~26.2"},
+                      {"id": "qsl_base", "versions": "*"}
+                    ]
+                  }
+                }"""));
+
         CompatReport report = run();
-        assertEquals(CompatStatus.UNSUPPORTED_ECOSYSTEM, statusOf(report, "quilt-modern.jar"));
+        ModReportEntry entry = report.entries().getFirst();
+        assertEquals(CompatStatus.PARTIAL, entry.status());
+        assertTrue(entry.reason().contains("qsl_base"), entry.reason());
+        assertFalse(Files.exists(mods.resolve("quilt-qsl.octo.jar")), "partial mods must not emit jars");
+    }
+
+    @Test
+    void staleGeneratedJarIsRemovedWhenSourceDisappears() throws IOException {
+        Path mods = gameDir.resolve("mods");
+        Files.createDirectories(mods);
+        TestJars.jar(mods, "gone.jar", Map.of("quilt.mod.json", """
+                {
+                  "schema_version": 1,
+                  "quilt_loader": {"id": "gonemod", "version": "1.0.0",
+                    "depends": [{"id": "minecraft", "versions": "~26.2"}]}
+                }"""));
+        run();
+        Path generated = mods.resolve("gone.octo.jar");
+        assertTrue(Files.isRegularFile(generated));
+
+        Files.delete(mods.resolve("gone.jar"));
+        run();
+        assertFalse(Files.exists(generated), "orphaned generated jar should be cleaned up");
     }
 }

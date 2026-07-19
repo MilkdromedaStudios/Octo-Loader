@@ -11,6 +11,8 @@ import studios.milkdromeda.octoloader.report.CompatReport;
 import studios.milkdromeda.octoloader.report.CompatStatus;
 import studios.milkdromeda.octoloader.report.ModReportEntry;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,13 +32,21 @@ public final class TranslationPipeline {
     public TranslationPipeline() {
         for (Translator translator : ServiceLoader.load(Translator.class, getClass().getClassLoader())) {
             translators.add(translator);
-            LOGGER.info("Registered translator: {}", translator.id());
         }
     }
 
     public CompatReport run(Path modsDir, TranslationContext context) {
         CompatReport report = new CompatReport();
         for (DetectedMod mod : new ModScanner().scan(modsDir)) {
+            if (TranslationCache.isGeneratedJar(mod.path())) {
+                // Octo's own outputs are bookkeeping, not user mods; drop the
+                // ones whose source jar disappeared so they don't linger.
+                if (TranslationCache.readAttribute(mod.path(), TranslationCache.ATTR_TRANSLATED_FROM).isPresent()
+                        && sourceGone(mod.path(), modsDir)) {
+                    deleteQuietly(mod.path());
+                }
+                continue;
+            }
             report.add(verdict(mod, context));
         }
         return report;
@@ -83,5 +93,20 @@ public final class TranslationPipeline {
         }
         return new ModReportEntry(mod, CompatStatus.UNSUPPORTED_ECOSYSTEM,
                 "no translator available yet for " + mod.ecosystem().displayName());
+    }
+
+    private static boolean sourceGone(Path generatedJar, Path modsDir) {
+        String name = generatedJar.getFileName().toString();
+        String sourceBase = name.substring(0, name.length() - TranslationCache.GENERATED_SUFFIX.length());
+        return !Files.exists(modsDir.resolve(sourceBase + ".jar"));
+    }
+
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.delete(path);
+            LOGGER.info("Removed stale generated jar {}", path.getFileName());
+        } catch (IOException e) {
+            LOGGER.warn("Could not remove stale generated jar {}", path, e);
+        }
     }
 }

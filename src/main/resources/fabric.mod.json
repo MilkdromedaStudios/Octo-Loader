@@ -18,6 +18,9 @@
     ],
     "main": [
       "studios.milkdromeda.octoloader.OctoLoader"
+    ],
+    "client": [
+      "studios.milkdromeda.octoloader.client.OctoLoaderClient"
     ]
   },
   "depends": {

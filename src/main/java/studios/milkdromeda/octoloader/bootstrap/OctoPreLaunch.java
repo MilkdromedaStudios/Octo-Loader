@@ -14,6 +14,6 @@ public class OctoPreLaunch implements PreLaunchEntrypoint {
     @Override
     public void onPreLaunch() {
         LOGGER.info("Octo Loader pre-launch: inspecting mods directory");
-        studios.milkdromeda.octoloader.OctoRuntime.runOnce();
+        studios.milkdromeda.octoloader.OctoRuntime.runFromPreLaunch();
     }
 }

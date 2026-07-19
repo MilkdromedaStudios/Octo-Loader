@@ -10,3 +10,6 @@ pluginManagement {
 }
 
 rootProject.name = 'octo-loader'
+
+include 'testmods:quilt-sample'
+include 'testmods:neoforge-sample'
