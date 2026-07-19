@@ -1,0 +1,28 @@
+// A genuine NeoForge-format mod (neoforge.mods.toml, @Mod entry class, no
+// fabric.mod.json) used to verify Octo Loader's NeoForge translation and
+// shims end-to-end. Compiles against Octo's shim classes, which have the same
+// signatures a real NeoForge mod would link against.
+plugins {
+    id 'java'
+}
+
+group = 'studios.milkdromeda.testmods'
+version = '1.0.0'
+
+base {
+    archivesName = 'neoforge-sample'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly project(':')
+}

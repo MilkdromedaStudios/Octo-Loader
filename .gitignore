@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+
+# Loom / run dirs
+run/
+remappedSrc/
+
+# Octo Loader runtime cache
+.octo/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# Runtime logs
+logs/

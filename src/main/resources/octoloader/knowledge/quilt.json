@@ -1,0 +1,26 @@
+{
+  "ecosystem": "quilt",
+  "eras": [
+    {
+      "name": "Quilt on 26.x (unobfuscated era)",
+      "mcPatterns": ["26.*"],
+      "runtimeMappings": "none (unobfuscated)",
+      "support": "translate",
+      "summary": "Quilt metadata is rewritten to Fabric metadata; class files run unchanged"
+    },
+    {
+      "name": "Quilt on legacy Minecraft (intermediary era)",
+      "mcPatterns": ["1.*"],
+      "runtimeMappings": "intermediary",
+      "support": "detect-only",
+      "summary": "built for legacy Minecraft (intermediary mappings); that game code no longer exists in 26.x"
+    },
+    {
+      "name": "Quilt, unspecified Minecraft target",
+      "mcPatterns": ["*"],
+      "runtimeMappings": "unknown",
+      "support": "translate",
+      "summary": "no Minecraft target declared; attempting metadata translation"
+    }
+  ]
+}

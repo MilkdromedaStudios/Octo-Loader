@@ -1,0 +1,26 @@
+{
+  "ecosystem": "neoforge",
+  "eras": [
+    {
+      "name": "NeoForge on 26.x (unobfuscated era)",
+      "mcPatterns": ["26.*"],
+      "runtimeMappings": "none (unobfuscated)",
+      "support": "translate",
+      "summary": "same-version NeoForge mod; metadata and entrypoints are translatable, API coverage decides the rest"
+    },
+    {
+      "name": "NeoForge on 1.20.2 - 1.21.x (mojmap runtime era)",
+      "mcPatterns": ["1.*"],
+      "runtimeMappings": "mojmap",
+      "support": "detect-only",
+      "summary": "built for legacy Minecraft (1.x); that game code no longer exists in 26.x"
+    },
+    {
+      "name": "NeoForge, unspecified Minecraft target",
+      "mcPatterns": ["*"],
+      "runtimeMappings": "unknown",
+      "support": "translate",
+      "summary": "no Minecraft target declared; attempting translation"
+    }
+  ]
+}

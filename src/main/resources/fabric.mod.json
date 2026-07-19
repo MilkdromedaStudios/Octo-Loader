@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "octoloader",
+  "version": "${version}",
+  "name": "Octo Loader",
+  "description": "Universal mod connector for Fabric: detects Forge, NeoForge, Fabric and Quilt mods as well as Paper plugins, translates what it can into Fabric mods, and clearly reports the rest.",
+  "authors": [
+    "Milkdromeda Studios"
+  ],
+  "contact": {
+    "sources": "https://github.com/MilkdromedaStudios/Octo-Loader"
+  },
+  "license": "Apache-2.0",
+  "environment": "*",
+  "entrypoints": {
+    "preLaunch": [
+      "studios.milkdromeda.octoloader.bootstrap.OctoPreLaunch"
+    ],
+    "main": [
+      "studios.milkdromeda.octoloader.OctoLoader"
+    ],
+    "client": [
+      "studios.milkdromeda.octoloader.client.OctoLoaderClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.2",
+    "java": ">=25"
+  }
+}

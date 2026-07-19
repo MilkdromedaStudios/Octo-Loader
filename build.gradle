@@ -1,0 +1,99 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.16'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Copies of the parsing libraries bundled for the java-agent context, where
+// the jar-in-jar copies are not visible (premain runs before Fabric Loader).
+configurations {
+    agentLibs
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    // Metadata parsing for foreign mod formats (bundled via jar-in-jar)
+    include implementation('com.electronwill.night-config:toml:3.8.1')
+    include implementation('com.electronwill.night-config:core:3.8.1')
+    include implementation('org.yaml:snakeyaml:2.3')
+
+    agentLibs 'com.electronwill.night-config:toml:3.8.1'
+    agentLibs 'com.electronwill.night-config:core:3.8.1'
+    agentLibs 'org.yaml:snakeyaml:2.3'
+    agentLibs 'com.google.code.gson:gson:2.11.0'
+    agentLibs 'org.slf4j:slf4j-api:2.0.16'
+    agentLibs 'org.slf4j:slf4j-simple:2.0.16'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// `./gradlew runServer -PoctoAgent` boots the dev server with Octo's jar
+// attached as a java agent, exercising same-run injection instead of the
+// restart-based fallback.
+loom {
+    runs {
+        server {
+            if (providers.gradleProperty('octoAgent').isPresent()) {
+                vmArg "-javaagent:${tasks.jar.archiveFile.get().asFile.absolutePath}"
+            }
+        }
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand 'version': inputs.properties.version
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+test {
+    useJUnitPlatform()
+}
+
+jar {
+    inputs.property 'archivesName', project.base.archivesName
+    from('LICENSE') {
+        rename { "${it}_${inputs.properties.archivesName}" }
+    }
+    from(configurations.agentLibs) {
+        into 'META-INF/agentlibs'
+    }
+    manifest {
+        attributes(
+                'Premain-Class': 'studios.milkdromeda.octoloader.bootstrap.OctoAgent',
+                'Agent-Class': 'studios.milkdromeda.octoloader.bootstrap.OctoAgent',
+                'Launcher-Agent-Class': 'studios.milkdromeda.octoloader.bootstrap.OctoAgent'
+        )
+    }
+}
+
+// Builds the in-repo sample mods and drops them into the dev server's mods
+// folder, so `runServer` exercises the full translation flow.
+tasks.register('installTestMods', Copy) {
+    dependsOn ':testmods:quilt-sample:jar', ':testmods:neoforge-sample:jar'
+    from project(':testmods:quilt-sample').layout.buildDirectory.dir('libs')
+    from project(':testmods:neoforge-sample').layout.buildDirectory.dir('libs')
+    into layout.projectDirectory.dir('run/mods')
+}

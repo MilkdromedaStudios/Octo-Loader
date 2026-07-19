@@ -1,0 +1,19 @@
+{
+  "ecosystem": "forge",
+  "eras": [
+    {
+      "name": "Forge 1.13+ (toml/SRG era)",
+      "mcPatterns": ["1.*"],
+      "runtimeMappings": "srg",
+      "support": "detect-only",
+      "summary": "built for legacy Minecraft (SRG mapping era); that game code no longer exists in 26.x"
+    },
+    {
+      "name": "Forge, other targets",
+      "mcPatterns": ["*"],
+      "runtimeMappings": "unknown",
+      "support": "detect-only",
+      "summary": "Forge translation is not supported yet"
+    }
+  ]
+}
