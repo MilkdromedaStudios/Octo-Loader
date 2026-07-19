@@ -1,0 +1,12 @@
+{
+  "ecosystem": "forge_legacy",
+  "eras": [
+    {
+      "name": "Legacy Forge (mcmod.info era, <=1.12.2)",
+      "mcPatterns": ["*"],
+      "runtimeMappings": "srg (legacy)",
+      "support": "detect-only",
+      "summary": "legacy Forge mods predate modern loaders and target game internals removed long ago; identification only"
+    }
+  ]
+}

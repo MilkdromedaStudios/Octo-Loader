@@ -1,0 +1,12 @@
+{
+  "ecosystem": "paper_plugin",
+  "eras": [
+    {
+      "name": "Paper plugin",
+      "mcPatterns": ["*"],
+      "runtimeMappings": "n/a (server plugin)",
+      "support": "detect-only",
+      "summary": "server plugins need a Bukkit/Paper API implementation on the Fabric server; planned, not yet supported"
+    }
+  ]
+}
