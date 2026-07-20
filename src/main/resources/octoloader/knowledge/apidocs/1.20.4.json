@@ -1,0 +1,10 @@
+{
+  "from": "1.20.4",
+  "to": "1.20.6",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.20.5 replaced item NBT with data components \u2014 the largest item API break of the 1.x line",
+  "notableChanges": [
+    "Item data components replaced ItemStack NBT"
+  ]
+}

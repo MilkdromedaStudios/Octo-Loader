@@ -1,0 +1,11 @@
+{
+  "from": "1.1",
+  "to": "1.2.5",
+  "coverage": "descriptive",
+  "runtimeMappings": "obfuscated (early Forge era)",
+  "summary": "1.2 introduced the Anvil world format and raised the height limit to 256, rewriting chunk and save handling",
+  "notableChanges": [
+    "Anvil replaced the McRegion save format",
+    "World height doubled to 256"
+  ]
+}

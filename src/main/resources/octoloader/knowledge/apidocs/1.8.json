@@ -1,0 +1,7 @@
+{
+  "from": "1.8",
+  "to": "1.8.9",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.8.9 was a patch-line stabilization; compiled mods still broke on the obfuscation reshuffle"
+}

@@ -1,0 +1,11 @@
+{
+  "from": "1.5.2",
+  "to": "1.6.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.6 added horses and the attribute system, and shipped a new launcher with a rearranged runtime layout",
+  "notableChanges": [
+    "Entity attributes replaced hardcoded stats",
+    "New launcher and natives directory layout"
+  ]
+}

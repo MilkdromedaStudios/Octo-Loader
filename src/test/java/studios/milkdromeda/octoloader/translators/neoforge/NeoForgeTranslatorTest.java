@@ -4,8 +4,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import studios.milkdromeda.octoloader.TestClasses;
 import studios.milkdromeda.octoloader.TestCompiler;
 import studios.milkdromeda.octoloader.bootstrap.ModInjector;
+import studios.milkdromeda.octoloader.bytecode.ConstantPool;
 import studios.milkdromeda.octoloader.detect.ModDetector;
 import studios.milkdromeda.octoloader.knowledge.KnowledgeBase;
 import studios.milkdromeda.octoloader.report.CompatStatus;
@@ -24,6 +26,7 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NeoForgeTranslatorTest {
@@ -50,13 +53,17 @@ class NeoForgeTranslatorTest {
 
     private Path buildJar(String className, String source) throws IOException {
         Map<String, byte[]> classes = TestCompiler.compile(gameDir.resolve("work"), className, source);
+        return buildJar(MODS_TOML, classes);
+    }
+
+    private Path buildJar(String modsToml, Map<String, byte[]> classes) throws IOException {
         Path mods = gameDir.resolve("mods");
         Files.createDirectories(mods);
         Path jar = mods.resolve("fixture-neo.jar");
         try (OutputStream fileOut = Files.newOutputStream(jar);
              JarOutputStream out = new JarOutputStream(fileOut)) {
             out.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
-            out.write(MODS_TOML.getBytes(StandardCharsets.UTF_8));
+            out.write(modsToml.getBytes(StandardCharsets.UTF_8));
             out.closeEntry();
             for (Map.Entry<String, byte[]> e : classes.entrySet()) {
                 out.putNextEntry(new JarEntry(e.getKey()));
@@ -120,6 +127,52 @@ class NeoForgeTranslatorTest {
         ModReportEntry entry = translate(jar);
         assertEquals(CompatStatus.PARTIAL, entry.status());
         assertTrue(entry.reason().contains("net.neoforged.neoforge.registries.DeferredRegister"), entry.reason());
+        assertTrue(Files.notExists(gameDir.resolve("mods").resolve("fixture-neo.octo.jar")),
+                "partial mods must not emit jars");
+    }
+
+    @Test
+    void apiReplacesModBuiltForPreviousVersion() throws IOException {
+        String toml261 = MODS_TOML.replace("[26.2,)", "[26.1,26.2)");
+        byte[] entryClass = TestClasses.cls("fix/OldMod")
+                .modAnnotation("fixmod")
+                .newInsn("net/neoforged/fml/event/lifecycle/FMLSetupEvent")
+                .invokeInterface("net/neoforged/bus/api/IEventBus", "addEventListener",
+                        "(Ljava/util/function/Consumer;)V")
+                .bytes();
+        Path jar = buildJar(toml261, Map.of("fix/OldMod.class", entryClass));
+
+        ModReportEntry entry = translate(jar);
+        assertEquals(CompatStatus.TRANSLATED, entry.status(), entry.reason());
+        assertTrue(entry.reason().contains("APIs replaced 26.1 → 26.2"), entry.reason());
+
+        Path output = gameDir.resolve("mods").resolve("fixture-neo.octo.jar");
+        try (JarFile jf = new JarFile(output.toFile());
+             InputStream in = jf.getInputStream(jf.getJarEntry("fix/OldMod.class"))) {
+            ConstantPool.ClassRefs refs = ConstantPool.scan(in);
+            assertTrue(refs.classes().contains("net/neoforged/fml/event/lifecycle/FMLCommonSetupEvent"),
+                    "26.1 event class must be rewritten to its 26.2 name");
+            assertFalse(refs.classes().contains("net/neoforged/fml/event/lifecycle/FMLSetupEvent"));
+            assertTrue(refs.members().stream().anyMatch(m -> m.name().equals("addListener")));
+        }
+        JsonObject fabric = readFabricMetadata(output);
+        assertEquals("26.1 -> 26.2", fabric.getAsJsonObject("custom").getAsJsonObject("octoloader")
+                .get("apiReplaced").getAsString());
+    }
+
+    @Test
+    void flagsUseOfRemovedApiAsPartial() throws IOException {
+        String toml261 = MODS_TOML.replace("[26.2,)", "[26.1,26.2)");
+        byte[] entryClass = TestClasses.cls("fix/RemovedUser")
+                .modAnnotation("fixmod")
+                .newInsn("net/neoforged/fml/DeprecatedModLoadingContext")
+                .bytes();
+        Path jar = buildJar(toml261, Map.of("fix/RemovedUser.class", entryClass));
+
+        ModReportEntry entry = translate(jar);
+        assertEquals(CompatStatus.PARTIAL, entry.status(), entry.reason());
+        assertTrue(entry.reason().contains("removed"), entry.reason());
+        assertTrue(entry.reason().contains("net.neoforged.fml.DeprecatedModLoadingContext"), entry.reason());
         assertTrue(Files.notExists(gameDir.resolve("mods").resolve("fixture-neo.octo.jar")),
                 "partial mods must not emit jars");
     }

@@ -19,10 +19,13 @@ import java.util.Optional;
 /**
  * The per-loader, per-era knowledge Octo Loader ships with — each loader
  * version's documented behavior (metadata format, mappings, translatability)
- * encoded as JSON resources under {@code octoloader/knowledge/}.
+ * encoded as JSON resources under {@code octoloader/knowledge/}, plus the
+ * Minecraft version timeline and the per-version API documentation chain.
  */
 public final class KnowledgeBase {
     private final Map<ModEcosystem, List<Era>> eras = new EnumMap<>(ModEcosystem.class);
+    private McVersionIndex versionIndex;
+    private ApiDocs apiDocs;
 
     public static KnowledgeBase load() {
         KnowledgeBase kb = new KnowledgeBase();
@@ -36,7 +39,24 @@ public final class KnowledgeBase {
                 throw new IllegalStateException("Malformed knowledge resource " + resource, e);
             }
         }
+        String indexResource = "/octoloader/knowledge/minecraft_versions.json";
+        try (InputStream in = KnowledgeBase.class.getResourceAsStream(indexResource)) {
+            kb.versionIndex = McVersionIndex.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            throw new IllegalStateException("Malformed knowledge resource " + indexResource, e);
+        }
+        kb.apiDocs = ApiDocs.load(kb.versionIndex);
         return kb;
+    }
+
+    /** The documented Minecraft version timeline (Beta 1.7.3 → current). */
+    public McVersionIndex versionIndex() {
+        return versionIndex;
+    }
+
+    /** The per-version-step API documentation chain. */
+    public ApiDocs apiDocs() {
+        return apiDocs;
     }
 
     private static List<Era> parse(String json) {

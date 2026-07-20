@@ -1,0 +1,11 @@
+{
+  "from": "1.20.1",
+  "to": "1.20.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.20.2 split the Forge ecosystem (NeoForge fork) and reworked networking; loader APIs diverged from here on",
+  "notableChanges": [
+    "NeoForge forked from Forge at 1.20.2",
+    "Configuration-phase networking introduced"
+  ]
+}

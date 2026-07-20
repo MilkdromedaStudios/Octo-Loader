@@ -21,6 +21,8 @@ public final class TranslationCache {
     public static final Attributes.Name ATTR_TRANSLATED_FROM = new Attributes.Name("Octo-Translated-From");
     public static final Attributes.Name ATTR_SOURCE_SHA256 = new Attributes.Name("Octo-Source-Sha256");
     public static final Attributes.Name ATTR_TRANSLATOR = new Attributes.Name("Octo-Translator");
+    public static final Attributes.Name ATTR_RUNNING_MC = new Attributes.Name("Octo-Running-Minecraft");
+    public static final Attributes.Name ATTR_API_REPLACED = new Attributes.Name("Octo-Api-Replaced");
 
     private TranslationCache() {
     }
@@ -35,10 +37,17 @@ public final class TranslationCache {
         return outputDir.resolve(base + GENERATED_SUFFIX);
     }
 
-    /** Whether {@code output} exists and was generated from the current content of {@code source}. */
-    public static boolean isFresh(Path source, Path output) {
+    /**
+     * Whether {@code output} exists, was generated from the current content of
+     * {@code source}, and was produced for the currently running Minecraft —
+     * a game upgrade (26.1 → 26.2) changes what API replacement must do, so it
+     * invalidates previous outputs.
+     */
+    public static boolean isFresh(Path source, Path output, String runningMinecraft) {
         Optional<String> recorded = readAttribute(output, ATTR_SOURCE_SHA256);
-        return recorded.isPresent() && recorded.get().equals(sha256(source));
+        if (recorded.isEmpty() || !recorded.get().equals(sha256(source))) return false;
+        Optional<String> recordedMc = readAttribute(output, ATTR_RUNNING_MC);
+        return recordedMc.isPresent() && recordedMc.get().equals(runningMinecraft);
     }
 
     public static Optional<String> readAttribute(Path jar, Attributes.Name name) {

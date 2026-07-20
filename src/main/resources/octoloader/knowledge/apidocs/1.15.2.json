@@ -1,0 +1,10 @@
+{
+  "from": "1.15.2",
+  "to": "1.16.5",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg / intermediary",
+  "summary": "1.16 'Nether Update' churned registries and DataFixer schemas heavily; dimension handling became data-driven",
+  "notableChanges": [
+    "Data-driven dimensions and biomes"
+  ]
+}

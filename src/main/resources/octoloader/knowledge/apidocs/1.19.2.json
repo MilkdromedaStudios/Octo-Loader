@@ -1,0 +1,7 @@
+{
+  "from": "1.19.2",
+  "to": "1.19.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.19.3/1.19.4 landed successive registry and Holder refactor waves; many 1.19 mods pinned exact patch versions because of them"
+}

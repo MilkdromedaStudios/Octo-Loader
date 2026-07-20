@@ -25,6 +25,38 @@ public final class McVersions {
         return tokens;
     }
 
+    /**
+     * A version token together with its role in the surrounding range syntax.
+     * An exclusive upper bound ({@code "<26.2"}, or the {@code X} of a maven
+     * range {@code "[26.1,X)"}) names a version the range does NOT include, so
+     * it must not be read as a version the mod was built against.
+     */
+    public record RangeToken(String value, boolean exclusiveUpperBound) {
+    }
+
+    /** Extracts tokens with exclusive-upper-bound classification. */
+    public static List<RangeToken> rangeTokens(String range) {
+        List<RangeToken> tokens = new ArrayList<>();
+        if (range == null || range.isBlank()) return tokens;
+        Matcher m = VERSION_TOKEN.matcher(range);
+        while (m.find()) {
+            tokens.add(new RangeToken(m.group(), isExclusiveUpper(range, m.start(), m.end())));
+        }
+        return tokens;
+    }
+
+    private static boolean isExclusiveUpper(String range, int start, int end) {
+        int before = start - 1;
+        while (before >= 0 && range.charAt(before) == ' ') before--;
+        // "<26.2" is exclusive; "<=26.2" is not.
+        if (before >= 0 && range.charAt(before) == '<') return true;
+        int after = end;
+        while (after < range.length() && range.charAt(after) == ' ') after++;
+        // maven-style "[26.1,26.2)": token closed by ')' after a ','.
+        return after < range.length() && range.charAt(after) == ')'
+                && range.lastIndexOf(',', start) >= 0;
+    }
+
     /** Minimal glob: {@code *} matches any suffix, everything else is literal. */
     public static boolean globMatches(String pattern, String value) {
         if (pattern.endsWith("*")) {

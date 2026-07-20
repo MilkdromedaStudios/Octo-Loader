@@ -109,7 +109,7 @@ class QuiltTranslatorTest {
             assertEquals("sample.jar",
                     jf.getManifest().getMainAttributes().getValue(TranslationCache.ATTR_TRANSLATED_FROM));
         }
-        assertTrue(TranslationCache.isFresh(jar, output));
+        assertTrue(TranslationCache.isFresh(jar, output, "26.2"));
     }
 
     private static JsonObject readFabricMetadata(Path jar) throws IOException {

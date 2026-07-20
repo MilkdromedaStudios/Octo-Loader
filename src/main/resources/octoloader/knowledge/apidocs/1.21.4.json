@@ -1,0 +1,12 @@
+{
+  "from": "1.21.4",
+  "to": "26.0",
+  "coverage": "descriptive",
+  "runtimeMappings": "none (unobfuscated) after / mojmap-intermediary before",
+  "summary": "Minecraft 26.0 shipped the unobfuscated rewrite: the obfuscated 1.x codebase and its mapping ecosystems (SRG, intermediary, mojmap-on-obfuscated) ended here. Compiled 1.x references point at classes that no longer exist in any namespace, so no mechanical bridge across this step is possible \u2014 the documentation records the break instead",
+  "notableChanges": [
+    "Entire runtime renamed and restructured; no 1:1 mapping published",
+    "Mapping toolchains (SRG/intermediary) ended at 1.21.x",
+    "Mods must be rebuilt against the 26.x sources to cross this boundary"
+  ]
+}

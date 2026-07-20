@@ -1,0 +1,7 @@
+{
+  "from": "1.14.4",
+  "to": "1.15.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg / intermediary",
+  "summary": "1.15 'Buzzy Bees' rewrote rendering internals around RenderType and vertex consumers, breaking every rendering hook again"
+}

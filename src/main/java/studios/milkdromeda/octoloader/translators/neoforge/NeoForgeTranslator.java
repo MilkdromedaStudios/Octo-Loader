@@ -10,8 +10,13 @@ import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Opcodes;
+import studios.milkdromeda.octoloader.bytecode.ConstantPool;
 import studios.milkdromeda.octoloader.detect.DetectedMod;
 import studios.milkdromeda.octoloader.detect.ModEcosystem;
+import studios.milkdromeda.octoloader.replace.ApiReplacement;
+import studios.milkdromeda.octoloader.replace.ApiRewriter;
+import studios.milkdromeda.octoloader.replace.ChainRemapper;
+import studios.milkdromeda.octoloader.replace.ReplacementPlan;
 import studios.milkdromeda.octoloader.report.CompatStatus;
 import studios.milkdromeda.octoloader.report.ModReportEntry;
 import studios.milkdromeda.octoloader.translate.JarRepacker;
@@ -25,22 +30,28 @@ import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * Translates same-version NeoForge mods into Fabric mods.
+ * Translates NeoForge mods into Fabric mods.
  *
  * <p>The 26.x era makes the bytecode side easy: both NeoForge and Fabric run
- * on Minecraft's real (unobfuscated) class names, so no remapping is needed.
- * What remains is the loader API surface. Octo ships shims for a starter
+ * on Minecraft's real (unobfuscated) class names, so no remapping is needed
+ * for same-version mods. Mods built for an older 26.x version go through the
+ * API replacement chain first: the documented per-version changes are composed
+ * and applied to the mod's compiled references, so a 26.1 mod loads on 26.2.
+ *
+ * <p>What remains is the loader API surface. Octo ships shims for a starter
  * subset (the {@code @Mod} entry contract, mod event bus, lifecycle events);
- * every NeoForge/Forge API reference outside that subset flags the mod as
- * {@link CompatStatus#PARTIAL} with the exact classes named, and the mod is
- * skipped rather than half-loaded.
+ * every NeoForge/Forge API reference outside that subset — after replacement —
+ * flags the mod as {@link CompatStatus#PARTIAL} with the exact classes named,
+ * and the mod is skipped rather than half-loaded.
  */
 public final class NeoForgeTranslator implements Translator {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -76,21 +87,50 @@ public final class NeoForgeTranslator implements Translator {
     public ModReportEntry translate(DetectedMod mod, TranslationContext context) {
         Path output = TranslationCache.outputFor(mod.path(), context.injector().outputDir());
 
+        ReplacementPlan plan = ApiReplacement.plan(mod, context);
+        if (plan instanceof ReplacementPlan.Blocked blocked) {
+            return new ModReportEntry(mod, CompatStatus.UNSUPPORTED_VERSION, blocked.reason());
+        }
+        ReplacementPlan.Replace replace = plan instanceof ReplacementPlan.Replace r ? r : null;
+
         try {
             ScanResult scan = scanClasses(mod.path());
-            if (!scan.uncoveredApis().isEmpty()) {
-                return new ModReportEntry(mod, CompatStatus.PARTIAL,
-                        "uses NeoForge APIs Octo Loader does not provide yet: " + summarize(scan.uncoveredApis()));
+
+            if (replace != null) {
+                List<String> removed = replace.removalBlockers(scan.refsByEntry().values());
+                if (!removed.isEmpty()) {
+                    return new ModReportEntry(mod, CompatStatus.PARTIAL,
+                            "uses APIs the documentation records as removed between " + replace.fromVersion()
+                                    + " and " + replace.toVersion() + ": " + summarize(removed));
+                }
             }
 
-            if (TranslationCache.isFresh(mod.path(), output)) {
+            Set<String> uncovered = uncoveredApis(scan, replace);
+            if (!uncovered.isEmpty()) {
+                return new ModReportEntry(mod, CompatStatus.PARTIAL,
+                        "uses NeoForge APIs Octo Loader does not provide yet: " + summarize(uncovered));
+            }
+
+            if (TranslationCache.isFresh(mod.path(), output, context.runningMinecraft())) {
                 return translatedEntry(mod, context, "already translated (cache)");
             }
 
-            JsonObject fabric = toFabricMetadata(mod, scan.entryClasses());
-            JarRepacker.writeTranslated(mod.path(), output, GSON.toJson(fabric), id());
-            String note = scan.entryClasses().isEmpty() ? "library jar (no @Mod entry class)" : null;
-            return translatedEntry(mod, context, note);
+            JsonObject fabric = toFabricMetadata(mod, scan.entryClasses(), replace);
+            JarRepacker.ProvenanceStamp stamp = new JarRepacker.ProvenanceStamp(
+                    id(), context.runningMinecraft(),
+                    replace != null ? replace.fromVersion() + " -> " + replace.toVersion() : null);
+            JarRepacker.writeTranslated(mod.path(), output, GSON.toJson(fabric), stamp,
+                    classTransform(scan, replace));
+
+            List<String> notes = new ArrayList<>();
+            if (replace != null) {
+                notes.add("APIs replaced " + replace.description()
+                        + ", " + countTouched(scan, replace) + " class(es) rewritten");
+            }
+            if (scan.entryClasses().isEmpty()) {
+                notes.add("library jar (no @Mod entry class)");
+            }
+            return translatedEntry(mod, context, notes.isEmpty() ? null : String.join("; ", notes));
         } catch (IOException e) {
             throw new RuntimeException("I/O error translating " + mod.path().getFileName(), e);
         }
@@ -106,12 +146,12 @@ public final class NeoForgeTranslator implements Translator {
 
     // ----------------------------------------------------------------- scanning
 
-    private record ScanResult(List<String> entryClasses, Set<String> uncoveredApis) {
+    private record ScanResult(List<String> entryClasses, Map<String, ConstantPool.ClassRefs> refsByEntry) {
     }
 
     private static ScanResult scanClasses(Path jar) throws IOException {
         List<String> entryClasses = new ArrayList<>();
-        Set<String> uncovered = new TreeSet<>();
+        Map<String, ConstantPool.ClassRefs> refsByEntry = new LinkedHashMap<>();
 
         try (JarFile jf = new JarFile(jar.toFile())) {
             var entries = jf.entries();
@@ -125,18 +165,48 @@ public final class NeoForgeTranslator implements Translator {
                 try (InputStream in = jf.getInputStream(entry)) {
                     bytes = in.readAllBytes();
                 }
-                for (String ref : ConstantPool.referencedClasses(new java.io.ByteArrayInputStream(bytes))) {
-                    if (isForeignApi(ref) && !COVERED_APIS.contains(ref)) {
-                        uncovered.add(ref.replace('/', '.'));
-                    }
-                }
+                refsByEntry.put(entry.getName(), ConstantPool.scan(bytes));
                 String modAnnotated = findModAnnotation(bytes);
                 if (modAnnotated != null) {
                     entryClasses.add(modAnnotated);
                 }
             }
         }
-        return new ScanResult(entryClasses, uncovered);
+        return new ScanResult(entryClasses, refsByEntry);
+    }
+
+    /**
+     * Loader API references outside the shimmed subset. References are carried
+     * through the replacement chain first, so a 26.1-era name whose documented
+     * 26.2 equivalent is shimmed counts as covered.
+     */
+    private static Set<String> uncoveredApis(ScanResult scan, ReplacementPlan.Replace replace) {
+        ChainRemapper remapper = replace != null ? replace.remapper() : null;
+        Set<String> uncovered = new TreeSet<>();
+        for (ConstantPool.ClassRefs refs : scan.refsByEntry().values()) {
+            for (String ref : refs.classes()) {
+                String mapped = remapper != null ? remapper.map(ref) : ref;
+                if (isForeignApi(mapped) && !COVERED_APIS.contains(mapped)) {
+                    uncovered.add(mapped.replace('/', '.'));
+                }
+            }
+        }
+        return uncovered;
+    }
+
+    private static java.util.function.BiFunction<String, byte[], byte[]> classTransform(
+            ScanResult scan, ReplacementPlan.Replace replace) {
+        if (replace == null) return null;
+        ChainRemapper remapper = replace.remapper();
+        return (entryName, bytes) -> {
+            ConstantPool.ClassRefs refs = scan.refsByEntry().get(entryName);
+            if (refs == null || !replace.touches(refs)) return bytes;
+            return ApiRewriter.rewrite(bytes, remapper);
+        };
+    }
+
+    private static long countTouched(ScanResult scan, ReplacementPlan.Replace replace) {
+        return scan.refsByEntry().values().stream().filter(replace::touches).count();
     }
 
     private static boolean isForeignApi(String internalName) {
@@ -170,15 +240,16 @@ public final class NeoForgeTranslator implements Translator {
         return result.annotated ? result.className : null;
     }
 
-    private static String summarize(Set<String> classes) {
-        List<String> list = new ArrayList<>(classes);
+    private static String summarize(java.util.Collection<String> items) {
+        List<String> list = new ArrayList<>(items);
         if (list.size() <= 4) return String.join(", ", list);
         return String.join(", ", list.subList(0, 4)) + " (+" + (list.size() - 4) + " more)";
     }
 
     // ----------------------------------------------------------------- metadata
 
-    private JsonObject toFabricMetadata(DetectedMod mod, List<String> entryClasses) throws IOException {
+    private JsonObject toFabricMetadata(DetectedMod mod, List<String> entryClasses,
+                                        ReplacementPlan.Replace replace) throws IOException {
         Config toml = readModsToml(mod.path());
         Config firstMod = null;
         List<Config> mods = toml != null ? toml.get("mods") : null;
@@ -215,6 +286,9 @@ public final class NeoForgeTranslator implements Translator {
 
         JsonObject octo = new JsonObject();
         octo.addProperty("translatedFrom", "neoforge");
+        if (replace != null) {
+            octo.addProperty("apiReplaced", replace.fromVersion() + " -> " + replace.toVersion());
+        }
         octo.add("neoforge", neoforge);
         JsonObject custom = new JsonObject();
         custom.add("octoloader", octo);

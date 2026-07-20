@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.function.BiFunction;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -14,16 +15,28 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 
 /**
- * Rewrites a foreign mod jar as a Fabric mod jar: original contents preserved,
- * a generated {@code fabric.mod.json} added, and provenance attributes stamped
+ * Rewrites a foreign mod jar as a Fabric mod jar: original contents preserved
+ * (optionally with class files transformed by the API replacement chain), a
+ * generated {@code fabric.mod.json} added, and provenance attributes stamped
  * into the manifest so the output is recognizable and cache-checkable.
  */
 public final class JarRepacker {
     private JarRepacker() {
     }
 
-    public static void writeTranslated(Path source, Path output, String fabricModJson, String translatorId)
-            throws IOException {
+    /**
+     * Provenance stamped into the output manifest.
+     *
+     * @param translatorId     which translator produced the jar
+     * @param runningMinecraft the Minecraft version the output was produced for
+     * @param apiReplaced      {@code "from → to"} when the API replacement chain
+     *                         ran, or {@code null} for same-version output
+     */
+    public record ProvenanceStamp(String translatorId, String runningMinecraft, String apiReplaced) {
+    }
+
+    public static void writeTranslated(Path source, Path output, String fabricModJson, ProvenanceStamp stamp,
+                                       BiFunction<String, byte[], byte[]> classTransform) throws IOException {
         Files.createDirectories(output.getParent());
         Path tmp = output.resolveSibling(output.getFileName() + ".tmp");
 
@@ -35,7 +48,11 @@ public final class JarRepacker {
             }
             main.put(TranslationCache.ATTR_TRANSLATED_FROM, source.getFileName().toString());
             main.put(TranslationCache.ATTR_SOURCE_SHA256, TranslationCache.sha256(source));
-            main.put(TranslationCache.ATTR_TRANSLATOR, translatorId);
+            main.put(TranslationCache.ATTR_TRANSLATOR, stamp.translatorId());
+            main.put(TranslationCache.ATTR_RUNNING_MC, stamp.runningMinecraft());
+            if (stamp.apiReplaced() != null) {
+                main.put(TranslationCache.ATTR_API_REPLACED, stamp.apiReplaced());
+            }
 
             try (OutputStream fileOut = Files.newOutputStream(tmp);
                  JarOutputStream out = new JarOutputStream(fileOut, manifest)) {
@@ -47,7 +64,11 @@ public final class JarRepacker {
                     out.putNextEntry(new JarEntry(name));
                     if (!entry.isDirectory()) {
                         try (InputStream entryIn = in.getInputStream(entry)) {
-                            entryIn.transferTo(out);
+                            if (classTransform != null && name.endsWith(".class") && !name.startsWith("META-INF/")) {
+                                out.write(classTransform.apply(name, entryIn.readAllBytes()));
+                            } else {
+                                entryIn.transferTo(out);
+                            }
                         }
                     }
                     out.closeEntry();

@@ -6,7 +6,7 @@
       "mcPatterns": ["26.*"],
       "runtimeMappings": "none (unobfuscated)",
       "support": "translate",
-      "summary": "same-version NeoForge mod; metadata and entrypoints are translatable, API coverage decides the rest"
+      "summary": "26.x NeoForge mod; metadata and entrypoints are translatable, older 26.x targets are API-replaced from per-version documentation, API coverage decides the rest"
     },
     {
       "name": "NeoForge on 1.20.2 - 1.21.x (mojmap runtime era)",

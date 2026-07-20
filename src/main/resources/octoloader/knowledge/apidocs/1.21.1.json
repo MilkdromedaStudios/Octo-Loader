@@ -1,0 +1,7 @@
+{
+  "from": "1.21.1",
+  "to": "1.21.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.21.2-1.21.4 reworked item model definitions and resource loading; render and resource mods needed per-patch updates"
+}

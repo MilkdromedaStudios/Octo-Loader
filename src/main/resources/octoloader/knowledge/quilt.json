@@ -6,7 +6,7 @@
       "mcPatterns": ["26.*"],
       "runtimeMappings": "none (unobfuscated)",
       "support": "translate",
-      "summary": "Quilt metadata is rewritten to Fabric metadata; class files run unchanged"
+      "summary": "Quilt metadata is rewritten to Fabric metadata; older 26.x targets are API-replaced from per-version documentation, same-version class files run unchanged"
     },
     {
       "name": "Quilt on legacy Minecraft (intermediary era)",
