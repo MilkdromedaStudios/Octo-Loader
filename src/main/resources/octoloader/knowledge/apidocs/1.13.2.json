@@ -1,0 +1,7 @@
+{
+  "from": "1.13.2",
+  "to": "1.14.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg / intermediary",
+  "summary": "1.14 'Village & Pillage' rewrote the chunk rendering pipeline and villager AI; Fabric's intermediary mappings became the second mapping ecosystem"
+}

@@ -1,0 +1,12 @@
+{
+  "from": "1.12.2",
+  "to": "1.13.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg / intermediary",
+  "summary": "1.13 'The Flattening' removed numeric block ids and damage values, rewrote commands (Brigadier) and world gen, and introduced data packs \u2014 the deepest data break of the 1.x line",
+  "notableChanges": [
+    "Numeric ids and metadata removed",
+    "Brigadier command engine",
+    "Data packs and flattened registries"
+  ]
+}

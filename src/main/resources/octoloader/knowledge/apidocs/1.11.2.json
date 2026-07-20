@@ -1,0 +1,10 @@
+{
+  "from": "1.11.2",
+  "to": "1.12.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.12 'World of Color' moved crafting recipes to JSON and became the last and most-modded metadata-era target",
+  "notableChanges": [
+    "JSON recipe system introduced"
+  ]
+}

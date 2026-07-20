@@ -1,0 +1,11 @@
+{
+  "from": "1.6.4",
+  "to": "1.7.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.7 'The Update that Changed the World' rewrote world generation and laid the id-remapping groundwork; one of the largest internal reshuffles of the 1.x line",
+  "notableChanges": [
+    "New biomes and world generator",
+    "Block/item id handling reworked toward registries"
+  ]
+}

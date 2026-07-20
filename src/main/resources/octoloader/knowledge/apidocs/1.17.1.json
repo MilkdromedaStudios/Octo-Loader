@@ -1,0 +1,7 @@
+{
+  "from": "1.17.1",
+  "to": "1.18.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.18 'Caves & Cliffs Part II' rewrote terrain generation and extended world height to -64..320, breaking world gen and storage mods"
+}

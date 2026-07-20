@@ -1,0 +1,7 @@
+{
+  "from": "1.3.2",
+  "to": "1.4.7",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.4 'Pretty Scary Update' added command blocks, anvils and the wither; Forge standardized SRG intermediate names around this era"
+}

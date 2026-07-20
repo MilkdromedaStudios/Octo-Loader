@@ -1,0 +1,12 @@
+{
+  "from": "b1.7.3",
+  "to": "b1.8.1",
+  "coverage": "descriptive",
+  "runtimeMappings": "obfuscated (ModLoader era)",
+  "summary": "Beta 1.8 'Adventure Update' rebuilt world generation, lighting, and the survival loop (hunger, sprinting, creative mode); every obfuscated class name reshuffled",
+  "notableChanges": [
+    "World generation and biome code rewritten",
+    "Food/hunger system replaced direct healing",
+    "ModLoader-era mods patch obfuscated classes directly"
+  ]
+}

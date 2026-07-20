@@ -1,0 +1,11 @@
+{
+  "from": "b1.8.1",
+  "to": "1.0.0",
+  "coverage": "descriptive",
+  "runtimeMappings": "obfuscated (ModLoader era)",
+  "summary": "Release 1.0 added brewing, enchanting and The End; obfuscated names reshuffled wholesale between releases",
+  "notableChanges": [
+    "Enchanting and potion systems introduced",
+    "The End dimension added"
+  ]
+}

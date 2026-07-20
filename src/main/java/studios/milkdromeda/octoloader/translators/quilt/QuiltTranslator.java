@@ -6,8 +6,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import studios.milkdromeda.octoloader.bytecode.ConstantPool;
 import studios.milkdromeda.octoloader.detect.DetectedMod;
 import studios.milkdromeda.octoloader.detect.ModEcosystem;
+import studios.milkdromeda.octoloader.replace.ApiReplacement;
+import studios.milkdromeda.octoloader.replace.ApiRewriter;
+import studios.milkdromeda.octoloader.replace.ChainRemapper;
+import studios.milkdromeda.octoloader.replace.ReplacementPlan;
 import studios.milkdromeda.octoloader.report.CompatStatus;
 import studios.milkdromeda.octoloader.report.ModReportEntry;
 import studios.milkdromeda.octoloader.translate.TranslationCache;
@@ -23,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -30,7 +36,10 @@ import java.util.jar.JarFile;
  * Rewrites a Quilt mod into a Fabric mod. Quilt's formats are documented
  * near-supersets of Fabric's, so for mods that don't use QSL (Quilt's standard
  * library) the translation is a pure metadata rewrite: {@code quilt.mod.json}
- * becomes an equivalent {@code fabric.mod.json} and class files are untouched.
+ * becomes an equivalent {@code fabric.mod.json}. Class files are untouched for
+ * same-version mods; mods built for an older 26.x version additionally go
+ * through the API replacement chain, which rewrites their compiled references
+ * using the documented per-version changes.
  *
  * <p>Mods that require QSL/Quilted Fabric API modules are flagged
  * {@link CompatStatus#PARTIAL} and skipped — those APIs are not present on a
@@ -62,6 +71,12 @@ public final class QuiltTranslator implements Translator {
     public ModReportEntry translate(DetectedMod mod, TranslationContext context) {
         Path output = TranslationCache.outputFor(mod.path(), context.injector().outputDir());
 
+        ReplacementPlan plan = ApiReplacement.plan(mod, context);
+        if (plan instanceof ReplacementPlan.Blocked blocked) {
+            return new ModReportEntry(mod, CompatStatus.UNSUPPORTED_VERSION, blocked.reason());
+        }
+        ReplacementPlan.Replace replace = plan instanceof ReplacementPlan.Replace r ? r : null;
+
         try {
             JsonObject quilt = readQuiltMetadata(mod.path());
             JsonObject loader = quilt.getAsJsonObject("quilt_loader");
@@ -75,16 +90,53 @@ public final class QuiltTranslator implements Translator {
                         "requires QSL modules Octo Loader does not provide: " + String.join(", ", qslModules));
             }
 
-            if (TranslationCache.isFresh(mod.path(), output)) {
+            Map<String, ConstantPool.ClassRefs> refsByEntry = Map.of();
+            if (replace != null) {
+                refsByEntry = ConstantPool.scanJar(mod.path());
+                List<String> removed = replace.removalBlockers(refsByEntry.values());
+                if (!removed.isEmpty()) {
+                    return new ModReportEntry(mod, CompatStatus.PARTIAL,
+                            "uses APIs the documentation records as removed between " + replace.fromVersion()
+                                    + " and " + replace.toVersion() + ": " + String.join(", ", removed));
+                }
+            }
+
+            if (TranslationCache.isFresh(mod.path(), output, context.runningMinecraft())) {
                 return translatedEntry(mod, context, "already translated (cache)");
             }
 
             JsonObject fabric = toFabricMetadata(quilt, loader);
-            JarRepacker.writeTranslated(mod.path(), output, GSON.toJson(fabric), id());
-            return translatedEntry(mod, context, null);
+            if (replace != null) {
+                // The mod now runs against the replaced (current) API surface.
+                fabric.getAsJsonObject("depends").addProperty("minecraft", context.runningMinecraft());
+                fabric.getAsJsonObject("custom").getAsJsonObject("octoloader")
+                        .addProperty("apiReplaced", replace.fromVersion() + " -> " + replace.toVersion());
+            }
+
+            JarRepacker.ProvenanceStamp stamp = new JarRepacker.ProvenanceStamp(
+                    id(), context.runningMinecraft(),
+                    replace != null ? replace.fromVersion() + " -> " + replace.toVersion() : null);
+            JarRepacker.writeTranslated(mod.path(), output, GSON.toJson(fabric), stamp,
+                    classTransform(refsByEntry, replace));
+
+            String note = replace == null ? null
+                    : "APIs replaced " + replace.description() + ", "
+                    + refsByEntry.values().stream().filter(replace::touches).count() + " class(es) rewritten";
+            return translatedEntry(mod, context, note);
         } catch (IOException e) {
             throw new RuntimeException("I/O error translating " + mod.path().getFileName(), e);
         }
+    }
+
+    private static BiFunction<String, byte[], byte[]> classTransform(
+            Map<String, ConstantPool.ClassRefs> refsByEntry, ReplacementPlan.Replace replace) {
+        if (replace == null) return null;
+        ChainRemapper remapper = replace.remapper();
+        return (entryName, bytes) -> {
+            ConstantPool.ClassRefs refs = refsByEntry.get(entryName);
+            if (refs == null || !replace.touches(refs)) return bytes;
+            return ApiRewriter.rewrite(bytes, remapper);
+        };
     }
 
     private ModReportEntry translatedEntry(DetectedMod mod, TranslationContext context, String prefix) {

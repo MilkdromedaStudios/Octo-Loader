@@ -1,0 +1,7 @@
+{
+  "from": "1.0.0",
+  "to": "1.1",
+  "coverage": "descriptive",
+  "runtimeMappings": "obfuscated (ModLoader era)",
+  "summary": "1.1 was a small content release, but the obfuscation reshuffle still invalidated every compiled mod"
+}

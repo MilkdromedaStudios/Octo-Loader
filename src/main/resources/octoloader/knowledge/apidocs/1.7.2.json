@@ -1,0 +1,7 @@
+{
+  "from": "1.7.2",
+  "to": "1.7.10",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.7.10 stabilized the 1.7 line and became the longest-lived legacy modding target"
+}

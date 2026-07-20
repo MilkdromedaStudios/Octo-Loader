@@ -1,0 +1,7 @@
+{
+  "from": "1.8.9",
+  "to": "1.9.4",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.9 'Combat Update' added dual wielding and attack cooldowns, changing item-use and hand handling APIs throughout"
+}

@@ -1,0 +1,7 @@
+{
+  "from": "1.19.4",
+  "to": "1.20.1",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.20 'Trails & Tales' was content-heavy with moderate API churn; 1.20.1 became the dominant modding target of its generation"
+}

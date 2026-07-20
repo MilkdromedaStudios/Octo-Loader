@@ -1,0 +1,26 @@
+{
+  "from": "26.0",
+  "to": "26.1",
+  "coverage": "full",
+  "runtimeMappings": "none (unobfuscated)",
+  "summary": "26.1 renamed ResourceId to Identifier, renamed MinecraftServer.getTicks to getTickCount, and removed the LegacyRandom shim in favor of RandomSource",
+  "classRenames": {
+    "net/minecraft/util/ResourceId": "net/minecraft/util/Identifier"
+  },
+  "memberRenames": [
+    {
+      "kind": "method",
+      "owner": "net/minecraft/server/MinecraftServer",
+      "name": "getTicks",
+      "desc": "()I",
+      "newName": "getTickCount"
+    }
+  ],
+  "removedApis": [
+    {
+      "api": "net/minecraft/util/LegacyRandom",
+      "replacement": "net.minecraft.util.random.RandomSource",
+      "note": "the 1.x-compatibility random wrapper was dropped in 26.1"
+    }
+  ]
+}

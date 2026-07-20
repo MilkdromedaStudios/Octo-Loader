@@ -1,0 +1,32 @@
+{
+  "from": "26.1",
+  "to": "26.2",
+  "coverage": "full",
+  "runtimeMappings": "none (unobfuscated)",
+  "summary": "26.2 moved Identifier into net.minecraft.resources, renamed the common lifecycle event FMLSetupEvent to FMLCommonSetupEvent, renamed IEventBus.addEventListener to addListener, and removed DeprecatedModLoadingContext",
+  "classRenames": {
+    "net/minecraft/util/Identifier": "net/minecraft/resources/Identifier",
+    "net/neoforged/fml/event/lifecycle/FMLSetupEvent": "net/neoforged/fml/event/lifecycle/FMLCommonSetupEvent"
+  },
+  "memberRenames": [
+    {
+      "kind": "method",
+      "owner": "net/neoforged/bus/api/IEventBus",
+      "name": "addEventListener",
+      "newName": "addListener"
+    },
+    {
+      "kind": "field",
+      "owner": "net/minecraft/world/level/Level",
+      "name": "dimensionId",
+      "newName": "dimension"
+    }
+  ],
+  "removedApis": [
+    {
+      "api": "net/neoforged/fml/DeprecatedModLoadingContext",
+      "replacement": "the constructor-injected IEventBus",
+      "note": "the static mod-loading context accessor was removed in 26.2"
+    }
+  ]
+}

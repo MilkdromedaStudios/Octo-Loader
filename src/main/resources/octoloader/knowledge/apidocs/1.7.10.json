@@ -1,0 +1,11 @@
+{
+  "from": "1.7.10",
+  "to": "1.8",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.8 'Bountiful Update' replaced numeric-metadata rendering with blockstates and JSON models \u2014 most rendering and block code had to be rewritten",
+  "notableChanges": [
+    "Blockstates and JSON model system introduced",
+    "ISBRH-style custom renderers removed"
+  ]
+}

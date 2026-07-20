@@ -35,6 +35,8 @@ dependencies {
     agentLibs 'com.google.code.gson:gson:2.11.0'
     agentLibs 'org.slf4j:slf4j-api:2.0.16'
     agentLibs 'org.slf4j:slf4j-simple:2.0.16'
+    agentLibs 'org.ow2.asm:asm:9.8'
+    agentLibs 'org.ow2.asm:asm-commons:9.8'
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

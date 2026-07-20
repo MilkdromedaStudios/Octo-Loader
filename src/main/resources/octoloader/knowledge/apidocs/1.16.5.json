@@ -1,0 +1,11 @@
+{
+  "from": "1.16.5",
+  "to": "1.17.1",
+  "coverage": "descriptive",
+  "runtimeMappings": "mojmap / intermediary",
+  "summary": "1.17 'Caves & Cliffs Part I' raised the Java baseline to 16 and reshuffled core packages; official (mojmap) names started dominating toolchains",
+  "notableChanges": [
+    "Java 16 baseline",
+    "Core package reorganization"
+  ]
+}

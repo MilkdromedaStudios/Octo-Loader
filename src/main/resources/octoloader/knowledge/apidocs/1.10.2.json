@@ -1,0 +1,10 @@
+{
+  "from": "1.10.2",
+  "to": "1.11.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.11 'Exploration Update' changed the ItemStack emptiness model (no more null stacks), touching nearly every item-handling code path",
+  "notableChanges": [
+    "ItemStack.EMPTY replaced null stacks"
+  ]
+}

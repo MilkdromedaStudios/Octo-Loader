@@ -7,6 +7,8 @@ import studios.milkdromeda.octoloader.detect.ModEcosystem;
 import studios.milkdromeda.octoloader.discovery.ModScanner;
 import studios.milkdromeda.octoloader.knowledge.Era;
 import studios.milkdromeda.octoloader.knowledge.McVersions;
+import studios.milkdromeda.octoloader.replace.ApiReplacement;
+import studios.milkdromeda.octoloader.replace.ReplacementPlan;
 import studios.milkdromeda.octoloader.report.CompatReport;
 import studios.milkdromeda.octoloader.report.CompatStatus;
 import studios.milkdromeda.octoloader.report.ModReportEntry;
@@ -73,11 +75,23 @@ public final class TranslationPipeline {
             CompatStatus status = !plugin && !versionCompatible
                     ? CompatStatus.UNSUPPORTED_VERSION
                     : CompatStatus.UNSUPPORTED_ECOSYSTEM;
-            return new ModReportEntry(mod, status, era.get().summary());
+            String reason = era.get().summary();
+            if (status == CompatStatus.UNSUPPORTED_VERSION
+                    && ApiReplacement.plan(mod, context) instanceof ReplacementPlan.Blocked blocked) {
+                reason = reason + " — " + blocked.reason();
+            }
+            return new ModReportEntry(mod, status, reason);
         }
         if (!versionCompatible) {
-            return new ModReportEntry(mod, CompatStatus.UNSUPPORTED_VERSION,
-                    "built for Minecraft " + mod.targetMinecraft() + ", running " + context.runningMinecraft());
+            // A documented replacement chain lets the translators bridge the
+            // version gap; anything else stays an honest rejection.
+            ReplacementPlan plan = ApiReplacement.plan(mod, context);
+            if (!(plan instanceof ReplacementPlan.Replace)) {
+                String reason = plan instanceof ReplacementPlan.Blocked blocked
+                        ? blocked.reason()
+                        : "built for Minecraft " + mod.targetMinecraft() + ", running " + context.runningMinecraft();
+                return new ModReportEntry(mod, CompatStatus.UNSUPPORTED_VERSION, reason);
+            }
         }
 
         for (Translator translator : translators) {

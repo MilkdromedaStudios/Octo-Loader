@@ -1,0 +1,7 @@
+{
+  "from": "1.9.4",
+  "to": "1.10.2",
+  "coverage": "descriptive",
+  "runtimeMappings": "srg (Forge era)",
+  "summary": "1.10 'Frostburn Update' was content-focused; internal churn stayed moderate but names still moved"
+}
