@@ -13,6 +13,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -64,48 +68,47 @@ jobs:
           grep -q "6 of 6 mod(s) would load" scan.txt \
             || { echo "::error::the loader did not accept all six sample mods"; exit 1; }
 
-      - name: Collect release files
+      - name: Work out the version
+        id: version
         run: |
-          mkdir release
-          cp installer/build/installer/installer.jar release/installer.jar
-          cp loader/build/libs/octo-loader-*.jar release/
+          TAG="${{ github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            installer/build/installer/installer.jar
+            loader/build/libs/octo-loader-*.jar
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: release
+
+      - name: Generate checksums
+        run: |
           cd release
           sha256sum * > checksums.txt
-          cat checksums.txt
 
-      - name: Publish release (only when tag pushed)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Octo Loader ${{ github.ref_name }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: Octo Loader ${{ needs.build.outputs.version }}
+          files: |
+            release/*.jar
+            release/checksums.txt
           draft: false
           prerelease: false
-          fail_on_unmatched_files: false
-          files: |
-            release/installer.jar
-            release/octo-loader-*.jar
-            release/checksums.txt
-          body: |
-            One loader for Fabric, Quilt, Forge and NeoForge mods — and for mods
-            built for a Minecraft version other than the one you are running.
-
-            ## Install
-
-            Download `installer.jar` and double-click it, or:
-
-            ```bash
-            java -jar installer.jar client --mcVersion 1.20.1
-            java -jar installer.jar server --dir /srv/minecraft
-            ```
-
-            No network access is needed: the loader is inside the installer.
-            Requires Java 17 or newer.
-
-            ## Files
-
-            | File | What it is |
-            |---|---|
-            | `installer.jar` | the installer — this is the one to download |
-            | `octo-loader-${{ github.ref_name }}` | the loader alone |
-            | `checksums.txt` | SHA-256 of both |
