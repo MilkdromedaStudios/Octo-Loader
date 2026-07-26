@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # IMPORTANT: required for creating releases
 
 jobs:
   build:
@@ -31,8 +31,6 @@ jobs:
       - name: Package the installer
         run: ./gradlew :installer:installerJar
 
-      # A loader that cannot read a mods folder is not worth releasing, so the
-      # built jar is run against real mod jars of every format it claims.
       - name: Smoke-test the built loader
         run: |
           mkdir -p /tmp/smoke/mods
@@ -66,7 +64,7 @@ jobs:
           grep -q "6 of 6 mod(s) would load" scan.txt \
             || { echo "::error::the loader did not accept all six sample mods"; exit 1; }
 
-      - name: Upload jars
+      - name: Upload jars (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: octo-loader
@@ -74,3 +72,26 @@ jobs:
             loader/build/libs/octo-loader-*.jar
             installer/build/installer/installer.jar
           if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: octo-loader
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Octo Loader Release ${{ github.run_number }}
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
