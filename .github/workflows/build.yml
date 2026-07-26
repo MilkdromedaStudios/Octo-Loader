@@ -1,13 +1,13 @@
-name: Build
+name: Build & Release
 
 on:
   push:
     branches: ['**']
-  pull_request:
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write   # IMPORTANT: required for creating releases
+  contents: write
 
 jobs:
   build:
@@ -64,34 +64,48 @@ jobs:
           grep -q "6 of 6 mod(s) would load" scan.txt \
             || { echo "::error::the loader did not accept all six sample mods"; exit 1; }
 
-      - name: Upload jars (artifact)
-        uses: actions/upload-artifact@v4
+      - name: Collect release files
+        run: |
+          mkdir release
+          cp installer/build/installer/installer.jar release/installer.jar
+          cp loader/build/libs/octo-loader-*.jar release/
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release (only when tag pushed)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          name: octo-loader
-          path: |
-            loader/build/libs/octo-loader-*.jar
-            installer/build/installer/installer.jar
-          if-no-files-found: error
+          tag_name: ${{ github.ref_name }}
+          name: Octo Loader ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            release/installer.jar
+            release/octo-loader-*.jar
+            release/checksums.txt
+          body: |
+            One loader for Fabric, Quilt, Forge and NeoForge mods — and for mods
+            built for a Minecraft version other than the one you are running.
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+            ## Install
 
-    steps:
-      - uses: actions/checkout@v4
+            Download `installer.jar` and double-click it, or:
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: octo-loader
-          path: dist
+            ```bash
+            java -jar installer.jar client --mcVersion 1.20.1
+            java -jar installer.jar server --dir /srv/minecraft
+            ```
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.run_number }}
-          name: Octo Loader Release ${{ github.run_number }}
-          files: dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            No network access is needed: the loader is inside the installer.
+            Requires Java 17 or newer.
+
+            ## Files
+
+            | File | What it is |
+            |---|---|
+            | `installer.jar` | the installer — this is the one to download |
+            | `octo-loader-${{ github.ref_name }}` | the loader alone |
+            | `checksums.txt` | SHA-256 of both |
