@@ -178,7 +178,37 @@ public final class ClientInstaller {
 
     public static List<String> installableVersions(Path gameDirectory) {
         return MinecraftPaths.installedVersions(gameDirectory).stream()
-                .filter(id -> !id.startsWith(ARTIFACT + "-"))
+                // A launcher's versions directory also contains Fabric, Quilt,
+                // Forge, NeoForge and other inherited profiles.  Octo replaces
+                // those loaders, so presenting them as Minecraft versions is
+                // both confusing and capable of stacking two bootstraps.
+                .filter(id -> isVanillaMinecraftVersion(gameDirectory, id))
                 .toList();
+    }
+
+    private static boolean isVanillaMinecraftVersion(Path gameDirectory, String id) {
+        Path profile = gameDirectory.resolve("versions").resolve(id).resolve(id + ".json");
+
+        try {
+            JsonElement parsed = JsonParser.parseString(Files.readString(profile, StandardCharsets.UTF_8));
+
+            if (!parsed.isJsonObject()) {
+                return false;
+            }
+
+            JsonObject json = parsed.getAsJsonObject();
+
+            // Loader profiles inherit the actual Minecraft version. Vanilla
+            // profiles are roots, including release, snapshot and historical
+            // versions whose ids do not necessarily look like x.y.z.
+            if (json.has("inheritsFrom")) {
+                return false;
+            }
+
+            String mainClass = json.has("mainClass") ? json.get("mainClass").getAsString() : "";
+            return mainClass.startsWith("net.minecraft.");
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 }
