@@ -173,6 +173,14 @@ The signatures mods compile against are unchanged.
 
 Java 17+ to build; the output targets Java 17.
 
+The vendored loader APIs are checked for updates every day. The
+[`sync-upstreams` workflow](.github/workflows/sync-upstreams.yml) refreshes all
+four source trees, records their exact commits, runs the complete combined-loader
+test suite, and opens a pull request when anything changed. Updates therefore
+remain automatic without publishing an untested upstream change directly to
+users. Maintainers can run the same refresh locally with
+`python3 scripts/sync-upstreams.py`.
+
 The tests are not smoke tests. The end-to-end suite compiles six real mods — one
 per ecosystem, plus a LiteLoader mod and one written against a 2014 API that is
 then never provided again — packs them into real jars, and boots the actual

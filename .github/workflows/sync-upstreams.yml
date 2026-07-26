@@ -1,0 +1,43 @@
+name: Sync upstream loaders
+
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Refresh vendored sources
+        run: python3 scripts/sync-upstreams.py
+
+      - name: Verify the combined loader
+        run: ./gradlew build --stacktrace
+
+      - name: Open update pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/sync-upstream-loaders
+          delete-branch: true
+          commit-message: Sync upstream loader sources
+          title: Sync upstream loader sources
+          body: |
+            Automated refresh of Fabric Loader, Quilt Loader, Forge and NeoForge sources.
+
+            The complete combined-loader test suite passed before this pull request was opened.

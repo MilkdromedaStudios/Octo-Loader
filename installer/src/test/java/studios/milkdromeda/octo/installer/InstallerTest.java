@@ -175,10 +175,22 @@ class InstallerTest {
         givenMinecraftInstalled("1.21.4");
         new ClientInstaller(gameDirectory, "1.0.0", log).install("1.20.1");
 
+        givenInheritedLoaderProfile("fabric-loader-0.16.10-1.21.4", "1.21.4",
+                "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        givenInheritedLoaderProfile("neoforge-21.4.124", "1.21.4", "cpw.mods.bootstraplauncher.BootstrapLauncher");
+
         List<String> installable = ClientInstaller.installableVersions(gameDirectory);
 
         assertEquals(List.of("1.21.4", "1.20.1"), installable,
-                "Octo's own profile should not be offered as a base to install onto");
+                "only Minecraft itself, never a loader profile, should be offered as a base");
+    }
+
+    private void givenInheritedLoaderProfile(String id, String minecraftVersion, String mainClass) throws IOException {
+        Path directory = gameDirectory.resolve("versions").resolve(id);
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve(id + ".json"), """
+                { "id": "%s", "inheritsFrom": "%s", "type": "release", "mainClass": "%s" }
+                """.formatted(id, minecraftVersion, mainClass));
     }
 
     @Test
