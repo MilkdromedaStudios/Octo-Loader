@@ -1,0 +1,24 @@
+{
+  "from": "modern",
+  "to": "current",
+  "description": "1.20.4 to 1.20.5. Item NBT was replaced by data components, and the loader ecosystem split: Forge kept META-INF/mods.toml while NeoForge moved to neoforge.mods.toml. The class layout barely moved, so this pack is small on purpose — most of what breaks here is behavioural, not nominal, and Octo does not pretend otherwise.",
+
+  "classes": [
+    { "from": "net/minecraft/world/item/crafting/RecipeManager", "to": "net/minecraft/world/item/crafting/RecipeManager" }
+  ],
+
+  "removed": [
+    {
+      "owner": "net/minecraft/world/item/ItemStack",
+      "name": "getTag",
+      "desc": "()Lnet/minecraft/nbt/CompoundTag;",
+      "note": "item NBT became data components in 1.20.5; there is no faithful equivalent, so reads return null rather than silently returning the wrong thing"
+    },
+    {
+      "owner": "net/minecraft/world/item/ItemStack",
+      "name": "getOrCreateTag",
+      "desc": "()Lnet/minecraft/nbt/CompoundTag;",
+      "note": "as getTag; writes through the old API cannot be represented as components"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+java {
+	toolchain {
+		languageVersion.set(JavaLanguageVersion.of(8))
+	}
+}
+
+repositories {
+	maven {
+		name = 'Mojang'
+		url = 'https://libraries.minecraft.net/'
+	}
+}
+
+dependencies {
+	implementation project(':dependencies')
+	implementation project(path: ':dependencies', configuration: 'include')
+	implementation project(":")
+	// log4j wrapper
+	compileOnly 'org.apache.logging.log4j:log4j-api:2.8.1'
+	// slf4j wrapper
+	compileOnly 'org.slf4j:slf4j-api:1.8.0-beta4'
+	// launchwrapper + dependencies
+	compileOnly ('net.minecraft:launchwrapper:1.12') {
+		transitive = false
+	}
+	//implementation 'net.sf.jopt-simple:jopt-simple:5.0.3'
+
+	// Unit testing for semver
+	implementation project(":").sourceSets.main.output
+	testImplementation('org.junit.jupiter:junit-jupiter:5.9.3')
+	testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+sourceSets {
+	main {
+		java.srcDirs = ['src/main/java', 'src/main/legacyJava']
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = "UTF-8"
+}
+
+jar {
+	enabled = false
+}
+
+test {
+	useJUnitPlatform()
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_1_8
+	targetCompatibility = JavaVersion.VERSION_1_8
+}

@@ -2,12 +2,9 @@
 .gradle/
 build/
 
-# Loom / run dirs
-run/
-remappedSrc/
-
-# Octo Loader runtime cache
+# Octo Loader runtime state: caches, unpacked nested jars, user mapping tables
 .octo/
+run/
 
 # IDE
 .idea/

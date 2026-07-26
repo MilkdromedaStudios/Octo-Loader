@@ -1,0 +1,20 @@
+Changes:
+
+- [#432] Switch from tiny-remapper to mapping-io.
+    - Removed 3 older libraries from being shipped with quilt:
+        - `tiny-mappings-parser`
+        - `tiny-remapper`
+        - `access-widener`
+- [#329] Added support for quilt.mod.json5 files.
+    - This allows mod developers to have a commented mod json file in development.
+    - These are rejected at runtime, outside a development environment: mods using them will need to turn them into regular json files during build time.
+- [#453] Optimised boot times when using regular fabric api on versions after 1.19.3 by not copying the whole minecraft jar to a new file.
+
+Bug Fixes:
+
+- Fixed a bug where an invalid mod icon caused the local gui process to crash.
+
+Changes from updating Fabric Loader from 0.16.4 to 0.16.7:
+
+- Updated ASM from 9.6 to 9.7.1
+    - This means we now support up to Java 24.

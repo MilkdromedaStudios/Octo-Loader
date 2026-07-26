@@ -1,0 +1,163 @@
+/*
+ * Copyright (c) Forge Development LLC and contributors
+ * SPDX-License-Identifier: LGPL-2.1-only
+ */
+
+package net.minecraftforge.fml;
+
+import net.minecraftforge.eventbus.api.bus.BusGroup;
+import net.minecraftforge.fml.config.IConfigEvent;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.IModBusEvent;
+import net.minecraftforge.forgespi.language.IModInfo;
+
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Supplier;
+
+/**
+ * The container that wraps around mods in the system.
+ * <p>
+ * The philosophy is that individual mod implementation technologies should not
+ * impact the actual loading and management of mod code. This class provides
+ * a mechanism by which we can wrap actual mod code so that the loader and other
+ * facilities can treat mods at arms length.
+ * </p>
+ */
+public abstract class ModContainer {
+    protected final String modId;
+    protected final String namespace;
+    protected final IModInfo modInfo;
+    protected ModLoadingStage modLoadingStage;
+    protected Supplier<?> contextExtension;
+    protected final Map<ModLoadingStage, Runnable> activityMap = new EnumMap<>(ModLoadingStage.class);
+    protected final Map<Class<? extends IExtensionPoint<?>>, Supplier<?>> extensionPoints = new IdentityHashMap<>();
+    protected final EnumMap<ModConfig.Type, ModConfig> configs = new EnumMap<>(ModConfig.Type.class);
+    final Set<ModContainer> dependencies = new HashSet<>();
+
+    public ModContainer(IModInfo info) {
+        this.modId = info.getModId();
+        // TODO: Currently not reading namespace from configuration..
+        this.namespace = this.modId;
+        this.modInfo = info;
+        this.modLoadingStage = ModLoadingStage.CONSTRUCT;
+
+        final String displayTestString = info.getConfig().<String>getConfigElement("displayTest")
+                .orElseGet(() -> info.getOwningFile().isClientSideOnly() ? "IGNORE_ALL_VERSION" : "MATCH_VERSION");
+        Supplier<IExtensionPoint.DisplayTest> displayTestSupplier = switch (displayTestString) {
+            case "MATCH_VERSION" -> // default displaytest checks for version string match
+                    () -> new IExtensionPoint.DisplayTest(() -> this.modInfo.getVersion().toString(),
+                        (incoming, isNetwork) -> Objects.equals(incoming, this.modInfo.getVersion().toString()));
+            case "IGNORE_SERVER_VERSION" -> // Ignores any version information coming from the server - use for server only mods
+                    IExtensionPoint.DisplayTest.IGNORE_SERVER_VERSION;
+            case "IGNORE_ALL_VERSION" -> // Ignores all information and provides no information
+                    IExtensionPoint.DisplayTest.IGNORE_ALL_VERSION;
+            case "NONE" -> null; // NO display test at all - use this if you're going to do your own display test
+            default -> // any other value throws an exception
+                    throw new IllegalArgumentException("Invalid displayTest value supplied in mods.toml");
+        };
+        if (displayTestSupplier != null)
+            registerExtensionPoint(IExtensionPoint.DisplayTest.class, displayTestSupplier);
+        else
+            extensionPoints.remove(IExtensionPoint.DisplayTest.class);
+    }
+
+    /**
+     * Errored container state, used for filtering. Does nothing.
+     */
+    ModContainer() {
+        this.modLoadingStage = ModLoadingStage.ERROR;
+        modId = "BROKEN";
+        namespace = "BROKEN";
+        modInfo = null;
+    }
+
+    /**
+     * @return the modid for this mod
+     */
+    public final String getModId() {
+        return modId;
+    }
+
+    /**
+     * @return the resource prefix for the mod
+     */
+    public final String getNamespace() {
+        return namespace;
+    }
+
+    /**
+     * @return The current loading stage for this mod
+     */
+    public ModLoadingStage getCurrentState() {
+        return modLoadingStage;
+    }
+
+    public IModInfo getModInfo() {
+        return modInfo;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends Record> Optional<T> getCustomExtension(Class<? extends IExtensionPoint<T>> point) {
+        return Optional.ofNullable((T)extensionPoints.getOrDefault(point,()-> null).get());
+    }
+
+    public <T extends Record & IExtensionPoint<T>> void registerExtensionPoint(Class<? extends IExtensionPoint<T>> point, Supplier<T> extension) {
+        extensionPoints.put(point, extension);
+    }
+
+    public void registerDisplayTest(IExtensionPoint.DisplayTest displayTest) {
+        registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> displayTest);
+    }
+
+    public void registerDisplayTest(Supplier<IExtensionPoint.DisplayTest> displayTest) {
+        registerExtensionPoint(IExtensionPoint.DisplayTest.class, displayTest);
+    }
+
+    public void registerDisplayTest(String version, BiPredicate<String, Boolean> remoteVersionTest) {
+        registerDisplayTest(new IExtensionPoint.DisplayTest(version, remoteVersionTest));
+    }
+
+    public void registerDisplayTest(Supplier<String> suppliedVersion, BiPredicate<String, Boolean> remoteVersionTest) {
+        registerDisplayTest(new IExtensionPoint.DisplayTest(suppliedVersion, remoteVersionTest));
+    }
+
+    public void addConfig(final ModConfig modConfig) {
+       configs.put(modConfig.getType(), modConfig);
+    }
+
+    public void dispatchConfigEvent(IConfigEvent event) {}
+
+    /**
+     * Does this mod match the supplied mod?
+     *
+     * @param mod to compare
+     * @return if the mod matches
+     */
+    public abstract boolean matches(Object mod);
+
+    /**
+     * @return the mod object instance
+     */
+    public abstract Object getMod();
+
+    /**
+     * @return the mod bus group for this specific mod, or null if there is none.
+     *         Leave null if you use {@link BusGroup#DEFAULT} for your mod lifecycle events.
+     */
+    public BusGroup getModBusGroup() {
+        return null;
+    }
+
+    /**
+     * Accept an arbitrary event for processing by the mod. Probably posted to an event bus in the lower level container.
+     * @param e Event to accept
+     */
+    protected <T extends IModBusEvent> void acceptEvent(T e) {}
+}

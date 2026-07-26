@@ -1,0 +1,51 @@
+description = 'Octo Installer — installs Octo Loader into a Minecraft client, a server directory, or a third-party launcher.'
+
+dependencies {
+    implementation "com.google.code.gson:gson:${rootProject.gson_version}"
+    testImplementation project(':loader')
+}
+
+// The installer ships the loader inside itself so an install works with no
+// network access at all (`--offline`).
+tasks.register('embedLoader', Copy) {
+    dependsOn ':loader:jar'
+    from project(':loader').tasks.jar.archiveFile
+    into layout.buildDirectory.dir('embedded/META-INF/octo')
+    rename { 'octo-loader.jar' }
+}
+
+processResources {
+    dependsOn tasks.embedLoader
+    from(layout.buildDirectory.dir('embedded')) {
+        // Copied above, not filtered: it is a jar.
+    }
+}
+
+sourceSets.test.resources.srcDir layout.buildDirectory.dir('embedded')
+tasks.named('processTestResources') { dependsOn tasks.embedLoader }
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/maven/**'
+    exclude 'module-info.class'
+
+    manifest {
+        attributes(
+                'Main-Class': 'studios.milkdromeda.octo.installer.Installer',
+                'Implementation-Title': 'Octo Installer',
+                'Implementation-Version': project.version
+        )
+    }
+}
+
+// `./gradlew :installer:installerJar` produces the artifact the release
+// workflow uploads, under the exact name the docs tell people to download.
+tasks.register('installerJar', Copy) {
+    dependsOn tasks.jar
+    from tasks.jar.archiveFile
+    into layout.buildDirectory.dir('installer')
+    rename { 'installer.jar' }
+}

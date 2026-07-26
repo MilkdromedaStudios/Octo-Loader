@@ -4,30 +4,73 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 25
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 25
+          java-version: '21'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: ./gradlew build
+        run: ./gradlew build --stacktrace
 
-      - name: Upload mod jar
+      - name: Package the installer
+        run: ./gradlew :installer:installerJar
+
+      # A loader that cannot read a mods folder is not worth releasing, so the
+      # built jar is run against real mod jars of every format it claims.
+      - name: Smoke-test the built loader
+        run: |
+          mkdir -p /tmp/smoke/mods
+          cd /tmp/smoke
+          python3 - <<'PY'
+          import json, zipfile
+          def jar(name, files):
+              with zipfile.ZipFile("mods/" + name, "w") as z:
+                  for path, content in files.items():
+                      z.writestr(path, content)
+
+          jar("fabric-sample.jar", {"fabric.mod.json": json.dumps({
+              "schemaVersion": 1, "id": "fabricsample", "version": "1.0.0",
+              "depends": {"minecraft": ">=1.20 <1.21"}})})
+          jar("quilt-sample.jar", {"quilt.mod.json": json.dumps({
+              "schema_version": 1, "quilt_loader": {"group": "x", "id": "quiltsample",
+              "version": "1.0.0", "metadata": {"name": "Quilt Sample"}}})})
+          jar("forge-sample.jar", {"META-INF/mods.toml":
+              'modLoader="javafml"\nloaderVersion="[47,)"\nlicense="MIT"\n'
+              '[[mods]]\nmodId="forgesample"\nversion="1.0.0"\n'})
+          jar("neoforge-sample.jar", {"META-INF/neoforge.mods.toml":
+              'modLoader="javafml"\nloaderVersion="[21,)"\nlicense="MIT"\n'
+              '[[mods]]\nmodId="neosample"\nversion="1.0.0"\n'})
+          jar("ancient-sample.jar", {"mcmod.info": json.dumps([{
+              "modid": "ancientsample", "version": "1.0.0", "mcversion": "1.7.10"}])})
+          jar("lite-sample.litemod", {"litemod.json": json.dumps({
+              "name": "litesample", "version": "1.0.0", "mcversion": "1.12.2"})})
+          PY
+          java -jar "$GITHUB_WORKSPACE"/loader/build/libs/octo-loader-*.jar \
+            scan --gameDir /tmp/smoke --modsDir /tmp/smoke/mods --mcVersion 1.20.1 | tee scan.txt
+          grep -q "6 of 6 mod(s) would load" scan.txt \
+            || { echo "::error::the loader did not accept all six sample mods"; exit 1; }
+
+      - name: Upload jars
         uses: actions/upload-artifact@v4
         with:
           name: octo-loader
           path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
+            loader/build/libs/octo-loader-*.jar
+            installer/build/installer/installer.jar
           if-no-files-found: error

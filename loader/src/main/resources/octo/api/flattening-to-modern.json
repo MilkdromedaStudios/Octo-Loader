@@ -1,0 +1,40 @@
+{
+  "from": "flattening",
+  "to": "modern",
+  "description": "1.16.5 to 1.17. Mojang's own mapping names became the common currency and the game was re-packaged wholesale: net.minecraft.entity.player.PlayerEntity became net.minecraft.world.entity.player.Player, and so on. These are the moves that affect the classes mods reference most.",
+
+  "classes": [
+    { "from": "net/minecraft/entity/player/PlayerEntity", "to": "net/minecraft/world/entity/player/Player" },
+    { "from": "net/minecraft/entity/player/ServerPlayerEntity", "to": "net/minecraft/server/level/ServerPlayer" },
+    { "from": "net/minecraft/entity/LivingEntity", "to": "net/minecraft/world/entity/LivingEntity" },
+    { "from": "net/minecraft/entity/Entity", "to": "net/minecraft/world/entity/Entity" },
+    { "from": "net/minecraft/entity/item/ItemEntity", "to": "net/minecraft/world/entity/item/ItemEntity" },
+    { "from": "net/minecraft/item/Item", "to": "net/minecraft/world/item/Item" },
+    { "from": "net/minecraft/item/ItemStack", "to": "net/minecraft/world/item/ItemStack" },
+    { "from": "net/minecraft/item/Items", "to": "net/minecraft/world/item/Items" },
+    { "from": "net/minecraft/block/Block", "to": "net/minecraft/world/level/block/Block" },
+    { "from": "net/minecraft/block/Blocks", "to": "net/minecraft/world/level/block/Blocks" },
+    { "from": "net/minecraft/block/BlockState", "to": "net/minecraft/world/level/block/state/BlockState" },
+    { "from": "net/minecraft/tileentity/TileEntity", "to": "net/minecraft/world/level/block/entity/BlockEntity" },
+    { "from": "net/minecraft/world/World", "to": "net/minecraft/world/level/Level" },
+    { "from": "net/minecraft/world/server/ServerWorld", "to": "net/minecraft/server/level/ServerLevel" },
+    { "from": "net/minecraft/util/math/BlockPos", "to": "net/minecraft/core/BlockPos" },
+    { "from": "net/minecraft/util/math/vector/Vector3d", "to": "net/minecraft/world/phys/Vec3" },
+    { "from": "net/minecraft/util/ResourceLocation", "to": "net/minecraft/resources/ResourceLocation" },
+    { "from": "net/minecraft/util/Direction", "to": "net/minecraft/core/Direction" },
+    { "from": "net/minecraft/util/text/ITextComponent", "to": "net/minecraft/network/chat/Component" },
+    { "from": "net/minecraft/util/text/StringTextComponent", "to": "net/minecraft/network/chat/TextComponent" },
+    { "from": "net/minecraft/util/text/TranslationTextComponent", "to": "net/minecraft/network/chat/TranslatableComponent" },
+    { "from": "net/minecraft/nbt/CompoundNBT", "to": "net/minecraft/nbt/CompoundTag" },
+    { "from": "net/minecraft/nbt/ListNBT", "to": "net/minecraft/nbt/ListTag" },
+    { "from": "net/minecraft/nbt/INBT", "to": "net/minecraft/nbt/Tag" },
+    { "from": "net/minecraft/inventory/container/Container", "to": "net/minecraft/world/inventory/AbstractContainerMenu" },
+    { "from": "net/minecraft/tags/ITag", "to": "net/minecraft/tags/Tag" },
+    { "from": "net/minecraft/potion/Effect", "to": "net/minecraft/world/effect/MobEffect" },
+    { "from": "net/minecraft/potion/Effects", "to": "net/minecraft/world/effect/MobEffects" },
+    { "from": "net/minecraft/enchantment/Enchantment", "to": "net/minecraft/world/item/enchantment/Enchantment" },
+    { "from": "net/minecraft/world/biome/Biome", "to": "net/minecraft/world/level/biome/Biome" }
+  ],
+
+  "methods": []
+}

@@ -1,0 +1,46 @@
+{
+  "from": "searge",
+  "to": "flattening",
+  "description": "1.12.2 to 1.13. The Flattening moved most of the game into new packages and renamed the classes mods touch most. These are the renames that are stable across the whole 1.13-1.16 range; anything version-specific belongs in a mapping file.",
+
+  "classes": [
+    { "from": "net/minecraft/world/World", "to": "net/minecraft/world/World", "note": "unchanged in 1.13, moved in 1.17" },
+    { "from": "net/minecraft/util/math/BlockPos", "to": "net/minecraft/util/math/BlockPos" },
+    { "from": "net/minecraft/entity/player/EntityPlayer", "to": "net/minecraft/entity/player/PlayerEntity", "note": "EntityFoo became FooEntity in 1.14" },
+    { "from": "net/minecraft/entity/player/EntityPlayerMP", "to": "net/minecraft/entity/player/ServerPlayerEntity" },
+    { "from": "net/minecraft/entity/EntityLivingBase", "to": "net/minecraft/entity/LivingEntity" },
+    { "from": "net/minecraft/entity/item/EntityItem", "to": "net/minecraft/entity/item/ItemEntity" },
+    { "from": "net/minecraft/item/ItemStack", "to": "net/minecraft/item/ItemStack" },
+    { "from": "net/minecraft/nbt/NBTTagCompound", "to": "net/minecraft/nbt/CompoundNBT", "note": "renamed in 1.14" },
+    { "from": "net/minecraft/nbt/NBTTagList", "to": "net/minecraft/nbt/ListNBT" },
+    { "from": "net/minecraft/nbt/NBTBase", "to": "net/minecraft/nbt/INBT" },
+    { "from": "net/minecraft/tileentity/TileEntity", "to": "net/minecraft/tileentity/TileEntity" },
+    { "from": "net/minecraft/util/text/ITextComponent", "to": "net/minecraft/util/text/ITextComponent" },
+    { "from": "net/minecraft/util/text/TextComponentString", "to": "net/minecraft/util/text/StringTextComponent" },
+    { "from": "net/minecraft/init/Blocks", "to": "net/minecraft/block/Blocks", "note": "the init package was dissolved in 1.13" },
+    { "from": "net/minecraft/init/Items", "to": "net/minecraft/item/Items" },
+    { "from": "net/minecraft/init/SoundEvents", "to": "net/minecraft/util/SoundEvents" },
+    { "from": "net/minecraft/init/Enchantments", "to": "net/minecraft/enchantment/Enchantments" },
+    { "from": "net/minecraft/init/MobEffects", "to": "net/minecraft/potion/Effects" },
+    { "from": "net/minecraft/init/Biomes", "to": "net/minecraft/world/biome/Biomes" }
+  ],
+
+  "methods": [
+    {
+      "owner": "net/minecraft/client/Minecraft",
+      "name": "getMinecraft",
+      "desc": "()Lnet/minecraft/client/Minecraft;",
+      "newName": "getInstance",
+      "note": "renamed in 1.13; the single most common call in client mods of this era"
+    },
+    {
+      "owner": "net/minecraft/client/Minecraft",
+      "name": "getSystemTime",
+      "newOwner": "java/lang/System",
+      "newName": "currentTimeMillis",
+      "kind": "METHOD_TO_STATIC",
+      "newDesc": "()J",
+      "note": "removed in 1.13; it only ever returned the wall clock"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# Gradle and build artifacts
+.gradle
+build/
+out/
+
+# IDEs
+## intellij
+.factorypath
+.idea
+*.iml
+*.ipr
+*.iws
+
+## eclipse
+.eclipse
+.classpath
+.project
+.settings/
+*.launch
+
+## vscode
+.vscode/
+bin/
+
+# macOS
+*.DS_Store
+
+# Testing
+run/
+logs/
+quiltloader.log

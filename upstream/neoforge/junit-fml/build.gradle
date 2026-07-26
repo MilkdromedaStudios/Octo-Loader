@@ -1,0 +1,16 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    implementation(platform("org.junit:junit-bom:$jupiter_version"))
+    compileOnly('org.junit.platform:junit-platform-launcher')
+    compileOnly project(":loader")
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+        }
+    }
+}
