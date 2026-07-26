@@ -23,8 +23,24 @@ public final class OctoMain {
 
     public static void main(String[] args) throws Exception {
         List<String> arguments = List.of(args);
-        Side side = detectSide(arguments);
         Path gameDir = Path.of(argument(arguments, "--gameDir", ".")).toAbsolutePath().normalize();
+
+        try {
+            OctoLog.openFile(gameDir.resolve("logs").resolve("octo-loader.log"));
+            LOG.info("bootstrap started; persistent log is {}", gameDir.resolve("logs/octo-loader.log"));
+            launch(arguments, gameDir);
+        } catch (Throwable error) {
+            LOG.error("launch failed before Minecraft could start: {}", error.toString());
+            OctoLog.writeThrowable(error);
+            if (error instanceof Exception exception) {
+                throw exception;
+            }
+            throw (Error) error;
+        }
+    }
+
+    private static void launch(List<String> arguments, Path gameDir) throws Exception {
+        Side side = detectSide(arguments);
 
         List<Path> gameJars = gameJarsOnClassPath();
         GameProvider provider = new GameProvider(gameJars);

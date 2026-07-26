@@ -1,6 +1,11 @@
 package studios.milkdromeda.octo.util;
 
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -14,6 +19,7 @@ public final class OctoLog {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS", Locale.ROOT);
     private static Level threshold = Level.INFO;
+    private static PrintStream file;
 
     private final String name;
 
@@ -35,6 +41,20 @@ public final class OctoLog {
 
     public static Level threshold() {
         return threshold;
+    }
+
+    /** Starts a persistent log before mod discovery or game inspection begins. */
+    public static synchronized void openFile(Path path) throws IOException {
+        if (file != null) {
+            file.close();
+        }
+
+        Path parent = path.toAbsolutePath().normalize().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        file = new PrintStream(Files.newOutputStream(path, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE), true, StandardCharsets.UTF_8);
     }
 
     public boolean isDebugEnabled() {
@@ -66,13 +86,21 @@ public final class OctoLog {
         error.printStackTrace(System.err);
     }
 
-    private void log(Level level, String message, Object... args) {
+    private synchronized void log(Level level, String message, Object... args) {
         if (level.ordinal() < threshold.ordinal()) {
             return;
         }
 
         PrintStream out = level.ordinal() >= Level.WARN.ordinal() ? System.err : System.out;
-        out.println("[" + TIME.format(LocalTime.now()) + "] [Octo/" + name + "/" + level + "] " + format(message, args));
+        String line = "[" + TIME.format(LocalTime.now()) + "] [Octo/" + name + "/" + level + "] "
+                + format(message, args);
+        out.println(line);
+
+        synchronized (OctoLog.class) {
+            if (file != null) {
+                file.println(line);
+            }
+        }
     }
 
     /** {@code {}} placeholder substitution, the one piece of SLF4J worth keeping. */
@@ -98,5 +126,12 @@ public final class OctoLog {
         }
 
         return out.toString();
+    }
+
+    public static synchronized void writeThrowable(Throwable error) {
+        if (file != null) {
+            error.printStackTrace(file);
+        }
+        error.printStackTrace(System.err);
     }
 }
