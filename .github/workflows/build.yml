@@ -75,6 +75,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+      # ⭐ Upload ONLY the JARs — not directories
       - name: Upload release files
         uses: actions/upload-artifact@v4
         with:
@@ -97,10 +98,11 @@ jobs:
           name: release-files
           path: release
 
+      # ⭐ Only checksum JARs, not directories
       - name: Generate checksums
         run: |
           cd release
-          sha256sum * > checksums.txt
+          sha256sum *.jar > checksums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
