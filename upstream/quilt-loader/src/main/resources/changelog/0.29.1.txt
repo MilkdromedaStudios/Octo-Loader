@@ -1,0 +1,6 @@
+Changes:
+
+- Added unsupported file checker for modrinth and curseforge modpacks.
+- Disabled the Kotlin metadata remapper by default.
+    - This is still controlled by the system property "loader.transform.kotlin_metadata_remap.disable"
+       which now defaults to "true".

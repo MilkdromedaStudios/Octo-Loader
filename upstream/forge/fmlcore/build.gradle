@@ -1,0 +1,78 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    alias libs.plugins.licenser
+    alias libs.plugins.gradleutils
+    alias libs.plugins.gitversion
+    alias libs.plugins.changelog
+    id 'net.minecraftforge.forge.build.convention'
+}
+
+gradleutils.displayName = 'FML'
+final vendor = 'Forge Development LLC'
+description = 'Modifications to Minecraft to enable mod developers.'
+
+dependencies {
+    compileOnly libs.jetbrains.annotations
+
+    api libs.eventbus
+
+    implementation projects.fmlloader
+    implementation libs.commons.io
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(javaVersion)
+    withSourcesJar()
+}
+
+license {
+    header = rootProject.file('LICENSE-header.txt')
+}
+changelog {
+    from changelogBase
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs << '-Xlint:-unchecked'
+}
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes([
+                'Automatic-Module-Name': 'net.minecraftforge.fmlcore',
+                'FMLModType'           : 'LIBRARY'
+        ])
+        attributes([
+                'Specification-Title'   : gradleutils.displayName.get(),
+                'Specification-Vendor'  : vendor,
+                'Specification-Version' : '1',
+                'Implementation-Title'  : gradleutils.displayName.get(),
+                'Implementation-Version': '1.0',
+                'Implementation-Vendor' : vendor
+        ], 'net/minecraftforge/fml/')
+    }
+}
+
+publishing {
+    repositories {
+        maven gradleutils.publishingForgeMaven
+    }
+
+    publications.register('mavenJava', MavenPublication) {
+        changelog.publish(it)
+        gradleutils.promote(it)
+
+        from components.java
+
+        pom {
+            description = project.description
+
+            gradleutils.pom.addRemoteDetails(pom)
+
+            licenses {
+                license gradleutils.pom.licenses.LGPLv2_1
+            }
+        }
+    }
+}

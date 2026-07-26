@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v1.0.0'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        run: ./gradlew build --stacktrace
+
+      - name: Package the installer
+        run: ./gradlew :installer:installerJar
+
+      - name: Work out the version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # The release carries installer.jar under exactly the name the README
+      # tells people to download.
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          cp installer/build/installer/installer.jar release/installer.jar
+          cp loader/build/libs/octo-loader-*.jar release/
+          cd release && sha256sum * > checksums.txt && cat checksums.txt
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Octo Loader ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            release/installer.jar
+            release/octo-loader-*.jar
+            release/checksums.txt
+          body: |
+            One loader for Fabric, Quilt, Forge and NeoForge mods — and for mods
+            built for a Minecraft version other than the one you are running.
+
+            ## Install
+
+            Download `installer.jar` and double-click it, or:
+
+            ```bash
+            java -jar installer.jar client --mcVersion 1.20.1
+            java -jar installer.jar server --dir /srv/minecraft
+            ```
+
+            No network access is needed: the loader is inside the installer.
+            Requires Java 17 or newer.
+
+            ## In this release
+
+            - Reads six mod formats from one folder: `fabric.mod.json`,
+              `quilt.mod.json`, `META-INF/mods.toml`,
+              `META-INF/neoforge.mods.toml`, `mcmod.info` and `litemod.json`,
+              plus jars with no metadata at all, recovered by bytecode scan.
+            - One mod list across all of them, so a Forge mod can see a Fabric
+              mod and read what it published to the shared object store.
+            - Loads mods built for older Minecraft versions: mapping routes are
+              composed across eras (SRG, TSRG, TSRG2, Tiny v2), documented API
+              changes are applied, and classes that no longer exist are stood in
+              for so the rest of the mod still links.
+            - `octo scan` reports what would be done to every mod before launch.
+
+            Translation is mechanical and reports what it could not carry across;
+            see the README for what that does and does not buy you.
+
+            ## Files
+
+            | File | What it is |
+            |---|---|
+            | `installer.jar` | the installer — this is the one to download |
+            | `octo-loader-${{ steps.version.outputs.version }}.jar` | the loader alone, for manual or server setups |
+            | `checksums.txt` | SHA-256 of both |

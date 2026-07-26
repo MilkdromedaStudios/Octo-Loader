@@ -1,0 +1,66 @@
+apply plugin: "org.quiltmc.loom"
+
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+
+loom {
+	runConfigs.configureEach {
+		ideConfigGenerated = true
+	}
+	mods {
+		minecraft_test {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.test
+		}
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.8.1'
+	minecraft "com.mojang:minecraft:1.20.6"
+	mappings "org.quiltmc:quilt-mappings:1.20.6+build.6:intermediary-v2"
+
+	implementation project(":minecraft")
+	implementation project(":dependencies")
+	implementation project(path: ":dependencies", configuration: "include")
+	implementation project(":").sourceSets.main.output
+	// so that it works on runtime
+	implementation "org.quiltmc.chasm:chassembly:${project.quilt_chasm}"
+	implementation "org.quiltmc.chasm:chasm:${project.quilt_chasm}"
+
+	// Required for mixin annotation processor
+	annotationProcessor "org.ow2.asm:asm:${project.asm}"
+	annotationProcessor "org.ow2.asm:asm-analysis:${project.asm}"
+	annotationProcessor "org.ow2.asm:asm-commons:${project.asm}"
+	annotationProcessor "org.ow2.asm:asm-tree:${project.asm}"
+	annotationProcessor "org.ow2.asm:asm-util:${project.asm}"
+
+	/**
+	 * Ensure we are using the mixin version loader is built against to test the AP.
+	 * Otherwise Loom will default to an older version (due to no mod loader on the mod* configs)
+	 */
+	annotationProcessor ("net.fabricmc:sponge-mixin:${project.sponge_mixin}") {
+		exclude module: 'launchwrapper'
+		exclude module: 'guava'
+	}
+
+	testImplementation project(":junit")
+}
+
+test {
+	useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = "UTF-8"
+	it.options.release.set(17)
+}
+
+runClient {
+	classpath += project(':').sourceSets.main.output
+	classpath += project(':minecraft').sourceSets.main.output
+}

@@ -1,0 +1,12 @@
+Bug Fixes:
+
+- [#474] Fixed ReflectiveFixUtil crashing with certain method descriptors
+- [#477] Fixed FabricLoaderImpl not returning the same object for mods, which fixes a crash with PuzzleLib
+
+Changes from updating Fabric Loader from 0.16.14 to 0.17.2:
+
+- Updated Fabric Mixin to 0.16.3+mixin.0.8.7
+- Updated Mixin Extras to 0.5.0
+- Added versioning support for 1.21.9 snapshots.
+- Updated how version normalisation works for older Minecraft versions.
+- Add field write stripping with @Environment (this also affects the quilt annotations @ClientOnly/@DedicatedServerOnly/@Requires)

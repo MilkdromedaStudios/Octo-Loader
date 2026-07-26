@@ -1,0 +1,103 @@
+description = 'Octo Loader runtime — one loader that boots Minecraft and runs Fabric, Quilt, Forge, NeoForge and legacy mods side by side.'
+
+base {
+    archivesName = 'octo-loader'
+}
+
+dependencies {
+    implementation "org.ow2.asm:asm:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-tree:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-commons:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-analysis:${rootProject.asm_version}"
+    implementation "com.google.code.gson:gson:${rootProject.gson_version}"
+    implementation "com.electronwill.night-config:toml:${rootProject.nightconfig_version}"
+    implementation "com.electronwill.night-config:core:${rootProject.nightconfig_version}"
+
+    // Upstream API sources are annotated with these; they are not needed at runtime.
+    compileOnly 'org.jetbrains:annotations:24.1.0'
+
+    testImplementation "org.ow2.asm:asm-util:${rootProject.asm_version}"
+}
+
+// ---------------------------------------------------------------------------
+// The merge.
+//
+// Mods do not link against "a loader" — they link against concrete classes:
+// net.fabricmc.api.ModInitializer, net.neoforged.fml.common.Mod, and so on.
+// So Octo compiles the upstream sources in upstream/ straight into its own jar
+// and implements the missing back half itself (see compat/<ecosystem>). A mod
+// built against real Fabric Loader finds the real Fabric interfaces here.
+//
+// Only the mod-facing surface is imported. The upstream bootstrap halves —
+// Knot, ModLauncher, SecureJarHandler, the Quilt plugin system — are mutually
+// exclusive by construction: each one wants to own the class loader and the
+// game's entrypoint. Octo replaces those with a single implementation that all
+// four surfaces sit on top of, which is the only way they can share a JVM.
+// ---------------------------------------------------------------------------
+def upstream = rootProject.layout.projectDirectory.dir('upstream')
+
+// Sync rather than Copy so that narrowing the imported surface actually removes
+// the sources that were dropped, instead of leaving them behind to be compiled.
+tasks.register('importUpstreamApi', Sync) {
+    description = 'Copies the mod-facing API sources of the four upstream loaders into the build.'
+    into layout.buildDirectory.dir('generated/upstream-api')
+
+    // Fabric's mod-facing half is imported whole, including the version parser,
+    // so a mod compiled against Fabric Loader links against Fabric Loader's own
+    // classes rather than a lookalike.
+    from(upstream.dir('fabric-loader/src/main/java')) {
+        include 'net/fabricmc/api/**'
+        include 'net/fabricmc/loader/api/**'
+        include 'net/fabricmc/loader/impl/util/version/**'
+    }
+
+    from(upstream.dir('fabric-loader/src/main/legacyJava')) {
+        include 'net/fabricmc/loader/util/version/**'
+    }
+
+    // Quilt's API is entangled with its plugin and virtual-filesystem layers,
+    // which Octo replaces outright, so only the leaf types come across; the
+    // rest of the contract is implemented in compat/quilt.
+    from(upstream.dir('quilt-loader/src/main/java')) {
+        include 'org/quiltmc/loader/api/LanguageAdapterException.java'
+        include 'org/quiltmc/loader/api/VersionFormatException.java'
+    }
+
+    from(upstream.dir('neoforge/loader/src/main/java')) {
+        include 'net/neoforged/fml/common/Mod.java'
+    }
+}
+
+sourceSets.main.java.srcDir tasks.importUpstreamApi
+
+// The loader jar is self-contained: the launcher profile the installer writes
+// puts it on the JVM classpath before any mod exists, so it cannot rely on a
+// dependency resolver being present at runtime.
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/maven/**'
+    exclude 'module-info.class'
+
+    // Upstream licences travel with the upstream code.
+    from(upstream.file('fabric-loader/LICENSE')) { into 'META-INF/licenses'; rename { 'LICENSE-fabric-loader' } }
+    from(upstream.file('quilt-loader/LICENSE')) { into 'META-INF/licenses'; rename { 'LICENSE-quilt-loader' } }
+    from(upstream.file('neoforge/LICENSE.txt')) { into 'META-INF/licenses'; rename { 'LICENSE-neoforge' } }
+    from(upstream.file('forge/LICENSE.txt')) { into 'META-INF/licenses'; rename { 'LICENSE-forge' } }
+
+    manifest {
+        attributes(
+                'Main-Class': 'studios.milkdromeda.octo.cli.OctoCli',
+                'Implementation-Title': 'Octo Loader',
+                'Implementation-Version': project.version,
+                'Enable-Native-Access': 'ALL-UNNAMED'
+        )
+    }
+}
+
+tasks.register('printJarPath') {
+    def jarFile = tasks.jar.archiveFile
+    doLast { println jarFile.get().asFile.absolutePath }
+}

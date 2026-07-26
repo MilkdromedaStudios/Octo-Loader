@@ -1,0 +1,4 @@
+Changes from updating Fabric Loader from 0.16.7 to 0.16.9:
+
+- Updated Mixin to 0.15.4.
+- Added game version support for 1.21.4 snapshots.

@@ -1,0 +1,22 @@
+Changes:
+
+- [#469] Added experimental support for using Mojmap at runtime.
+- [#410] Added support for starting loader using the new quilt-loader-bootstrap
+    - This will allow starting loader without having everything on the classpath already.
+    - This is primarily going to be used for a self-contained dedicated server installer & launchers.
+- [#458] Added a reflective name fixer, which can fix invalid reflective names
+    - This can be disabled by setting the system property `loader.transform.reflective_fixes.disable=true`
+
+
+Bug Fixes:
+
+- Fixed EntrypointContainer.getDefinition always returning an empty string
+    - This fixes a crash with Jade - "Duplicate plugin class"
+
+
+Changes from Updating Fabric Loader from 0.16.10 to 0.16.14:
+
+- Added support for 1.21.6 snapshots
+- Added support for the 25w14craftmine snapshot.
+- Updated ASM from 9.7.1 to 9.8
+- Updated Fabric Mixin to 0.15.5+mixin.0.8.7

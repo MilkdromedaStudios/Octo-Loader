@@ -1,0 +1,279 @@
+/*
+ * Copyright 2016 FabricMC
+ * Copyright 2022-2023 QuiltMC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.quiltmc.loader.impl.transformer;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
+import java.util.stream.Collectors;
+
+import net.fabricmc.classtweaker.api.ClassTweaker;
+import net.fabricmc.classtweaker.api.ClassTweakerReader;
+import net.fabricmc.classtweaker.api.ClassTweakerWriter;
+import net.fabricmc.classtweaker.visitors.ClassTweakerRemapperVisitor;
+import net.fabricmc.tinyremapper.TinyUtils;
+
+import org.objectweb.asm.commons.Remapper;
+import org.quiltmc.loader.api.MountOption;
+import org.quiltmc.loader.api.plugin.solver.ModLoadOption;
+import org.quiltmc.loader.impl.QuiltLoaderImpl;
+import org.quiltmc.loader.impl.filesystem.QuiltUnifiedFileSystem;
+import org.quiltmc.loader.impl.game.MappingConfiguration;
+import org.quiltmc.loader.impl.launch.common.QuiltLauncher;
+import org.quiltmc.loader.impl.launch.common.QuiltLauncherBase;
+import org.quiltmc.loader.impl.util.ManifestUtil;
+import org.quiltmc.loader.impl.util.QuiltLoaderInternal;
+import org.quiltmc.loader.impl.util.QuiltLoaderInternalType;
+import org.quiltmc.loader.impl.util.SystemProperties;
+import org.quiltmc.loader.impl.util.log.Log;
+import org.quiltmc.loader.impl.util.log.LogCategory;
+
+import net.fabricmc.tinyremapper.InputTag;
+import net.fabricmc.tinyremapper.OutputConsumerPath;
+import net.fabricmc.tinyremapper.TinyRemapper;
+import net.fabricmc.tinyremapper.extension.mixin.MixinExtension;
+
+@QuiltLoaderInternal(QuiltLoaderInternalType.NEW_INTERNAL)
+final class RuntimeModRemapper {
+	private static final String REMAP_TYPE_MANIFEST_KEY = "Fabric-Loom-Mixin-Remap-Type";
+	private static final String REMAP_TYPE_MIXIN = "mixin";
+	private static final String REMAP_TYPE_STATIC = "static";
+
+	private final Set<ModLoadOption> modsToRemap = new LinkedHashSet<>();
+
+	RuntimeModRemapper(List<ModLoadOption> mods) {
+		MappingConfiguration mappingConfiguration = QuiltLauncherBase.getLauncher().getMappingConfiguration();
+
+		if (mappingConfiguration == null) {
+			// TODO: Right now, there's no easy way for people implementing other game providers
+			// 	 but wanting to use the default Quilt plugin to change the namespaceMappingFrom
+			//   (in fact, they still have to declare a supported-by-Quilt intermediateMappings in their quilt.mod.json,
+			//   even if their game is not obfuscated at all!)
+			//   Once that is supported, this should change to error or even crash when mods we know are not going to
+			//   be able to load are found.
+
+			Log.info(LogCategory.MOD_REMAP, "Not remapping mods because mappings are empty");
+			return;
+		} else if (!mappingConfiguration.getNamespaces().contains("intermediary")) {
+			Log.warn(LogCategory.MOD_REMAP, "Not remapping mods because intermediary is missing!");
+			return;
+		}
+
+		String targetNamespace = mappingConfiguration.getTargetNamespace();
+		boolean mojmapEnvironment = "mojang".equals(targetNamespace);
+
+		for (ModLoadOption mod : mods) {
+			String namespace = mod.namespaceMappingFrom();
+			if (namespace == null || namespace.equals(targetNamespace)) {
+				continue;
+			}
+			if ("mojang".equals(namespace)) {
+				if (mojmapEnvironment) {
+					break;
+				}
+
+				throw new UnsupportedOperationException("Cannot remap mojang mods to another environment!");
+			}
+			modsToRemap.add(mod);
+		}
+	}
+
+	public boolean doesModNeedRemapping(ModLoadOption mod) {
+		return modsToRemap.contains(mod);
+	}
+
+	public void remap(TransformCache cache) {
+		QuiltLauncher launcher = QuiltLauncherBase.getLauncher();
+		MappingConfiguration mappingConfiguration = QuiltLauncherBase.getLauncher().getMappingConfiguration();
+
+		if (modsToRemap.isEmpty()) {
+			return;
+		}
+		Set<InputTag> remapMixins = new HashSet<>();
+
+		TinyRemapper.Builder remapBuilder = TinyRemapper.newRemapper()
+				.withMappings(TinyUtils.createMappingProvider(mappingConfiguration.getMappings(),
+						"intermediary", mappingConfiguration.getTargetNamespace()))
+				.renameInvalidLocals(false)
+				.extension(new MixinExtension(remapMixins::contains));
+
+		String kotlinSysProp = System.getProperty(SystemProperties.DISABLE_KOTLIN_METADATA_REMAP, "true");
+		if (!"true".equalsIgnoreCase(kotlinSysProp)) {
+			remapBuilder.extraPreApplyVisitor(KotlinMetadataRemapper::new);
+		}
+
+		TinyRemapper remapper = remapBuilder.build();
+
+		try {
+			remap0(cache, launcher, remapMixins, remapper);
+		} finally {
+			remapper.finish();
+		}
+	}
+
+	private void remap0(TransformCache cache, QuiltLauncher launcher, Set<InputTag> remapMixins, TinyRemapper remapper) {
+
+		if (launcher.isDevelopment()) {
+			try {
+				remapper.readClassPathAsync(getRemapClasspath().toArray(new Path[0]));
+			} catch (IOException e) {
+				throw new RuntimeException("Failed to populate remap classpath", e);
+			}
+		} else {
+			remapper.readClassPathAsync(launcher.getClassPath().toArray(new Path[0]));
+			remapper.readClassPathAsync(QuiltLoaderImpl.INSTANCE.getGameProvider().getGameJars("intermediary").toArray(new Path[0]));
+		}
+
+		QuiltUnifiedFileSystem fs = new QuiltUnifiedFileSystem("transform-cache-remapping", false);
+
+		String defaultMixinRemapType = System.getProperty(SystemProperties.DEFAULT_MIXIN_REMAP_TYPE, REMAP_TYPE_MIXIN);
+
+		try {
+			Map<ModLoadOption, RemapInfo> infoMap = new HashMap<>();
+
+			for (ModLoadOption mod : modsToRemap) {
+				RemapInfo info = new RemapInfo();
+				infoMap.put(mod, info);
+				InputTag tag = remapper.createInputTag();
+				info.tag = tag;
+
+				if (requiresMixinRemap(mod.resourceRoot(), defaultMixinRemapType)) {
+					remapMixins.add(tag);
+				}
+
+				Path in = fs.getPath(mod.id());
+				Files.createDirectories(in);
+				// HACK: Tiny Remapper eagerly opens ZIP files contained in mods (i.e. the JAR files they've attempted to JiJ)
+				// This causes LOTS of problems involving duplicate classes (and potentially the wrong version of the class being selected!!!),
+				// so we ONLY expose the .class files to Tiny Remapper
+				Files.walk(mod.resourceRoot()).filter(p -> p.getFileName().toString().endsWith(".class")).forEach(p -> {
+					try {
+						Files.createDirectories(in.resolve(p.getParent().toAbsolutePath().toString()));
+						fs.mount(p, in.resolve(p.toAbsolutePath().toString()), MountOption.READ_ONLY);
+					} catch (IOException e) {
+						throw new UncheckedIOException(e);
+					}
+				});
+
+				info.inputPath = in;
+			}
+			// Lock the filesystem to prevent any funny business...
+			fs.switchToReadOnly();
+
+			for (ModLoadOption mod : modsToRemap) {
+				RemapInfo info = infoMap.get(mod);
+				remapper.readInputsAsync(info.tag, info.inputPath);
+			}
+
+			// Done in its own loop as we need to make sure all the inputs are present before remapping
+			for (ModLoadOption mod : modsToRemap) {
+				RemapInfo info = infoMap.get(mod);
+				info.outputPath = cache.getRoot(mod);
+				OutputConsumerPath outputConsumer = new OutputConsumerPath.Builder(info.outputPath).build();
+
+				info.outputConsumerPath = outputConsumer;
+
+				remapper.apply(outputConsumer, info.tag);
+			}
+
+			// Run while the remapper is doing its thing.
+			for (ModLoadOption mod : modsToRemap) {
+				RemapInfo info = infoMap.get(mod);
+				if (!mod.metadata().accessWideners().isEmpty()) {
+					info.classTweakers = new HashMap<>();
+					for (String classTweaker : mod.metadata().accessWideners()) {
+						// use resourceRoot as the info.inputPath only contains class files
+						info.classTweakers.put(classTweaker, remapClassTweaker(Files.readAllBytes(mod.resourceRoot().resolve(classTweaker)), remapper.getRemapper()));
+					}
+				}
+			}
+
+			fs.close();
+
+			for (ModLoadOption mod : modsToRemap) {
+				RemapInfo info = infoMap.get(mod);
+
+				info.outputConsumerPath.close();
+				if (info.classTweakers != null) {
+					for (Map.Entry<String, byte[]> entry : info.classTweakers.entrySet()) {
+						Files.write(info.outputPath.resolve(entry.getKey()), entry.getValue());
+					}
+				}
+			}
+
+		} catch (IOException e) {
+			throw new RuntimeException("Failed to remap mods", e);
+		}
+	}
+
+	private static byte[] remapClassTweaker(byte[] input, Remapper remapper) {
+		ClassTweakerWriter writer = ClassTweakerWriter.create(ClassTweaker.CT_LATEST);
+		ClassTweakerRemapperVisitor remappingVisitor = new ClassTweakerRemapperVisitor(writer, remapper, "intermediary", QuiltLauncherBase.getLauncher().getTargetNamespace());
+		ClassTweakerReader classTweakerReader = ClassTweakerReader.create(remappingVisitor);
+		classTweakerReader.read(input, "intermediary");
+		return writer.getOutput();
+	}
+
+	private static List<Path> getRemapClasspath() throws IOException {
+		String remapClasspathFile = System.getProperty(SystemProperties.REMAP_CLASSPATH_FILE);
+
+		if (remapClasspathFile == null) {
+			throw new RuntimeException("No remapClasspathFile provided");
+		}
+
+		String content = new String(Files.readAllBytes(Paths.get(remapClasspathFile)), StandardCharsets.UTF_8);
+
+		return Arrays.stream(content.split(File.pathSeparator))
+				.map(Paths::get)
+				.collect(Collectors.toList());
+	}
+
+	private static boolean requiresMixinRemap(Path inputPath, String defaultMixinRemapType) throws IOException {
+		final Manifest manifest = ManifestUtil.readManifest(inputPath);
+		if (manifest == null) {
+			return false;
+		}
+		final Attributes mainAttributes = manifest.getMainAttributes();
+
+		String remapType = mainAttributes.getValue(REMAP_TYPE_MANIFEST_KEY);
+		if (remapType == null) remapType = defaultMixinRemapType;
+
+		return REMAP_TYPE_STATIC.equalsIgnoreCase(remapType);
+	}
+
+	private static class RemapInfo {
+		InputTag tag;
+		Path inputPath;
+		Path outputPath;
+		OutputConsumerPath outputConsumerPath;
+		Map<String, byte[]> classTweakers;
+	}
+}

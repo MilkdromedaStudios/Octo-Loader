@@ -1,15 +1,17 @@
 pluginManagement {
     repositories {
-        maven {
-            name = 'Fabric'
-            url = 'https://maven.fabricmc.net/'
-        }
         mavenCentral()
         gradlePluginPortal()
     }
 }
 
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
 rootProject.name = 'octo-loader'
 
-include 'testmods:quilt-sample'
-include 'testmods:neoforge-sample'
+include 'loader'
+include 'installer'

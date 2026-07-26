@@ -1,0 +1,143 @@
+plugins {
+    id 'net.neoforged.jarcompatibilitychecker' version '0.1.13'
+}
+
+checkJarCompatibility {
+    isAPI = true
+}
+
+sourceSets {
+    jmh
+    testJars
+}
+
+dependencies {
+    compileOnly("org.jetbrains:annotations:${jetbrains_annotations_version}")
+
+    api("org.ow2.asm:asm:${asm_version}")
+    api("org.ow2.asm:asm-tree:${asm_version}")
+    api("org.ow2.asm:asm-commons:${asm_version}")
+    api("net.neoforged:mergetool:${mergetool_version}:api")
+    api("org.apache.logging.log4j:log4j-api:${log4j_version}")
+    api("org.slf4j:slf4j-api:${slf4j_api_version}")
+    api("com.google.guava:guava:${guava_version}")
+    api("com.google.code.gson:gson:${gson_version}")
+    api("org.apache.maven:maven-artifact:${apache_maven_artifact_version}")
+    api("org.apache.commons:commons-lang3:${apache_commons_lang3_version}")
+    api("com.electronwill.night-config:core:${nightconfig_version}")
+    api("com.electronwill.night-config:toml:${nightconfig_version}")
+    api("com.mojang:logging:${mojang_logging_version}")
+    api "net.neoforged:JarJarSelector:${jarjar_version}"
+    api "net.neoforged:JarJarMetadata:${jarjar_version}"
+    api("net.neoforged:bus:${eventbus_version}")
+
+    implementation("net.sf.jopt-simple:jopt-simple:${jopt_simple_version}")
+    implementation("net.neoforged:accesstransformers:${accesstransformers_version}")
+    implementation("net.fabricmc:sponge-mixin:${mixin_version}")
+    implementation("net.minecrell:terminalconsoleappender:${terminalconsoleappender_version}")
+    implementation("commons-io:commons-io:${commons_io_version}")
+
+    implementation(platform("org.lwjgl:lwjgl-bom:${lwjgl_version}"))
+    implementation("org.lwjgl:lwjgl-tinyfd")
+
+    implementation("org.apache.logging.log4j:log4j-core:${log4j_version}")
+    annotationProcessor("org.apache.logging.log4j:log4j-core:${log4j_version}")
+
+    testRuntimeOnly("org.apache.logging.log4j:log4j-core:$log4j_version")
+    testImplementation(project(":testlib"))
+
+    testImplementation(platform("org.junit:junit-bom:$jupiter_version"))
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation('org.junit.jupiter:junit-jupiter-params')
+    testImplementation("org.mockito:mockito-junit-jupiter:$mockito_version")
+    testImplementation("org.assertj:assertj-core:$assertj_version")
+
+    jmhImplementation(sourceSets.main.output)
+    jmhImplementation(sourceSets.testJars.output)
+    jmhImplementation("org.openjdk.jmh:jmh-core:${jmh_version}")
+    jmhAnnotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:${jmh_version}")
+
+    // Provides the JUnit project as a BOM entry
+    constraints {
+        api(project(':junit-fml'))
+    }
+}
+
+final generateVersionTask = tasks.register("generateVersion", fmlbuild.GenerateVersionClass) {
+    output = layout.buildDirectory.file('generated/version')
+    className = "net.neoforged.fml.FMLVersionProperties"
+}
+sourceSets.main.java.srcDir generateVersionTask
+
+license {
+    exclude 'net/neoforged/fml/FMLVersionProperties.java'
+}
+immaculate {
+    workflows.named("java").configure {
+        var sourceDirs = files()
+        sourceSets.configureEach { sourceDirs.from(it.getAllSource()) }
+        var buildDir = layout.buildDirectory.asFile
+        getFiles().setFrom(sourceDirs.filter {
+            !it.toPath().startsWith(buildDir.get().toPath()) && it.getName().endsWith(".java")
+        } )
+    }
+}
+
+configurations.jmhImplementation.extendsFrom(configurations.implementation)
+
+var testJars = tasks.register(sourceSets.testJars.jarTaskName, Jar) {
+    archiveClassifier = 'testsjar'
+    from sourceSets.testJars.output
+}
+
+test {
+    inputs.file(testJars.flatMap(AbstractArchiveTask::getArchiveFile))
+
+    useJUnitPlatform()
+
+    systemProperty 'testJars.location', testJars.map(tj -> tj.archiveFile.get().asFile).get()
+
+    jvmArgs(
+            '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED'
+    )
+}
+
+tasks.register('jmh', JavaExec) {
+    dependsOn('jmhClasses')
+    classpath.from(sourceSets.jmh.runtimeClasspath)
+    mainClass = 'org.openjdk.jmh.Main'
+    jvmArgs('--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED')
+
+    final results = file("${project.reportsDir}/jmh/result.json")
+    doFirst {
+        results.parentFile.mkdirs()
+    }
+
+    args = [
+            'cpw.mods.modlauncher.benchmarks.TransformBenchmark',
+            '-bm', 'avgt',
+            '-prof', 'stack',
+            '-prof', 'jfr',
+            '-r', '3s',
+            '-w', '3s',
+            '-wi', '3',
+            '-i', '3',
+            '-f', '3',
+            '-tu', 'us',
+            '-rf', 'json',
+            '-rff', results
+    ]
+    if (project.hasProperty('jmhVendor') && project.hasProperty('jmhVersion')) {
+        final specifiedVendor = project.property('jmhVendor').toString()
+        final actualVendor = specifiedVendor.endsWith('-J9') ? specifiedVendor.substring(0, specifiedVendor.length() - 3) : specifiedVendor
+        javaLauncher.set(javaToolchains.launcherFor {
+            it.vendor.set(JvmVendorSpec."${actualVendor.toUpperCase(Locale.ROOT)}" as JvmVendorSpec)
+            it.languageVersion.set(JavaLanguageVersion.of(project.property('jmhVersion') as int))
+            it.implementation.set(specifiedVendor.endsWith('-J9') ? JvmImplementation.J9 : JvmImplementation.VENDOR_SPECIFIC)
+        })
+    } else {
+        javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
+    }
+}

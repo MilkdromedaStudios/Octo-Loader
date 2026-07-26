@@ -1,0 +1,35 @@
+{
+  "options": [
+    {
+      "resource": "com/llamalad7/mixinextras/platform/forge/MixinExtrasConfigPlugin.class",
+      "layer": "GAMELIBRARY",
+      "id": "mixinextras",
+      "deps": [
+        {
+          "identifier": {
+            "group": "com.github.LlamaLad7",
+            "artifact": "MixinExtras"
+          },
+          "version": {
+            "range": "[0.5.3,)",
+            "artifactVersion": "0.5.3"
+          },
+          "path": "",
+          "isObfuscated": false
+        }
+      ],
+      "meta": {
+        "identifier": {
+          "group": "io.github.llamalad7",
+          "artifact": "mixinextras-forge"
+        },
+        "version": {
+          "artifactVersion": "0.5.3"
+        },
+        "path": "",
+        "isObfuscated": false
+      },
+      "nested": true
+    }
+  ]
+}

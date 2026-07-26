@@ -1,0 +1,55 @@
+{
+  "version": 2,
+  "min_java_version": 8,
+  "libraries": {
+    "client": [
+    ],
+    "common": [
+      {
+        "name": "net.fabricmc:sponge-mixin:${sponge_mixin}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.quiltmc:quilt-json5:${quilt_json5}",
+        "url": "https://maven.quiltmc.org/repository/release/"
+      },
+      {
+        "name": "org.ow2.asm:asm:${asm}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.ow2.asm:asm-analysis:${asm_analysis}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.ow2.asm:asm-commons:${asm_commons}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.ow2.asm:asm-tree:${asm_tree}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.ow2.asm:asm-util:${asm_util}",
+        "url": "https://maven.fabricmc.net/"
+      },
+      {
+        "name": "org.quiltmc:quilt-config:${quilt_config}",
+        "url": "https://maven.quiltmc.org/repository/release/"
+      }
+    ],
+    "server": [
+    ],
+    "development": [
+      {
+        "name": "io.github.llamalad7:mixinextras-fabric:${mixin_extras}",
+        "url": "https://maven.fabricmc.net/"
+      }
+    ]
+  },
+  "mainClass": {
+    "client": "org.quiltmc.loader.impl.launch.knot.KnotClient",
+    "server": "org.quiltmc.loader.impl.launch.knot.KnotServer",
+    "serverLauncher": "org.quiltmc.loader.impl.launch.server.QuiltServerLauncher"
+  }
+}
