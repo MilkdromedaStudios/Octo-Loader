@@ -182,6 +182,17 @@ class InstallerTest {
     }
 
     @Test
+    @DisplayName("version names are ordered numerically instead of lexicographically")
+    void sortsVersionsNaturally() throws IOException {
+        givenMinecraftInstalled("1.9.4");
+        givenMinecraftInstalled("1.20.1");
+        givenMinecraftInstalled("1.21.4");
+
+        assertEquals(List.of("1.21.4", "1.20.1", "1.9.4"),
+                ClientInstaller.installableVersions(gameDirectory));
+    }
+
+    @Test
     @DisplayName("the command line runs headless and reports success")
     void cliInstalls() throws IOException {
         givenMinecraftInstalled("1.20.1");

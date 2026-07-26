@@ -34,7 +34,9 @@ java -jar installer.jar uninstall --mcVersion 1.20.1      # removes everything i
 The installer needs no network access — the loader is inside it. It adds one jar
 under `libraries/` and one profile under `versions/`, and touches nothing else.
 Select **Octo Loader** in your launcher, and put mods in `mods/`. Any loader, any
-version, all in the same folder.
+version, all in the same folder. Loader startup and crash details are always
+written to `<gameDir>/logs/octo-loader.log`, including failures that happen
+before Minecraft's own logging system starts.
 
 Requires Java 17 or newer.
 
