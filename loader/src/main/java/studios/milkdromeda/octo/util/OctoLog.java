@@ -83,21 +83,22 @@ public final class OctoLog {
 
     public void error(String message, Throwable error) {
         log(Level.ERROR, message);
-        error.printStackTrace(System.err);
+        writeThrowable(error);
     }
 
     private synchronized void log(Level level, String message, Object... args) {
-        if (level.ordinal() < threshold.ordinal()) {
-            return;
-        }
-
-        PrintStream out = level.ordinal() >= Level.WARN.ordinal() ? System.err : System.out;
         String line = "[" + TIME.format(LocalTime.now()) + "] [Octo/" + name + "/" + level + "] "
                 + format(message, args);
-        out.println(line);
+
+        if (level.ordinal() >= threshold.ordinal()) {
+            PrintStream out = level.ordinal() >= Level.WARN.ordinal() ? System.err : System.out;
+            out.println(line);
+        }
 
         synchronized (OctoLog.class) {
             if (file != null) {
+                // The console threshold is only a display preference. The persistent log is
+                // diagnostic evidence, so retain every message even when debug output is hidden.
                 file.println(line);
             }
         }

@@ -35,8 +35,9 @@ The installer needs no network access — the loader is inside it. It adds one j
 under `libraries/` and one profile under `versions/`, and touches nothing else.
 Select **Octo Loader** in your launcher, and put mods in `mods/`. Any loader, any
 version, all in the same folder. Loader startup and crash details are always
-written to `<gameDir>/logs/octo-loader.log`, including failures that happen
-before Minecraft's own logging system starts.
+written to `<gameDir>/.octo/logs/octo-loader.log`, including trace and debug
+messages hidden from the console and failures that happen before Minecraft's
+own logging system starts.
 
 Requires Java 17 or newer.
 
