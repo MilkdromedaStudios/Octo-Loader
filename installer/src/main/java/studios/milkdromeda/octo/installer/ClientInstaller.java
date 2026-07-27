@@ -90,7 +90,15 @@ public final class ClientInstaller {
         root.addProperty("releaseTime", Instant.now().toString());
 
         JsonObject arguments = new JsonObject();
-        arguments.add("game", new JsonArray());
+        JsonArray gameArguments = new JsonArray();
+        // Do not rely on the launcher's process working directory.  In
+        // particular, third-party launchers commonly start Java from their own
+        // installation directory.  Octo uses --gameDir to locate the default
+        // mods folder, so omitting it made a perfectly populated <game>/mods
+        // directory look empty on every launch from one of those launchers.
+        gameArguments.add("--gameDir");
+        gameArguments.add("${game_directory}");
+        arguments.add("game", gameArguments);
         arguments.add("jvm", new JsonArray());
         root.add("arguments", arguments);
 
@@ -134,6 +142,10 @@ public final class ClientInstaller {
             profile.addProperty("type", "custom");
             profile.addProperty("created", Instant.now().toString());
             profile.addProperty("lastVersionId", versionId);
+            // The official launcher substitutes this value into the
+            // ${game_directory} argument in the version profile.  Recording it
+            // explicitly also preserves non-default installations.
+            profile.addProperty("gameDir", gameDirectory.toAbsolutePath().normalize().toString());
             profile.addProperty("icon", "Furnace");
 
             profiles.add("octo-loader-" + minecraftVersion, profile);
