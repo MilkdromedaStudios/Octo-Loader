@@ -45,4 +45,22 @@ class OctoMainTest {
         assertEquals(gameDir.toAbsolutePath().normalize(),
                 OctoMain.gameDirectory(List.of("--gameDir", "${game_directory}"), classPath));
     }
+
+    @Test
+    @DisplayName("Windows falls back to the standard AppData Minecraft directory")
+    void usesAppDataWhenLauncherProvidesNoLocation() {
+        Path appData = tempDir.resolve("AppData/Roaming");
+
+        assertEquals(appData.resolve(".minecraft").toAbsolutePath().normalize(),
+                OctoMain.gameDirectory(List.of(), "", appData.toString(), tempDir.toString()));
+    }
+
+    @Test
+    @DisplayName("other platforms fall back to the standard home Minecraft directory")
+    void usesHomeWhenLauncherProvidesNoLocation() {
+        Path home = tempDir.resolve("home");
+
+        assertEquals(home.resolve(".minecraft").toAbsolutePath().normalize(),
+                OctoMain.gameDirectory(List.of(), "", null, home.toString()));
+    }
 }
