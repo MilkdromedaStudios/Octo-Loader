@@ -88,6 +88,12 @@ Minecraft's EULA as required, and run:
 ```bash
 java -jar installer.jar server --dir /srv/minecraft
 ```
+Select **Octo Loader** in your launcher, and put mods in `<gameDir>/mods` (with
+the standard Windows installation, `%APPDATA%\.minecraft\mods`). Any loader,
+any version, all in the same folder. Loader startup and crash details are always
+written to `<gameDir>/.octo/logs/octo-loader.log`, including trace and debug
+messages hidden from the console and failures that happen before Minecraft's
+own logging system starts.
 
 The installer creates server start scripts and `/srv/minecraft/mods`. Put
 server-compatible mod archives in that folder, then use `start-octo-server.sh`
