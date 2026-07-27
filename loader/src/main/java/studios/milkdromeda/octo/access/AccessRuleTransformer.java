@@ -69,26 +69,57 @@ public final class AccessRuleTransformer implements Transformer {
         public void visit(int version, int access, String name, String signature, String superName,
                 String[] interfaces) {
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
-            super.visit(version, rules.forClass(className).applyTo(access), name, signature, superName,
-                    withInjectedInterfaces(interfaces));
-        }
-
-        /** Adds the interfaces a class tweaker declared, keeping the ones already there. */
-        private String[] withInjectedInterfaces(String[] declared) {
-            Set<String> injected = rules.interfacesFor(className);
+            int updated = rules.forClass(className).applyTo(access);
+            Set<InjectedInterface> injected = rules.interfacesFor(className);
 
             if (injected.isEmpty()) {
-                return declared;
+                super.visit(version, updated, name, signature, superName, interfaces);
+                return;
             }
 
-            Set<String> all = new LinkedHashSet<>();
+            String[] declared = interfaces == null ? new String[0] : interfaces;
+            Set<String> all = new LinkedHashSet<>(Arrays.asList(declared));
+            StringBuilder generic = genericSignature(signature, superName, declared, injected);
 
-            if (declared != null) {
-                all.addAll(Arrays.asList(declared));
+            for (InjectedInterface added : injected) {
+                // Only extend the signature for an interface actually added; a
+                // duplicate would leave the signature describing more interfaces
+                // than the class has.
+                if (all.add(added.rawName()) && generic != null) {
+                    generic.append(added.signature());
+                }
             }
 
-            all.addAll(injected);
-            return all.toArray(new String[0]);
+            super.visit(version, updated, name, generic == null ? signature : generic.toString(), superName,
+                    all.toArray(new String[0]));
+        }
+
+        /**
+         * The class signature to extend, or {@code null} when none is needed.
+         *
+         * <p>A class with no generics anywhere has no {@code Signature} attribute
+         * and needs none. Adding a generic interface to such a class means
+         * writing the signature it never had, from its superclass and the
+         * interfaces it already declares.
+         */
+        private StringBuilder genericSignature(String signature, String superName, String[] declared,
+                Set<InjectedInterface> injected) {
+            if (signature != null) {
+                return new StringBuilder(signature);
+            }
+
+            if (injected.stream().noneMatch(InjectedInterface::hasGenerics)) {
+                return null;
+            }
+
+            StringBuilder built = new StringBuilder();
+            built.append('L').append(superName == null ? "java/lang/Object" : superName).append(';');
+
+            for (String existing : declared) {
+                built.append('L').append(existing).append(';');
+            }
+
+            return built;
         }
 
         /**
