@@ -65,6 +65,25 @@ NeoForge mod published. Mods do not need to know Octo exists.
 Jar-in-jar works for both conventions: Fabric/Quilt `jars`, and Forge's
 `META-INF/jarjar/`.
 
+### One mixin environment, and one set of access rules
+
+Almost every current mod changes the game through [Mixin](https://github.com/SpongePowered/Mixin)
+and through an access file that opens up the parts of the game it was compiled
+against. Both are ecosystem-specific in name only, so Octo runs one of each:
+
+- **Mixins.** Fabric's `mixins` array, Quilt's `mixin`, Forge's `[[mixins]]` and
+  the `MixinConfigs` manifest attribute are all read into a single mixin
+  environment, so a Fabric mod and a Forge mod can mix into the same class.
+  MixinExtras is bundled and initialised, as Fabric Loader does, because current
+  mods assume the loader provides it.
+- **Access.** Fabric's `.accesswidener` and Forge's `accesstransformer.cfg` are
+  parsed into one table and applied to the game as it loads. A class widened by a
+  Forge mod is open to a Fabric one.
+
+A mod whose mixins cannot be applied — one needing a newer Java than the JVM is
+running, say — loses its mixins and says so. It does not cost every other mod
+theirs, and it does not stop the game starting.
+
 ### Mods from any version — the time capsule
 
 This is the part no other loader has. A mod built for 1.7.10 was compiled against
@@ -166,7 +185,7 @@ The signatures mods compile against are unchanged.
 ## Building
 
 ```bash
-./gradlew build                      # compile, run 57 tests
+./gradlew build                      # compile, run 69 tests
 ./gradlew :installer:installerJar    # installer/build/installer/installer.jar
 ./gradlew :loader:jar                # loader/build/libs/octo-loader-1.0.0.jar
 ```
@@ -188,6 +207,13 @@ loader against a synthetic game jar. It asserts that all six run, that the Forge
 mod can see the Fabric mod, and that the 1.7.10 mod's `Minecraft.getMinecraft()`
 call reaches today's `getInstance()` and returns the running game.
 
+The mixin suite does the same for the other half: it compiles a mod against a
+*widened* view of the game — private members public, final classes open, exactly
+as a mod is really built — hands the loader the restricted original, and then
+asserts that the mod's `@Inject` changed the game's behaviour, that its
+`@Invoker` reached a private method, that its access widener made another one
+callable, and that a class the game declares `final` was subclassed.
+
 ## Layout
 
 ```
@@ -197,6 +223,8 @@ loader/                     the loader runtime
   resolve/                  dependency resolution and load order
   compat/                   eras, mappings, API rules — the time capsule
   transform/                remapping, API migration, generated stand-in classes
+  access/                   access wideners and access transformers, merged
+  mixin/                    the mixin service and the one mixin environment
   bridge/                   per-ecosystem construction and lifecycle
   launch/                   the class loader and the launcher
   compat/<ecosystem>/       the implementation behind each upstream API

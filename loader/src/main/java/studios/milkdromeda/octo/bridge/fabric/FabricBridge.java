@@ -17,6 +17,7 @@ import studios.milkdromeda.octo.mod.format.MetadataParser.Phases;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -71,9 +72,13 @@ public final class FabricBridge implements LoaderBridge {
                 Object instance = Entrypoints.create(spec, classLoader, expectedType);
                 OctoRuntime.get().registerEntrypoint(phase, mod, instance);
                 LOG.debug("{}: constructed {} entrypoint {}", mod.id(), phase, spec);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                LOG.warn("{}: could not construct {} entrypoint {}: {}", mod.id(), phase, spec, e.toString());
-                mod.recordFix("entrypoint " + spec + " could not be constructed: " + e);
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.warn("{}: could not construct {} entrypoint {}: {}", mod.id(), phase, spec,
+                        Failures.describe(cause));
+                OctoLog.detail(cause);
+                mod.recordFix("entrypoint " + spec + " could not be constructed: " + cause);
             }
         }
     }
@@ -134,9 +139,12 @@ public final class FabricBridge implements LoaderBridge {
 
             try {
                 action.accept(entrypoint.instance());
-            } catch (Exception | LinkageError e) {
-                LOG.error("{}: {} entrypoint failed: {}", mod.id(), phase, e.toString());
-                mod.fail(e instanceof Exception exception ? exception : new RuntimeException(e));
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.error("{}: {} entrypoint failed: {}", mod.id(), phase, Failures.describe(cause));
+                OctoLog.detail(cause);
+                mod.fail(cause);
             }
         }
     }

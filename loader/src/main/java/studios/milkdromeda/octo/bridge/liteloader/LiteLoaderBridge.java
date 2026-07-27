@@ -10,6 +10,7 @@ import studios.milkdromeda.octo.mod.format.MetadataParser.Phases;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -38,9 +39,12 @@ public final class LiteLoaderBridge implements LoaderBridge {
             try {
                 Object instance = Entrypoints.create(spec, classLoader, LiteMod.class);
                 OctoRuntime.get().registerEntrypoint(Phases.LITEMOD, mod, instance);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                LOG.error("{}: could not construct {}: {}", mod.id(), spec, e.toString());
-                mod.fail(e instanceof Exception exception ? exception : new RuntimeException(e));
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.error("{}: could not construct {}: {}", mod.id(), spec, Failures.describe(cause));
+                OctoLog.detail(cause);
+                mod.fail(cause);
             }
         }
     }
@@ -59,9 +63,12 @@ public final class LiteLoaderBridge implements LoaderBridge {
             try {
                 liteMod.init(OctoRuntime.get().configDir().toFile());
                 LOG.debug("{}: initialised litemod {}", mod.id(), liteMod.getName());
-            } catch (RuntimeException | LinkageError e) {
-                LOG.error("{}: init() threw {}", mod.id(), e.toString());
-                mod.fail(e instanceof Exception exception ? exception : new RuntimeException(e));
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.error("{}: init() threw {}", mod.id(), Failures.describe(cause));
+                OctoLog.detail(cause);
+                mod.fail(cause);
             }
         }
     }

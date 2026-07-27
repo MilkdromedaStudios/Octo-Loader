@@ -19,6 +19,12 @@ subprojects {
         }
         // The end-to-end tests compile synthetic mods with the in-process javac.
         jvmArgs '-Xmx1G'
+
+        // One JVM per test class. Mixin's environment is static for the life of
+        // the process — configs, applied mixins and class metadata all outlive
+        // any single launch — so a suite that boots it in one class and launches
+        // again in another is testing the leftovers of the first.
+        forkEvery = 1
     }
 
     dependencies {

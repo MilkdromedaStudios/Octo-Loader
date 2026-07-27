@@ -8,6 +8,15 @@ pluginManagement {
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+
+        // Mixin. The published-to-Central Sponge artifact stopped at 0.8.5 and
+        // predates the Java 17+ class files every current mod ships; Fabric's
+        // fork is the one mods are actually compiled against.
+        maven {
+            name = 'FabricMC'
+            url = 'https://maven.fabricmc.net/'
+            content { includeGroup 'net.fabricmc' }
+        }
     }
 }
 

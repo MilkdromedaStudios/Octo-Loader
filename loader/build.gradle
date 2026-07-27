@@ -13,6 +13,12 @@ dependencies {
     implementation "com.electronwill.night-config:toml:${rootProject.nightconfig_version}"
     implementation "com.electronwill.night-config:core:${rootProject.nightconfig_version}"
 
+    // Mixin, and the extras library most current mods now assume the loader
+    // provides. Both are shaded into the loader jar: mods reference these
+    // classes directly, so they have to be the same copy the loader booted.
+    implementation "net.fabricmc:sponge-mixin:${rootProject.mixin_version}"
+    implementation "io.github.llamalad7:mixinextras-common:${rootProject.mixinextras_version}"
+
     // Upstream API sources are annotated with these; they are not needed at runtime.
     compileOnly 'org.jetbrains:annotations:24.1.0'
 
@@ -75,8 +81,15 @@ sourceSets.main.java.srcDir tasks.importUpstreamApi
 // dependency resolver being present at runtime.
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    from({ configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }) {
+        // Mixin ships service declarations binding it to LaunchWrapper and
+        // ModLauncher. Neither is running here — Octo registers its own service
+        // in src/main/resources — and leaving theirs in the jar only gives the
+        // service loader failing candidates to try first.
+        exclude 'META-INF/services/org.spongepowered.asm.service.*'
+        exclude 'META-INF/services/cpw.mods.modlauncher.*'
+        exclude 'META-INF/services/org.spongepowered.tools.obfuscation.service.*'
+        exclude 'META-INF/services/javax.annotation.processing.Processor'
     }
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/maven/**'
     exclude 'module-info.class'
@@ -94,6 +107,17 @@ jar {
                 'Implementation-Version': project.version,
                 'Enable-Native-Access': 'ALL-UNNAMED'
         )
+
+        // Mixin decides which Java compatibility levels it can offer by asking
+        // the ASM package for its implementation version. Shading ASM into this
+        // jar replaces ASM's manifest with Octo's, so without this section mixin
+        // reads Octo's version number as ASM's, concludes it is on ASM 9.0, and
+        // refuses every mod whose mixin config asks for JAVA_17 or later — which
+        // is all of them.
+        attributes([
+                'Implementation-Title'  : 'ASM',
+                'Implementation-Version': rootProject.asm_version
+        ], 'org/objectweb/asm/')
     }
 }
 

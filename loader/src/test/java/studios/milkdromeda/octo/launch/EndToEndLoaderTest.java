@@ -164,6 +164,24 @@ class EndToEndLoaderTest {
     }
 
     @Test
+    @DisplayName("a mod that throws an Error is skipped, and every other mod still loads")
+    void oneBrokenModDoesNotStopTheLaunch() throws Exception {
+        Path gameJar = buildGameJar();
+        buildFabricMod();
+        buildExplodingMod();
+
+        LaunchResult result = launch(gameJar);
+
+        assertEquals(1, result.failed().size(), "only the broken mod should have failed: " + result.failed());
+        assertEquals("explodingmod", result.failed().get(0).id());
+        assertTrue(result.failed().get(0).failure() instanceof AssertionError,
+                "the mod's own AssertionError should be what was recorded, unwrapped: "
+                        + result.failed().get(0).failure());
+
+        assertRan(result, "fabricmod", "com.example.fabric.FabricMod");
+    }
+
+    @Test
     @DisplayName("the game's own main class is invoked once every mod is ready")
     void handsOverToTheGame() throws Exception {
         Path gameJar = buildGameJar();
@@ -265,6 +283,39 @@ class EndToEndLoaderTest {
                   "depends": { "minecraft": ">=1.20 <1.21" }
                 }
                 """).writeTo(modsDir.resolve("fabric-sample.jar"));
+    }
+
+    /**
+     * A mod that fails the way real ones do.
+     *
+     * <p>{@code AssertionError} is neither an {@code Exception} nor a
+     * {@code LinkageError}, which is exactly why an unapplied mixin accessor —
+     * whose generated body is {@code throw new AssertionError()} — used to abort
+     * the entire launch rather than costing the player one mod.
+     */
+    private void buildExplodingMod() throws IOException {
+        Map<String, byte[]> classes = SourceCompiler.compile(Map.of(
+                "com.example.bad.ExplodingMod", """
+                        package com.example.bad;
+
+                        import net.fabricmc.api.ModInitializer;
+
+                        public class ExplodingMod implements ModInitializer {
+                            @Override
+                            public void onInitialize() {
+                                throw new AssertionError();
+                            }
+                        }
+                        """));
+
+        new JarBuilder().classes(classes).file("fabric.mod.json", """
+                {
+                  "schemaVersion": 1,
+                  "id": "explodingmod",
+                  "version": "1.0.0",
+                  "entrypoints": { "main": ["com.example.bad.ExplodingMod"] }
+                }
+                """).writeTo(modsDir.resolve("exploding-sample.jar"));
     }
 
     private void buildQuiltMod() throws IOException {
