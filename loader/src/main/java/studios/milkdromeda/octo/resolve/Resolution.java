@@ -10,8 +10,25 @@ public final class Resolution {
     private final List<ModCandidate> order = new ArrayList<>();
     private final List<Problem> problems = new ArrayList<>();
 
+    /**
+     * What kind of problem this is, so the launch log can say "34 mods declare a
+     * different loader version" once instead of thirty-four times.
+     */
+    public enum Kind {
+        /** Anything without a better home; always reported individually. */
+        GENERAL,
+        /** The same mod id arrived in more than one jar. */
+        DUPLICATE,
+        /** A bound on Minecraft or on a loader that Octo deliberately does not enforce. */
+        PLATFORM_VERSION
+    }
+
     /** @param fatal whether this stopped the mod from loading */
-    public record Problem(String modId, String message, boolean fatal) {
+    public record Problem(String modId, String message, boolean fatal, Kind kind) {
+        public Problem(String modId, String message, boolean fatal) {
+            this(modId, message, fatal, Kind.GENERAL);
+        }
+
         @Override
         public String toString() {
             return (fatal ? "[skipped] " : "[warning] ") + modId + ": " + message;
@@ -39,6 +56,14 @@ public final class Resolution {
     }
 
     void problem(String modId, String message, boolean fatal) {
-        problems.add(new Problem(modId, message, fatal));
+        problem(modId, message, fatal, Kind.GENERAL);
+    }
+
+    void problem(String modId, String message, boolean fatal, Kind kind) {
+        problems.add(new Problem(modId, message, fatal, kind));
+    }
+
+    public List<Problem> problems(Kind kind) {
+        return problems.stream().filter(problem -> problem.kind() == kind && !problem.fatal()).toList();
     }
 }

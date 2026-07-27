@@ -14,6 +14,7 @@ import studios.milkdromeda.octo.mod.format.MetadataParser.Phases;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -64,10 +65,11 @@ public final class ForgeBridge implements LoaderBridge {
                 Object instance = instantiate(type, mod);
                 OctoRuntime.get().registerEntrypoint(Phases.MOD_CLASS, mod, instance);
                 LOG.debug("{}: constructed {}", mod.id(), spec.className());
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                Throwable cause = e instanceof java.lang.reflect.InvocationTargetException invocation
-                        && invocation.getCause() != null ? invocation.getCause() : e;
-                LOG.error("{}: could not construct {}: {}", mod.id(), spec.className(), cause.toString());
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.error("{}: could not construct {}: {}", mod.id(), spec.className(), Failures.describe(cause));
+                OctoLog.detail(cause);
                 mod.fail(cause);
             } finally {
                 ForgeBuses.setActive(null);
@@ -121,7 +123,8 @@ public final class ForgeBridge implements LoaderBridge {
             arguments[i] = switch (name) {
                 case "net.neoforged.bus.api.IEventBus" -> ForgeBuses.neoBusFor(mod.id());
                 case "net.minecraftforge.eventbus.api.IEventBus" -> ForgeBuses.forgeBusFor(mod.id());
-                case "net.neoforged.fml.ModContainer", "net.minecraftforge.fml.ModContainer" -> null;
+                case "net.neoforged.fml.ModContainer" -> ForgeBuses.neoContainerFor(mod.id());
+                case "net.minecraftforge.fml.ModContainer" -> ForgeBuses.forgeContainerFor(mod.id());
                 case "net.neoforged.api.distmarker.Dist" ->
                         OctoRuntime.get().side() == Side.CLIENT
                                 ? net.neoforged.api.distmarker.Dist.CLIENT
@@ -190,8 +193,11 @@ public final class ForgeBridge implements LoaderBridge {
             } else {
                 ForgeBuses.forgeBusFor(mod.id()).post((net.minecraftforge.eventbus.api.Event) event);
             }
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            LOG.warn("{}: could not post {}: {}", mod.id(), simpleName, e.toString());
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            Throwable cause = Failures.unwrap(e);
+            LOG.warn("{}: could not post {}: {}", mod.id(), simpleName, Failures.describe(cause));
+            OctoLog.detail(cause);
         }
     }
 
@@ -230,10 +236,11 @@ public final class ForgeBridge implements LoaderBridge {
                 method.setAccessible(true);
                 method.invoke(instance, event);
                 LOG.debug("{}: called {}({})", mod.id(), method.getName(), wanted);
-            } catch (ReflectiveOperationException | RuntimeException e) {
-                Throwable cause = e instanceof java.lang.reflect.InvocationTargetException invocation
-                        && invocation.getCause() != null ? invocation.getCause() : e;
-                LOG.error("{}: {} threw {}", mod.id(), method.getName(), cause.toString());
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+                LOG.error("{}: {} threw {}", mod.id(), method.getName(), Failures.describe(cause));
+                OctoLog.detail(cause);
                 mod.fail(cause);
             }
         }
@@ -265,9 +272,12 @@ public final class ForgeBridge implements LoaderBridge {
             }
         } catch (NoSuchMethodException e) {
             LOG.debug("{}: no load() method", mod.id());
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            LOG.error("{}: load() threw {}", mod.id(), e.toString());
-            mod.fail(e);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            Throwable cause = Failures.unwrap(e);
+            LOG.error("{}: load() threw {}", mod.id(), Failures.describe(cause));
+            OctoLog.detail(cause);
+            mod.fail(cause);
         }
     }
 

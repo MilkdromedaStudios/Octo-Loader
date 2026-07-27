@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -96,15 +97,17 @@ final class EventDispatcher {
                 // erased, so the only way to know it does not want this event is
                 // for its own cast to reject it.
                 LOG.trace("{}: listener declined {}", modId, event.getClass().getSimpleName());
-            } catch (ReflectiveOperationException | RuntimeException e) {
-                Throwable cause = e instanceof java.lang.reflect.InvocationTargetException invocation
-                        ? invocation.getCause() : e;
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
 
                 if (cause instanceof ClassCastException) {
                     continue;
                 }
 
-                LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(), cause.toString());
+                LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(),
+                        Failures.describe(cause));
+                OctoLog.detail(cause);
             }
         }
     }

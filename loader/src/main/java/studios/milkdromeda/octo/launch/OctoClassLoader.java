@@ -21,6 +21,8 @@ import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformContext;
 import studios.milkdromeda.octo.transform.TransformPipeline;
+import studios.milkdromeda.octo.transform.Transformer;
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -51,6 +53,10 @@ public final class OctoClassLoader extends URLClassLoader {
             "org.quiltmc.loader.", "org.quiltmc.qsl.base.api.entrypoint.",
             "net.minecraftforge.fml.", "net.minecraftforge.eventbus.", "net.minecraftforge.api.distmarker.",
             "net.neoforged.fml.", "net.neoforged.bus.", "net.neoforged.api.distmarker.",
+            // Mixin has to be the loader's single copy: the transformer that
+            // applies a mod's mixins and the annotations that mod was compiled
+            // against must be the same classes, or nothing matches.
+            "org.spongepowered.asm.", "org.spongepowered.include.", "com.llamalad7.mixinextras.",
             "org.objectweb.asm.", "com.google.gson.", "com.electronwill.nightconfig.");
 
     /** Loaded from the parent even though they sit under a parent-first prefix. */
@@ -62,6 +68,10 @@ public final class OctoClassLoader extends URLClassLoader {
     private final PhantomClasses phantoms;
     private final TransformPipeline gamePipeline;
     private final boolean stubMissingApi;
+    /** Rewrites that apply to everything — the game included — after each mod's own. */
+    private volatile TransformPipeline globalPipeline = TransformPipeline.empty();
+    /** Mixin, which runs last and is deliberately not part of what mixin itself reads. */
+    private volatile Transformer weaver;
 
     public OctoClassLoader(List<URL> urls, ClassLoader parent, TransformPipeline gamePipeline,
             PhantomClasses phantoms, boolean stubMissingApi) {
@@ -90,6 +100,32 @@ public final class OctoClassLoader extends URLClassLoader {
         }
     }
 
+    /**
+     * Adds a rewrite that every class passes through, whichever jar it came from.
+     *
+     * <p>Access widening and mixin both work this way: they are not a property of
+     * the mod being loaded but of the mods that asked for them, and they have to
+     * reach the game's own classes, which belong to no mod at all. Order matters —
+     * these run after a mod's own translation, so a mod from 2013 is already
+     * speaking today's names by the time a mixin tries to match against it.
+     */
+    public void addGlobalTransformer(Transformer transformer) {
+        globalPipeline = globalPipeline.with(transformer);
+    }
+
+    /**
+     * Installs the mixin weaver, which runs after everything else.
+     *
+     * <p>It is held apart from the other global rewrites because mixin has to be
+     * able to read a class as it stands <em>before</em> mixins are applied — that
+     * is what {@link #rawClassBytes} returns — and folding it into the same
+     * pipeline would mean asking mixin to weave the class it is in the middle of
+     * weaving.
+     */
+    public void installWeaver(Transformer transformer) {
+        this.weaver = transformer;
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         synchronized (getClassLoadingLock(name)) {
@@ -104,7 +140,27 @@ public final class OctoClassLoader extends URLClassLoader {
             }
 
             if (isParentFirst(name)) {
-                return super.loadClass(name, resolve);
+                try {
+                    return super.loadClass(name, resolve);
+                } catch (ClassNotFoundException e) {
+                    // Octo implements the mod-facing half of four loaders, not the
+                    // whole of any of them. A mod reaching for a corner none of the
+                    // bridges covers — some FML internal, say — used to fail here
+                    // and take the mod with it, even though the reference was one
+                    // the mod would never have called. Falling through lets the
+                    // stand-in machinery answer instead.
+                    Class<?> phantom = definePhantom(name);
+
+                    if (phantom == null) {
+                        throw e;
+                    }
+
+                    if (resolve) {
+                        resolveClass(phantom);
+                    }
+
+                    return phantom;
+                }
             }
 
             try {
@@ -135,17 +191,28 @@ public final class OctoClassLoader extends URLClassLoader {
         return false;
     }
 
+    /** @return the stand-in for a class nothing on the path has, or {@code null} */
+    private Class<?> definePhantom(String name) {
+        byte[] phantom = phantomFor(name);
+
+        if (phantom == null) {
+            return null;
+        }
+
+        return defineClass(name, phantom, 0, phantom.length,
+                new ProtectionDomain(new CodeSource(null, (Certificate[]) null), null, this, null));
+    }
+
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
         String path = name.replace('.', '/') + ".class";
         URL resource = findResource(path);
 
         if (resource == null) {
-            byte[] phantom = phantomFor(name);
+            Class<?> phantom = definePhantom(name);
 
             if (phantom != null) {
-                return defineClass(name, phantom, 0, phantom.length,
-                        new ProtectionDomain(new CodeSource(null, (Certificate[]) null), null, this, null));
+                return phantom;
             }
 
             throw new ClassNotFoundException(name);
@@ -170,8 +237,10 @@ public final class OctoClassLoader extends URLClassLoader {
         LoadedMod mod = key == null ? null : modsByJar.get(key);
         TransformPipeline pipeline = key == null ? gamePipeline : pipelinesByJar.getOrDefault(key, gamePipeline);
 
-        byte[] transformed = pipeline.apply(name.replace('.', '/'), bytes,
-                TransformContext.of(mod, this::classExists));
+        String internalName = name.replace('.', '/');
+        TransformContext context = TransformContext.of(mod, this::classExists);
+        byte[] transformed = weave(globalPipeline.apply(internalName,
+                pipeline.apply(internalName, bytes, context), context), internalName, context);
 
         definePackageFor(name, jar);
 
@@ -215,6 +284,83 @@ public final class OctoClassLoader extends URLClassLoader {
             LOG.info("standing in for missing class {}", name);
             return phantoms.generate(internalName);
         });
+    }
+
+    /**
+     * A class's bytes as mixin needs to see them: after the mod's own
+     * translation, before any mixin is applied.
+     *
+     * <p>Mixin reads its target classes and its mixin classes this way rather
+     * than loading them, which is what lets it modify a class before the JVM
+     * ever sees the original. Feeding it the translated form is what allows a
+     * mixin to target a class from a mod built for another Minecraft version.
+     *
+     * @param internalName e.g. {@code net/minecraft/client/Minecraft}
+     * @return the class file, or {@code null} when nothing on the path has it
+     */
+    public byte[] rawClassBytes(String internalName) {
+        String path = internalName + ".class";
+        URL resource = findResource(path);
+
+        if (resource == null) {
+            ClassLoader parent = getParent();
+            resource = parent == null ? null : parent.getResource(path);
+        }
+
+        if (resource == null) {
+            return null;
+        }
+
+        byte[] bytes;
+        URL jar;
+
+        try {
+            try (InputStream in = resource.openConnection().getInputStream()) {
+                bytes = ModSource.readFully(in);
+            }
+
+            jar = originOf(resource);
+        } catch (IOException e) {
+            return null;
+        }
+
+        String key = jar == null ? null : key(jar);
+        LoadedMod mod = key == null ? null : modsByJar.get(key);
+        TransformPipeline pipeline = key == null ? gamePipeline : pipelinesByJar.getOrDefault(key, gamePipeline);
+
+        TransformContext context = TransformContext.of(mod, this::classExists);
+        return globalPipeline.apply(internalName, pipeline.apply(internalName, bytes, context), context);
+    }
+
+    /** Applies mixins, if any mod uses them, and never lets one failing class stop a load. */
+    private byte[] weave(byte[] bytes, String internalName, TransformContext context) {
+        Transformer current = weaver;
+
+        if (current == null) {
+            return bytes;
+        }
+
+        try {
+            byte[] result = current.transform(internalName, bytes, context);
+            return result == null ? bytes : result;
+        } catch (NoClassDefFoundError e) {
+            // Mixin refuses to hand back a class that lives in a mod's declared
+            // mixin package, because loading one directly means the mod has a
+            // bug. That refusal is the useful answer, so it is passed on rather
+            // than papered over with the untransformed class.
+            throw e;
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.error("mixins for {} could not be applied: {}", internalName.replace('/', '.'),
+                    Failures.describe(e));
+            OctoLog.detail(e);
+            return bytes;
+        }
+    }
+
+    /** Whether this loader has already defined a class, without trying to load it. */
+    public boolean isClassLoaded(String binaryName) {
+        return findLoadedClass(binaryName) != null;
     }
 
     /** Whether a class can be resolved at all, without initialising it. */

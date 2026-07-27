@@ -134,4 +134,22 @@ public final class OctoLog {
         }
         error.printStackTrace(System.err);
     }
+
+    /**
+     * Records the whole stack trace of a contained failure.
+     *
+     * <p>It goes to the persistent log unconditionally, because a mod that failed
+     * quietly at startup is exactly what someone will be trying to diagnose later,
+     * but only reaches the console in debug: fifty stack traces on stderr during a
+     * normal launch bury the one line that matters.
+     */
+    public static synchronized void detail(Throwable error) {
+        if (file != null) {
+            error.printStackTrace(file);
+        }
+
+        if (threshold.ordinal() <= Level.DEBUG.ordinal()) {
+            error.printStackTrace(System.err);
+        }
+    }
 }

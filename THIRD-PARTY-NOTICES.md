@@ -59,6 +59,24 @@ it. Those files carry Octo's Apache-2.0 header and live in `loader/src/main/java
 The upstream licence texts are copied into the built jar under
 `META-INF/licenses/`.
 
+## Libraries shaded into the distributed jar
+
+The loader jar has to start before any dependency resolver exists, so its
+third-party dependencies are shaded in rather than downloaded. None of them are
+modified.
+
+| Library | Coordinates | Licence | Why it is there |
+|---|---|---|---|
+| ASM | `org.ow2.asm:asm{,-tree,-commons,-analysis,-util}` | BSD-3-Clause | Every bytecode rewrite: remapping, API migration, access widening, stand-in generation |
+| Mixin (FabricMC fork) | `net.fabricmc:sponge-mixin` | MIT | Applying mods' mixins. Fabric's fork rather than `org.spongepowered:mixin` because the Sponge artifact on Maven Central stopped at 0.8.5, and mods are compiled against the fork |
+| MixinExtras | `io.github.llamalad7:mixinextras-common` | MIT | `@WrapOperation` and the rest of the injectors current mods are written against; the loader initialises it, as Fabric Loader does |
+| Gson | `com.google.code.gson:gson` | Apache-2.0 | Reading `fabric.mod.json`, `quilt.mod.json`, `litemod.json` and mixin configs |
+| night-config | `com.electronwill.night-config:{core,toml}` | LGPL-3.0 | Reading `mods.toml` and `neoforge.mods.toml` |
+
+Mixin's own `META-INF/services` entries are dropped when it is shaded, because
+they bind it to LaunchWrapper and ModLauncher; Octo registers its own mixin
+service in their place.
+
 ## Licence compatibility
 
 This needs stating plainly rather than being buried.

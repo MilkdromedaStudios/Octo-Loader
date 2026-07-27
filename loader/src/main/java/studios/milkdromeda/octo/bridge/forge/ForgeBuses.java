@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ForgeBuses {
     private static final Map<String, OctoForgeEventBus> FORGE_BUSES = new ConcurrentHashMap<>();
     private static final Map<String, OctoNeoEventBus> NEO_BUSES = new ConcurrentHashMap<>();
+    private static final Map<String, net.neoforged.fml.ModContainer> NEO_CONTAINERS = new ConcurrentHashMap<>();
+    private static final Map<String, net.minecraftforge.fml.ModContainer> FORGE_CONTAINERS = new ConcurrentHashMap<>();
     private static final ThreadLocal<String> ACTIVE = new ThreadLocal<>();
 
     /** The bus every mod can post on, the one Forge calls the "Forge bus". */
@@ -44,6 +46,19 @@ public final class ForgeBuses {
         return NEO_BUSES.computeIfAbsent(modId, OctoNeoEventBus::new);
     }
 
+    /**
+     * The container a NeoForge mod is handed at construction and reaches later
+     * through {@code ModLoadingContext}. One per mod, because a mod registers
+     * its config and its extension points on it and expects to read them back.
+     */
+    public static net.neoforged.fml.ModContainer neoContainerFor(String modId) {
+        return NEO_CONTAINERS.computeIfAbsent(modId, net.neoforged.fml.ModContainer::new);
+    }
+
+    public static net.minecraftforge.fml.ModContainer forgeContainerFor(String modId) {
+        return FORGE_CONTAINERS.computeIfAbsent(modId, net.minecraftforge.fml.ModContainer::new);
+    }
+
     public static OctoForgeEventBus commonForgeBus() {
         return COMMON_FORGE;
     }
@@ -56,6 +71,8 @@ public final class ForgeBuses {
     public static void reset() {
         FORGE_BUSES.clear();
         NEO_BUSES.clear();
+        NEO_CONTAINERS.clear();
+        FORGE_CONTAINERS.clear();
         ACTIVE.remove();
     }
 }

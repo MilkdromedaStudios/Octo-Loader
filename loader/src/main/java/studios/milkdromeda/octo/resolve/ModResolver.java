@@ -81,7 +81,7 @@ public final class ModResolver {
         for (Map.Entry<String, Verdict> entry : verdicts.entrySet()) {
             Verdict verdict = entry.getValue();
             verdict.problems().forEach(problem ->
-                    resolution.problem(entry.getKey(), problem.message(), problem.fatal()));
+                    resolution.problem(entry.getKey(), problem.message(), problem.fatal(), problem.kind()));
 
             ModCandidate candidate = selected.get(entry.getKey());
 
@@ -116,11 +116,26 @@ public final class ModResolver {
             selected.put(candidate.id(), winner);
             resolution.problem(candidate.id(), "found more than once; using "
                     + winner.metadata().version() + " from " + winner.path().getFileName()
-                    + " and ignoring " + loser.metadata().version() + " from " + loser.path().getFileName(), false);
+                    + " and ignoring " + loser.metadata().version() + " from " + loser.path().getFileName(),
+                    false, Resolution.Kind.DUPLICATE);
         }
 
         return selected;
     }
+
+    /**
+     * What Octo claims to be when a mod asks for a loader by name.
+     *
+     * <p>These are not decoration. Every current Fabric API module declares
+     * {@code fabricloader >=0.18.4}, so reporting an older number turns each one
+     * into a warning at startup, and a mod that gates a feature on the loader
+     * version takes the wrong branch. The numbers track the newest release of
+     * each loader that Octo's mod-facing surface matches; the bound is advisory
+     * either way, but it should be advisory and right rather than advisory and
+     * wrong.
+     */
+    private static final String FABRIC_LOADER_VERSION = "0.18.4";
+    private static final String QUILT_LOADER_VERSION = "0.29.0";
 
     /** The pseudo-mods every ecosystem expects to exist. */
     private Map<String, Version> platformVersions() {
@@ -134,10 +149,10 @@ public final class ModResolver {
         // Octo answers for all four loaders, so mods asking for any of them find
         // it. The versions reported are the ones each ecosystem shipped for this
         // game version, because mods range-check them.
-        provided.put("fabricloader", Version.parse("0.16.9"));
+        provided.put("fabricloader", Version.parse(FABRIC_LOADER_VERSION));
         provided.put("fabric", minecraft);
         provided.put("fabric-api", minecraft);
-        provided.put("quilt_loader", Version.parse("0.26.0"));
+        provided.put("quilt_loader", Version.parse(QUILT_LOADER_VERSION));
         provided.put("quilt_base", minecraft);
         provided.put("forge", forgeVersionFor(minecraft));
         provided.put("neoforge", neoForgeVersionFor(minecraft));
@@ -167,7 +182,10 @@ public final class ModResolver {
 
     /** One evaluation of a mod's dependencies. */
     private record Verdict(boolean loadable, List<Finding> problems, List<String> notes) {
-        record Finding(String message, boolean fatal) {
+        record Finding(String message, boolean fatal, Resolution.Kind kind) {
+            Finding(String message, boolean fatal) {
+                this(message, fatal, Resolution.Kind.GENERAL);
+            }
         }
     }
 
@@ -218,7 +236,7 @@ public final class ModResolver {
             if (relaxable) {
                 problems.add(new Verdict.Finding("was built for " + dependency.modId() + " "
                         + dependency.versions() + " but this is " + present + "; translating instead of refusing",
-                        false));
+                        false, Resolution.Kind.PLATFORM_VERSION));
                 notes.add("built for " + dependency.modId() + " " + dependency.versions()
                         + ", running on " + present);
                 continue;

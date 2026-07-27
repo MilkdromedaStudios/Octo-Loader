@@ -3,6 +3,7 @@ package studios.milkdromeda.octo.transform;
 import java.util.ArrayList;
 import java.util.List;
 
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /** The ordered set of rewrites applied to one mod's classes. */
@@ -51,12 +52,14 @@ public final class TransformPipeline {
                 if (result != null) {
                     current = result;
                 }
-            } catch (RuntimeException | LinkageError e) {
+            } catch (Throwable e) {
                 // One failed rewrite must not take the mod down: the untransformed
                 // class may still work, and if it does not, the error surfaces at
                 // the point of use with a far more useful stack trace than here.
+                Failures.rethrowIfFatal(e);
                 LOG.warn("transformer {} failed on {} ({}): {}", transformer.name(), className,
-                        context.modId(), e.toString());
+                        context.modId(), Failures.describe(e));
+                OctoLog.detail(e);
             }
         }
 
