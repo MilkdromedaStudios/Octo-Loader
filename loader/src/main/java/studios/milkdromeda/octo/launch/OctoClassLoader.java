@@ -152,7 +152,7 @@ public final class OctoClassLoader extends URLClassLoader {
                     // and take the mod with it, even though the reference was one
                     // the mod would never have called. Falling through lets the
                     // stand-in machinery answer instead.
-                    Class<?> phantom = definePhantom(name);
+                    Class<?> phantom = definePhantom(name, true);
 
                     if (phantom == null) {
                         throw e;
@@ -175,7 +175,21 @@ public final class OctoClassLoader extends URLClassLoader {
 
                 return found;
             } catch (ClassNotFoundException e) {
-                return super.loadClass(name, resolve);
+                try {
+                    return super.loadClass(name, resolve);
+                } catch (ClassNotFoundException parentMissedItToo) {
+                    Class<?> phantom = definePhantom(name, true);
+
+                    if (phantom == null) {
+                        throw parentMissedItToo;
+                    }
+
+                    if (resolve) {
+                        resolveClass(phantom);
+                    }
+
+                    return phantom;
+                }
             }
         }
     }
@@ -194,9 +208,16 @@ public final class OctoClassLoader extends URLClassLoader {
         return false;
     }
 
-    /** @return the stand-in for a class nothing on the path has, or {@code null} */
-    private Class<?> definePhantom(String name) {
-        byte[] phantom = phantomFor(name);
+    /**
+     * @param mayInvent whether a loader-API class nobody planned for may be
+     *                  declared here. Only true once the parent has been asked
+     *                  and come back empty: Octo ships plenty of these classes
+     *                  itself, and inventing an empty stand-in for one that
+     *                  exists costs the mod the real thing.
+     * @return the stand-in for a class nothing on the path has, or {@code null}
+     */
+    private Class<?> definePhantom(String name, boolean mayInvent) {
+        byte[] phantom = phantomFor(name, mayInvent);
 
         if (phantom == null) {
             return null;
@@ -212,7 +233,9 @@ public final class OctoClassLoader extends URLClassLoader {
         URL resource = findResource(path);
 
         if (resource == null) {
-            Class<?> phantom = definePhantom(name);
+            // Planned stand-ins only. Anything invented on demand waits until
+            // loadClass has given the parent its turn.
+            Class<?> phantom = definePhantom(name, false);
 
             if (phantom != null) {
                 return phantom;
@@ -270,14 +293,18 @@ public final class OctoClassLoader extends URLClassLoader {
         }
     }
 
-    /** Generates a stand-in for a class an old mod expects and this runtime lacks. */
-    private byte[] phantomFor(String name) {
+    /** Generates a stand-in for a class a mod expects and this runtime lacks. */
+    private byte[] phantomFor(String name, boolean mayInvent) {
         if (!compat.stubMissingApi()) {
             return null;
         }
 
         String internalName = name.replace('.', '/');
         PhantomClasses.Spec spec = phantoms.spec(internalName);
+
+        if (spec == null && mayInvent) {
+            spec = declareLoaderApiStandIn(internalName);
+        }
 
         if (spec == null) {
             return null;
@@ -287,6 +314,30 @@ public final class OctoClassLoader extends URLClassLoader {
             LOG.info("standing in for missing class {}", name);
             return phantoms.generate(internalName);
         });
+    }
+
+    /**
+     * The packages where a class Octo does not have is Octo's gap, not the mod's.
+     *
+     * <p>A mod referencing a Minecraft class that no longer exists is the time
+     * capsule's business and is planned in advance from the mod's bytecode. A mod
+     * referencing part of a loader API that Octo simply never implemented has
+     * nowhere else to be answered, and refusing it costs the whole mod.
+     */
+    private static final List<String> STAND_IN_PACKAGES = List.of(
+            "net/neoforged/", "net/minecraftforge/", "net/fabricmc/", "org/quiltmc/",
+            "cpw/mods/fml/", "com/mumfrey/liteloader/");
+
+    private PhantomClasses.Spec declareLoaderApiStandIn(String internalName) {
+        for (String prefix : STAND_IN_PACKAGES) {
+            if (internalName.startsWith(prefix)) {
+                LOG.warn("Octo does not implement {}; standing in for it so the mod can still load",
+                        internalName.replace('/', '.'));
+                return phantoms.declareInterface(internalName);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -385,9 +436,12 @@ public final class OctoClassLoader extends URLClassLoader {
             // mixin runs, the change it exists to make does not, and what breaks
             // is usually some other mod much later. So the game still starts,
             // but the mod is named in the report rather than left to be guessed.
+            // A warning, not an error: the mod is running, it is just missing
+            // the one change this mixin made. Listing it as "not running" next
+            // to a mod that genuinely did not load makes both harder to read.
             String culprit = culpritOf(e);
-            report.error(culprit, "one of its mixins could not be applied to " + className.replace('/', '.')
-                    + ", so part of what it does is missing", Failures.describe(e));
+            report.warning(culprit, "one of its mixins does not fit this version of "
+                    + className.replace('/', '.') + ", so that part of it is inactive", Failures.describe(e));
 
             if (compat.strict()) {
                 throw new ModLoadingException(culprit + ": mixins could not be applied to " + className,

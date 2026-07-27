@@ -15,6 +15,7 @@ import studios.milkdromeda.octo.launch.LaunchContext;
 import studios.milkdromeda.octo.launch.GameProvider;
 import studios.milkdromeda.octo.launch.LaunchResult;
 import studios.milkdromeda.octo.launch.OctoLauncher;
+import studios.milkdromeda.octo.launch.OctoMain;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.resolve.ModResolver;
@@ -209,6 +210,10 @@ public final class OctoCli {
 
             modDirs.forEach(builder::modDir);
             gameJars.forEach(builder::gameJar);
+
+            // Same reason as OctoMain: a library a mod mixes into has to be
+            // inside the loader with the game, not outside it with the loader.
+            OctoMain.libraryJarsOnClassPath(gameJars).forEach(builder::libraryJar);
             return builder.build();
         }
     }
