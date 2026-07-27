@@ -105,9 +105,21 @@ public final class OctoLauncher {
                 .discover(context.modDirs());
         LOG.info("found {} mod(s) in {}", candidates.size(), context.modDirs());
 
+        if (candidates.isEmpty()) {
+            LOG.warn("no mods were discovered; scanned {} (expected .jar, .zip, or .litemod files). "
+                    + "This is unrelated to any later pack.mcmeta/resource-pack warnings",
+                    context.modDirs());
+        }
+
         Resolution resolution = new ModResolver(context).resolve(candidates);
 
         report(resolution);
+
+        if (!candidates.isEmpty() && resolution.order().isEmpty()) {
+            LOG.warn("{} mod archive(s) were found, but none passed dependency resolution; see the Octo warnings "
+                    + "above and {} for the complete diagnostic log",
+                    candidates.size(), context.octoDir().resolve("logs").resolve("octo-loader.log"));
+        }
 
         if (context.compat().failOnUnloadableMod() && !resolution.fatalProblems().isEmpty()) {
             throw new IllegalStateException("refusing to start: " + resolution.fatalProblems());

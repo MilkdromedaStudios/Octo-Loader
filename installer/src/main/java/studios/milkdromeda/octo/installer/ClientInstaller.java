@@ -179,6 +179,53 @@ public final class ClientInstaller {
         if (Files.deleteIfExists(library)) {
             log.info("removed " + gameDirectory.relativize(library));
         }
+
+        unregisterProfile(versionId);
+    }
+
+    /** Removes only the launcher entry created by {@link #registerProfile}. */
+    private void unregisterProfile(String versionId) throws IOException {
+        Path profilesFile = gameDirectory.resolve("launcher_profiles.json");
+
+        if (!Files.isRegularFile(profilesFile)) {
+            return;
+        }
+
+        JsonElement parsed;
+
+        try {
+            parsed = JsonParser.parseString(Files.readString(profilesFile, StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            log.info("could not remove the launcher profile because launcher_profiles.json is invalid (" + e + ")");
+            return;
+        }
+
+        if (!parsed.isJsonObject()) {
+            return;
+        }
+
+        JsonObject root = parsed.getAsJsonObject();
+        JsonObject profiles = root.has("profiles") && root.get("profiles").isJsonObject()
+                ? root.getAsJsonObject("profiles") : null;
+
+        if (profiles == null) {
+            return;
+        }
+
+        String profileKey = versionId;
+        JsonObject profile = profiles.has(profileKey) && profiles.get(profileKey).isJsonObject()
+                ? profiles.getAsJsonObject(profileKey) : null;
+
+        // Do not delete a profile the user has repurposed since installation.
+        if (profile == null || !profile.has("lastVersionId")
+                || !versionId.equals(profile.get("lastVersionId").getAsString())) {
+            return;
+        }
+
+        profiles.remove(profileKey);
+        Files.writeString(profilesFile, new GsonBuilder().setPrettyPrinting().create().toJson(root) + "\n",
+                StandardCharsets.UTF_8);
+        log.info("removed launcher profile " + profileKey);
     }
 
     /** The 22 bytes of an empty zip. */
