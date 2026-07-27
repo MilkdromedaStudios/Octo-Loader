@@ -26,6 +26,7 @@ import studios.milkdromeda.octo.mod.format.MetadataException;
 import studios.milkdromeda.octo.mod.format.MetadataParser;
 import studios.milkdromeda.octo.mod.format.MetadataParser.Phases;
 import studios.milkdromeda.octo.mod.format.QuiltMetadataParser;
+import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
@@ -132,8 +133,15 @@ public final class ModDiscoverer {
                 out.add(candidate);
                 out.addAll(extractNested(source, candidate));
             }
-        } catch (IOException e) {
-            LOG.warn("could not read {}: {}", file, e.toString());
+        } catch (Throwable e) {
+            // A truncated download, a jar with a class ASM will not parse, a zip
+            // bomb: whatever it is, it costs the player that one file. Letting it
+            // out of here would end discovery, and a loader that refuses to start
+            // the game because of one bad file in a folder of sixty is worse than
+            // one that starts without it.
+            Failures.rethrowIfFatal(e);
+            LOG.warn("could not read {}, skipping it: {}", file.getFileName(), Failures.describe(e));
+            OctoLog.detail(e);
         }
 
         return out;

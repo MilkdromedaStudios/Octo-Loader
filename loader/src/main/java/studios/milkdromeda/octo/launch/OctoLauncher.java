@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import studios.milkdromeda.octo.access.AccessRuleLoader;
 import studios.milkdromeda.octo.access.AccessRuleTransformer;
@@ -18,9 +19,11 @@ import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
+import studios.milkdromeda.octo.hook.GameHooks;
 import studios.milkdromeda.octo.mixin.MixinSupport;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModSource;
+import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.resolve.ModResolver;
 import studios.milkdromeda.octo.resolve.Resolution;
 import studios.milkdromeda.octo.runtime.Lifecycle;
@@ -54,12 +57,47 @@ public final class OctoLauncher {
         this.bridges = bridges;
     }
 
-    /** Runs everything up to, but not including, the game's own main method. */
+    /**
+     * Runs everything up to, but not including, the game's own main method.
+     *
+     * <p>Whatever happens in here, the caller gets a class loader it can start
+     * Minecraft with. Mod loading is the part that can go wrong — a corrupt jar,
+     * a mod that throws where nothing should — and the player's game is not the
+     * right thing to spend on that. A failure costs the mods and says so;
+     * {@code -Docto.strict=true} restores the older behaviour of refusing to
+     * start, for anyone who would rather know immediately.
+     */
     public LaunchResult load() {
         LOG.info("Octo Loader {} starting for Minecraft {} ({})", OctoRuntime.VERSION,
                 context.minecraftVersion().isEmpty() ? "unknown" : context.minecraftVersion(), context.side());
 
         OctoRuntime runtime = OctoRuntime.initialise(context);
+        PhantomClasses phantoms = new PhantomClasses();
+        OctoClassLoader classLoader = new OctoClassLoader(gameUrls(), getClass().getClassLoader(),
+                TransformPipeline.empty(), phantoms, context.compat().stubMissingApi());
+
+        if (Boolean.getBoolean("octo.safeMode")) {
+            LOG.warn("safe mode: Minecraft will start with no mods at all");
+            return new LaunchResult(runtime, new Resolution(), classLoader, List.of(), List.of());
+        }
+
+        try {
+            return loadMods(runtime, classLoader, phantoms);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+
+            if (context.compat().failOnUnloadableMod()) {
+                throw e instanceof RuntimeException runtime2 ? runtime2 : new IllegalStateException(e);
+            }
+
+            LOG.error("mod loading failed, so Minecraft is starting without mods: {}", Failures.describe(e));
+            OctoLog.detail(e);
+            LOG.error("the full trace is in logs/octo-loader.log; -Docto.safeMode=true skips mod loading entirely");
+            return new LaunchResult(runtime, new Resolution(), classLoader, List.of(), List.of());
+        }
+    }
+
+    private LaunchResult loadMods(OctoRuntime runtime, OctoClassLoader classLoader, PhantomClasses phantoms) {
         TimeCapsule timeCapsule = new TimeCapsule(context);
         installMappings(timeCapsule.runtimeEra());
 
@@ -83,10 +121,6 @@ public final class OctoLauncher {
             runtime.register(mod);
             mods.add(mod);
         }
-
-        PhantomClasses phantoms = new PhantomClasses();
-        OctoClassLoader classLoader = new OctoClassLoader(gameUrls(), getClass().getClassLoader(),
-                TransformPipeline.empty(), phantoms, context.compat().stubMissingApi());
 
         for (LoadedMod mod : mods) {
             classLoader.addMod(mod, timeCapsule.pipelineFor(mod));
@@ -112,8 +146,19 @@ public final class OctoLauncher {
 
             construct(mods, classLoader);
 
+            // The client phases belong inside the game's own construction, so
+            // they are handed to the hook when the hook can reach them.
+            List<Lifecycle> deferred = deferredPhases(classLoader);
+
             for (Lifecycle phase : Lifecycle.values()) {
-                dispatch(phase, mods);
+                if (!deferred.contains(phase)) {
+                    dispatch(phase, mods);
+                }
+            }
+
+            if (!deferred.isEmpty()) {
+                LOG.info("holding {} until the game has started", describe(deferred));
+                GameHooks.arm(() -> deferred.forEach(phase -> dispatch(phase, mods)));
             }
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
@@ -128,6 +173,12 @@ public final class OctoLauncher {
         // startup log is not something anyone can act on.
         for (LoadedMod mod : failed) {
             LOG.warn("{} did not load: {}", mod.id(), Failures.describe(mod.failure()));
+        }
+
+        // And the ones that did, so "are my mods actually loading?" is a question
+        // the log answers rather than one the player has to infer from the game.
+        if (!loaded.isEmpty()) {
+            LOG.info("running: {}", loaded.stream().map(LoadedMod::id).sorted().collect(Collectors.joining(", ")));
         }
 
         return new LaunchResult(runtime, resolution, classLoader, loaded, failed);
@@ -156,10 +207,33 @@ public final class OctoLauncher {
             LOG.info("handing over to {}", mainClass);
             main.invoke(null, (Object) context.launchArguments().toArray(new String[0]));
         } finally {
+            // If the game came and went without the hook firing, the mods that
+            // were waiting on it should still get their turn — a server run, or a
+            // client whose entry point Octo did not recognise.
+            GameHooks.runIfPending("the game's main method returned");
             Thread.currentThread().setContextClassLoader(previous);
         }
 
         return result;
+    }
+
+    /**
+     * The phases to hold back until the game calls in.
+     *
+     * <p>Only on a client, and only when the class the hook attaches to is
+     * actually present: with nothing to attach to there would be no callback, and
+     * mods that never get initialised are worse than mods initialised early.
+     */
+    private List<Lifecycle> deferredPhases(OctoClassLoader classLoader) {
+        if (context.side() != Side.CLIENT || !classLoader.classExists("net/minecraft/client/Minecraft")) {
+            return List.of();
+        }
+
+        return List.of(Lifecycle.SIDED_SETUP, Lifecycle.INTER_MOD, Lifecycle.LOAD_COMPLETE);
+    }
+
+    private static String describe(List<Lifecycle> phases) {
+        return phases.stream().map(Enum::name).collect(Collectors.joining(", "));
     }
 
     /**
@@ -289,7 +363,8 @@ public final class OctoLauncher {
                             studios.milkdromeda.octo.transform.TransformContext.of(null, classLoader::classExists));
                     phantoms.observe(translated, classLoader::classExists);
                 }
-            } catch (IOException | RuntimeException e) {
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
                 LOG.debug("could not scan {} for missing references: {}", mod.id(), e.toString());
             }
         }
