@@ -30,46 +30,48 @@ dependencies {
 //
 // Mods do not link against "a loader" — they link against concrete classes:
 // net.fabricmc.api.ModInitializer, net.neoforged.fml.common.Mod, and so on.
-// So Octo compiles the upstream sources in upstream/ straight into its own jar
-// and implements the missing back half itself (see compat/<ecosystem>). A mod
-// built against real Fabric Loader finds the real Fabric interfaces here.
+// So Octo compiles the upstream sources straight into its own jar and
+// implements the missing back half itself (see compat/<ecosystem>). A mod built
+// against real Fabric Loader finds the real Fabric interfaces here.
 //
-// Only the mod-facing surface is imported. The upstream bootstrap halves —
-// Knot, ModLauncher, SecureJarHandler, the Quilt plugin system — are mutually
-// exclusive by construction: each one wants to own the class loader and the
-// game's entrypoint. Octo replaces those with a single implementation that all
-// four surfaces sit on top of, which is the only way they can share a JVM.
+// There is one upstream tree, not four. `upstream/octo` is the four projects'
+// shipped sources merged into a single source root laid out by package, built
+// by scripts/sync-upstreams.py, with provenance recorded in its ORIGINS.md.
+// This is not a filing decision: Fabric, Quilt, Forge and NeoForge are four
+// answers to one question, and Octo is one answer to it, so the reference
+// material for it should also be one thing.
+//
+// Only the mod-facing surface is imported into the build. The upstream
+// bootstrap halves — Knot, ModLauncher, SecureJarHandler, the Quilt plugin
+// system — are mutually exclusive by construction: each one wants to own the
+// class loader and the game's entrypoint. Octo replaces those with a single
+// implementation that all four surfaces sit on top of, which is the only way
+// they can share a JVM.
 // ---------------------------------------------------------------------------
-def upstream = rootProject.layout.projectDirectory.dir('upstream')
+def upstream = rootProject.layout.projectDirectory.dir('upstream/octo')
+def upstreamSources = upstream.dir('src/main/java')
 
 // Sync rather than Copy so that narrowing the imported surface actually removes
 // the sources that were dropped, instead of leaving them behind to be compiled.
 tasks.register('importUpstreamApi', Sync) {
-    description = 'Copies the mod-facing API sources of the four upstream loaders into the build.'
+    description = 'Copies the mod-facing API sources out of the merged upstream tree into the build.'
     into layout.buildDirectory.dir('generated/upstream-api')
 
-    // Fabric's mod-facing half is imported whole, including the version parser,
-    // so a mod compiled against Fabric Loader links against Fabric Loader's own
-    // classes rather than a lookalike.
-    from(upstream.dir('fabric-loader/src/main/java')) {
+    from(upstreamSources) {
+        // Fabric's mod-facing half is imported whole, including the version
+        // parser, so a mod compiled against Fabric Loader links against Fabric
+        // Loader's own classes rather than a lookalike.
         include 'net/fabricmc/api/**'
         include 'net/fabricmc/loader/api/**'
         include 'net/fabricmc/loader/impl/util/version/**'
-    }
-
-    from(upstream.dir('fabric-loader/src/main/legacyJava')) {
         include 'net/fabricmc/loader/util/version/**'
-    }
 
-    // Quilt's API is entangled with its plugin and virtual-filesystem layers,
-    // which Octo replaces outright, so only the leaf types come across; the
-    // rest of the contract is implemented in compat/quilt.
-    from(upstream.dir('quilt-loader/src/main/java')) {
+        // Quilt's API is entangled with its plugin and virtual-filesystem
+        // layers, which Octo replaces outright, so only the leaf types come
+        // across; the rest of the contract is implemented in compat/quilt.
         include 'org/quiltmc/loader/api/LanguageAdapterException.java'
         include 'org/quiltmc/loader/api/VersionFormatException.java'
-    }
 
-    from(upstream.dir('neoforge/loader/src/main/java')) {
         include 'net/neoforged/fml/common/Mod.java'
     }
 }
@@ -94,11 +96,10 @@ jar {
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/maven/**'
     exclude 'module-info.class'
 
-    // Upstream licences travel with the upstream code.
-    from(upstream.file('fabric-loader/LICENSE')) { into 'META-INF/licenses'; rename { 'LICENSE-fabric-loader' } }
-    from(upstream.file('quilt-loader/LICENSE')) { into 'META-INF/licenses'; rename { 'LICENSE-quilt-loader' } }
-    from(upstream.file('neoforge/LICENSE.txt')) { into 'META-INF/licenses'; rename { 'LICENSE-neoforge' } }
-    from(upstream.file('forge/LICENSE.txt')) { into 'META-INF/licenses'; rename { 'LICENSE-forge' } }
+    // Upstream licences travel with the upstream code. This is the one place
+    // the four projects stay separate in the merged tree: their terms are not
+    // interchangeable, so neither are their licence files.
+    from(upstream.dir('LICENSES')) { into 'META-INF/licenses' }
 
     manifest {
         attributes(

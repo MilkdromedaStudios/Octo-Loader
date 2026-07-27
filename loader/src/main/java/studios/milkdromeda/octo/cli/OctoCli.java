@@ -9,6 +9,7 @@ import java.util.Map;
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
+import studios.milkdromeda.octo.discovery.Discovery;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
 import studios.milkdromeda.octo.launch.LaunchContext;
 import studios.milkdromeda.octo.launch.GameProvider;
@@ -69,7 +70,7 @@ public final class OctoCli {
                   --mainClass <name>    game entrypoint (default: read from the jar)
                   --no-translate        do not translate mods built for older versions
                   --no-stubs            do not stand in for classes that no longer exist
-                  --strict              refuse to start if any mod cannot be loaded
+                  --lenient             start the game even when mods could not be loaded
                   --debug               verbose logging
                 """);
     }
@@ -87,8 +88,8 @@ public final class OctoCli {
         MappingRegistry.install(MappingRegistry.load(context.octoDir().resolve("mappings"),
                 MappingRegistry.namespaceOf(Era.forMinecraftVersion(context.minecraftVersion()))));
 
-        List<ModCandidate> candidates = new ModDiscoverer(context.octoDir().resolve("nested"))
-                .discover(context.modDirs());
+        Discovery discovery = new ModDiscoverer(context.octoDir().resolve("nested")).discover(context.modDirs());
+        List<ModCandidate> candidates = discovery.candidates();
         Resolution resolution = new ModResolver(context).resolve(candidates);
         TimeCapsule timeCapsule = new TimeCapsule(context);
 
@@ -126,6 +127,14 @@ public final class OctoCli {
         System.out.println();
         System.out.println("Formats found: " + (byFormat.isEmpty() ? "none" : byFormat));
 
+        // The whole point of scanning is to find out why something is missing,
+        // so the files that produced no mod are the interesting half of this.
+        if (!discovery.rejections().isEmpty()) {
+            System.out.println();
+            System.out.println("Not loaded:");
+            discovery.rejections().forEach(rejection -> System.out.println("  " + rejection));
+        }
+
         if (!resolution.problems().isEmpty()) {
             System.out.println();
             System.out.println("Resolution:");
@@ -154,7 +163,7 @@ public final class OctoCli {
             Side side = Side.CLIENT;
             boolean translate = true;
             boolean stubs = true;
-            boolean strict = false;
+            boolean strict = true;
 
             for (int i = 0; i < arguments.size(); i++) {
                 String argument = arguments.get(i);
@@ -169,6 +178,7 @@ public final class OctoCli {
                     case "--no-translate" -> translate = false;
                     case "--no-stubs" -> stubs = false;
                     case "--strict" -> strict = true;
+                    case "--lenient" -> strict = false;
                     case "--debug" -> OctoLog.setThreshold(OctoLog.Level.DEBUG);
                     case "--" -> {
                         gameArguments.addAll(arguments.subList(i + 1, arguments.size()));
@@ -195,7 +205,7 @@ public final class OctoCli {
                     .compat(new LaunchContext.CompatOptions()
                             .translateOldMods(translate)
                             .stubMissingApi(stubs)
-                            .failOnUnloadableMod(strict));
+                            .strict(strict));
 
             modDirs.forEach(builder::modDir);
             gameJars.forEach(builder::gameJar);

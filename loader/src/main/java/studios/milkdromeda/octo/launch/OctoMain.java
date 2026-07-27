@@ -153,21 +153,47 @@ public final class OctoMain {
                 .launchArguments(arguments)
                 .compat(compatOptions());
 
-        String modsDir = argument(arguments, "--modsDir", null);
+        List<String> requestedModDirs = allArguments(arguments, "--modsDir");
+        List<Path> modDirs = new ArrayList<>();
 
-        if (modsDir != null) {
-            Path requested = Path.of(modsDir);
-            builder.modDir((requested.isAbsolute() ? requested : gameDir.resolve(requested))
-                    .toAbsolutePath().normalize());
+        if (requestedModDirs.isEmpty()) {
+            modDirs.addAll(defaultModDirectories(gameDir, System.getProperty("java.class.path", "")));
         } else {
-            defaultModDirectories(gameDir, System.getProperty("java.class.path", ""))
-                    .forEach(builder::modDir);
+            for (String requested : requestedModDirs) {
+                Path path = Path.of(requested);
+                modDirs.add((path.isAbsolute() ? path : gameDir.resolve(path)).toAbsolutePath().normalize());
+            }
         }
 
+        modDirs.forEach(builder::modDir);
         gameJars.forEach(builder::gameJar);
 
         LOG.info("Octo Loader starting from {}", gameDir);
+        LOG.info("mods will be loaded from {}", modDirs);
+        ensureExists(modDirs);
         new OctoLauncher(builder.build()).launch();
+    }
+
+    /**
+     * Creates the mods folders that are not there.
+     *
+     * <p>A player who was told to put jars in {@code .minecraft/mods} and finds
+     * no such folder tends to make one somewhere else. Creating it means the
+     * folder named in the log above is the folder that exists on disk.
+     */
+    private static void ensureExists(List<Path> modDirs) {
+        for (Path directory : modDirs) {
+            if (Files.isDirectory(directory)) {
+                continue;
+            }
+
+            try {
+                Files.createDirectories(directory);
+                LOG.info("created the mods folder {}", directory);
+            } catch (java.io.IOException error) {
+                LOG.warn("could not create the mods folder {}: {}", directory, error.toString());
+            }
+        }
     }
 
     /**
@@ -237,7 +263,9 @@ public final class OctoMain {
                 .translateOldMods(!Boolean.getBoolean("octo.noTranslate"))
                 .stubMissingApi(!Boolean.getBoolean("octo.noStubs"))
                 .relaxVersionChecks(!Boolean.getBoolean("octo.strictVersions"))
-                .failOnUnloadableMod(Boolean.getBoolean("octo.strict"));
+                // Strict is the default now. -Docto.strict=true is still accepted
+                // so that existing launcher profiles carrying it keep working.
+                .strict(!Boolean.getBoolean("octo.lenient"));
     }
 
     private static Side detectSide(List<String> arguments) {
@@ -256,6 +284,19 @@ public final class OctoMain {
     private static String argument(List<String> arguments, String name, String fallback) {
         int index = arguments.indexOf(name);
         return index >= 0 && index + 1 < arguments.size() ? arguments.get(index + 1) : fallback;
+    }
+
+    /** Every value given for a repeatable option, in the order they appeared. */
+    static List<String> allArguments(List<String> arguments, String name) {
+        List<String> out = new ArrayList<>();
+
+        for (int i = 0; i < arguments.size() - 1; i++) {
+            if (arguments.get(i).equals(name)) {
+                out.add(arguments.get(i + 1));
+            }
+        }
+
+        return out;
     }
 
     /**

@@ -87,7 +87,7 @@ public final class LaunchContext {
         private boolean relaxVersionChecks = true;
         private boolean stubMissingApi = true;
         private boolean allowCrossEcosystem = true;
-        private boolean failOnUnloadableMod;
+        private boolean strict = true;
 
         /** Remap and rewrite mods built for an older Minecraft. */
         public boolean translateOldMods() {
@@ -109,9 +109,22 @@ public final class LaunchContext {
             return allowCrossEcosystem;
         }
 
-        /** Abort the launch when any mod cannot be loaded, instead of skipping it. */
-        public boolean failOnUnloadableMod() {
-            return failOnUnloadableMod;
+        /**
+         * Abort the launch when a mod that should have loaded did not.
+         *
+         * <p>On by default, and deliberately so. The alternative — carrying on
+         * into a game with no mods in it — is the single worst thing this loader
+         * can do, because it looks exactly like a launch that worked. Every
+         * report of "Octo isn't loading my mods" is a launch that had already
+         * decided which file it could not read and wrote one line about it
+         * before starting Minecraft anyway. A loader that stops and says what
+         * went wrong is fixable; one that shrugs is not.
+         *
+         * <p>{@code -Docto.lenient=true} restores the old behaviour for anyone
+         * who would rather play without a mod than not play.
+         */
+        public boolean strict() {
+            return strict;
         }
 
         public CompatOptions translateOldMods(boolean value) {
@@ -134,8 +147,8 @@ public final class LaunchContext {
             return this;
         }
 
-        public CompatOptions failOnUnloadableMod(boolean value) {
-            this.failOnUnloadableMod = value;
+        public CompatOptions strict(boolean value) {
+            this.strict = value;
             return this;
         }
     }

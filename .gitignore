@@ -17,3 +17,7 @@ bin/
 
 # Runtime logs
 logs/
+
+# Python bytecode from scripts/
+__pycache__/
+*.pyc

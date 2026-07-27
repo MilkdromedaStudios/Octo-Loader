@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -146,17 +147,34 @@ class EndToEndLoaderTest {
     }
 
     @Test
-    @DisplayName("with --strict, the same mod is refused instead")
-    void strictModeRefusesAMismatchedDependency() throws Exception {
+    @DisplayName("a mod whose dependency is not installed stops the launch and names it")
+    void anUnsatisfiableDependencyStopsTheLaunch() throws Exception {
         Path gameJar = buildGameJar();
 
-        // A mod requiring another mod that is not installed is fatal in any mode.
         new JarBuilder().file("fabric.mod.json", """
                 { "schemaVersion": 1, "id": "needsmissing", "version": "1.0.0",
                   "depends": { "notinstalled": "*" } }
                 """).writeTo(modsDir.resolve("needsmissing.jar"));
 
-        LaunchResult result = launch(gameJar);
+        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
+
+        assertTrue(refusal.getMessage().contains("needsmissing"),
+                "the refusal should name the mod: " + refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("notinstalled"),
+                "and what it was missing: " + refusal.getMessage());
+    }
+
+    @Test
+    @DisplayName("with --lenient, that mod is skipped and the game still starts")
+    void lenientModeSkipsAnUnsatisfiableDependency() throws Exception {
+        Path gameJar = buildGameJar();
+
+        new JarBuilder().file("fabric.mod.json", """
+                { "schemaVersion": 1, "id": "needsmissing", "version": "1.0.0",
+                  "depends": { "notinstalled": "*" } }
+                """).writeTo(modsDir.resolve("needsmissing.jar"));
+
+        LaunchResult result = launchLeniently(gameJar);
 
         assertTrue(result.loaded().isEmpty(), "the mod should not have loaded");
         assertEquals(1, result.resolution().fatalProblems().size());
@@ -164,13 +182,26 @@ class EndToEndLoaderTest {
     }
 
     @Test
-    @DisplayName("a mod that throws an Error is skipped, and every other mod still loads")
-    void oneBrokenModDoesNotStopTheLaunch() throws Exception {
+    @DisplayName("a mod that throws an Error stops the launch rather than disappearing")
+    void oneBrokenModStopsTheLaunch() throws Exception {
         Path gameJar = buildGameJar();
         buildFabricMod();
         buildExplodingMod();
 
-        LaunchResult result = launch(gameJar);
+        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
+
+        assertTrue(refusal.getMessage().contains("explodingmod"),
+                "the refusal should name the mod that failed: " + refusal.getMessage());
+    }
+
+    @Test
+    @DisplayName("with --lenient, a mod that throws an Error is skipped and every other mod still loads")
+    void lenientModeSkipsOneBrokenMod() throws Exception {
+        Path gameJar = buildGameJar();
+        buildFabricMod();
+        buildExplodingMod();
+
+        LaunchResult result = launchLeniently(gameJar);
 
         assertEquals(1, result.failed().size(), "only the broken mod should have failed: " + result.failed());
         assertEquals("explodingmod", result.failed().get(0).id());
@@ -179,6 +210,29 @@ class EndToEndLoaderTest {
                         + result.failed().get(0).failure());
 
         assertRan(result, "fabricmod", "com.example.fabric.FabricMod");
+    }
+
+    @Test
+    @DisplayName("a jar whose metadata will not parse stops the launch instead of being skipped")
+    void brokenMetadataStopsTheLaunch() throws Exception {
+        Path gameJar = buildGameJar();
+        buildFabricMod();
+        new JarBuilder().file("fabric.mod.json", "{ this is not json")
+                .writeTo(modsDir.resolve("corrupt.jar"));
+
+        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
+
+        assertTrue(refusal.getMessage().contains("corrupt.jar"),
+                "the refusal should name the file: " + refusal.getMessage());
+    }
+
+    @Test
+    @DisplayName("an empty mods folder is not a failure")
+    void anEmptyModsFolderStartsCleanly() throws Exception {
+        LaunchResult result = launch(buildGameJar());
+
+        assertTrue(result.loaded().isEmpty());
+        assertTrue(result.failed().isEmpty());
     }
 
     @Test
@@ -208,6 +262,13 @@ class EndToEndLoaderTest {
 
     private LaunchResult launch(Path gameJar) {
         return new OctoLauncher(context(gameJar).build()).load();
+    }
+
+    /** The old behaviour: skip what cannot be loaded and start the game anyway. */
+    private LaunchResult launchLeniently(Path gameJar) {
+        return new OctoLauncher(context(gameJar)
+                .compat(new LaunchContext.CompatOptions().strict(false))
+                .build()).load();
     }
 
     private LaunchContext.Builder context(Path gameJar) {

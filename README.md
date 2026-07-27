@@ -184,8 +184,40 @@ Nearly every mod ever published declares a narrow game version, and enforcing
 that is what makes an old mod "incompatible" even when nothing it calls has
 changed. Octo treats an unsatisfied *game* version bound as a warning and hands
 the mod to the translation layer. Bounds *between mods* are still enforced —
-those describe APIs the loader cannot fix. `--strict` restores the usual
-behaviour.
+those describe APIs the loader cannot fix. `-Docto.strictVersions=true` restores
+the usual behaviour of enforcing the game version too.
+
+### It stops rather than starting without your mods
+
+If a mod you installed cannot be loaded, Octo does not start Minecraft. It
+stops, and it tells you which file and why:
+
+```
+studios.milkdromeda.octo.launch.ModLoadingException: 1 file(s) in the mods folder could not be loaded
+scanned [/home/you/.minecraft/mods]
+  sodium-fabric-0.6.13.jar: loaded sodium
+  create-1.21.1.jar: broken metadata — fabric.mod.json: malformed JSON at line 4
+
+Octo refuses to start Minecraft without the mods you installed.
+  -Docto.lenient=true   start anyway, with whatever could be loaded
+  -Docto.safeMode=true  start with no mods at all
+  -Docto.debug=true     log every decision the loader makes
+```
+
+This is a reversal of what the loader used to do, and the reason is that the
+old behaviour was indistinguishable from a broken install. A jar that would not
+parse produced one warning line and then a perfectly normal-looking game with
+nothing in it — no crash, no error screen, and a log the player had no reason to
+open. Every route that used to end that way now ends here instead: metadata that
+will not parse, an archive that will not open, a mods folder whose contents all
+turned out to be something else, dependency resolution rejecting everything,
+mixin failing to start, and any mod that throws while it is being initialised.
+
+An empty mods folder is not a failure, and a plain library jar sitting among the
+mods is not either. `--lenient` (or `-Docto.lenient=true` from a launcher
+profile) restores the old skip-and-carry-on behaviour for anyone who would
+rather play without a mod than not play, and `octo scan` reports the same
+verdicts without starting anything.
 
 ## Command line
 
@@ -201,19 +233,22 @@ octo version
   --side client|server  which side to load for
   --no-translate        do not translate mods built for older versions
   --no-stubs            do not stand in for classes that no longer exist
-  --strict              refuse to start if any mod cannot be loaded
+  --lenient             start the game even when mods could not be loaded
   --debug               verbose logging
 ```
 
 When launched from a launcher profile the entrypoint is
 `studios.milkdromeda.octo.launch.OctoMain`, which reads the same switches from
-system properties (`-Docto.strict=true`, `-Docto.noTranslate=true`,
-`-Docto.noStubs=true`, `-Docto.debug=true`) so the launcher's own argument list
-is left alone.
+system properties (`-Docto.lenient=true`, `-Docto.noTranslate=true`,
+`-Docto.noStubs=true`, `-Docto.safeMode=true`, `-Docto.debug=true`) so the
+launcher's own argument list is left alone.
 
 ## How the four loaders are merged
 
-The upstream sources are vendored in [`upstream/`](upstream/) and the merge
+The upstream sources are vendored as one merged tree in
+[`upstream/octo`](upstream/octo) — the four projects' shipped sources laid out by
+package rather than by project, with provenance in
+[`upstream/octo/ORIGINS.md`](upstream/octo/ORIGINS.md) — and the merge
 happens at the layer that matters: **mods link against concrete classes**, not
 against "a loader". A Fabric mod imports `net.fabricmc.api.ModInitializer`; a
 NeoForge mod carries `net.neoforged.fml.common.Mod`. So Octo compiles those
@@ -292,22 +327,23 @@ written beneath the selected game directory in `.octo/logs/octo-loader.log`.
 The root project has two Gradle subprojects. `loader` builds the self-contained
 runtime and command-line scanner; `installer` embeds that loader jar and builds
 the GUI/client/server installer. Mod-facing portions of Fabric Loader, Quilt
-Loader, Forge, and NeoForge are vendored under `upstream/` and imported by the
-loader build. Do not edit generated sources under `build/generated`; change
-Octo's sources or refresh the corresponding vendored upstream instead.
+Loader, Forge, and NeoForge are vendored as a single merged source root under
+`upstream/octo` and imported by the loader build. Do not edit anything under
+`upstream/octo` or `build/generated` by hand; change Octo's own sources, or
+refresh the merged tree with `python3 scripts/sync-upstreams.py`.
 
 ### Tests and validation
 
 The vendored loader APIs are checked for updates every day. The
 [`sync-upstreams` workflow](.github/workflows/sync-upstreams.yml) refreshes all
-four source trees, records their exact commits, runs the complete combined-loader
+the merged tree, records each project's exact commit, runs the complete combined-loader
 test suite, and opens a pull request when anything changed. Updates therefore
 remain automatic without publishing an untested upstream change directly to
 users. Maintainers can run the same refresh locally with
 `python3 scripts/sync-upstreams.py`.
 
 That sync command requires Python 3, Git, and network access. After a sync,
-review the changes in `upstream/` and `THIRD-PARTY-NOTICES.md`, then run
+review the changes in `upstream/octo` and `THIRD-PARTY-NOTICES.md`, then run
 `./gradlew build --stacktrace`. Do not commit `.gradle/` or any `build/`
 directory.
 
@@ -351,7 +387,8 @@ loader/                     the loader runtime
   launch/                   the class loader and the launcher
   compat/<ecosystem>/       the implementation behind each upstream API
 installer/                  installer.jar: client, server, GUI and CLI
-upstream/                   vendored Fabric, Quilt, Forge and NeoForge sources
+upstream/octo/              Fabric, Quilt, Forge and NeoForge sources, merged
+                            into one tree by scripts/sync-upstreams.py
 ```
 
 ## Licences

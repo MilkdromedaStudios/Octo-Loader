@@ -1,18 +1,24 @@
 # Third-party notices
 
 Octo Loader vendors the sources of the four loaders it merges. They are in
-[`upstream/`](upstream/), unmodified, each with its own licence file alongside
-it. This document records what was taken, from where, at which commit, and under
-which terms.
+[`upstream/octo`](upstream/octo), unmodified in content but merged into one
+source tree laid out by package rather than by project. This document records
+what was taken, from where, at which commit, and under which terms.
 
 ## Vendored sources
 
-| Directory | Project | Upstream | Commit | Licence |
-|---|---|---|---|---|
-| `upstream/fabric-loader` | Fabric Loader | https://github.com/FabricMC/fabric-loader | `b907c5b292fc062d75b6d8bf8255ac200109b992` | Apache-2.0 (`upstream/fabric-loader/LICENSE`) |
-| `upstream/quilt-loader` | Quilt Loader | https://github.com/QuiltMC/quilt-loader | `c5c3b0f6e67bfa2f0744856b277b1d92884c3965` | Apache-2.0 (`upstream/quilt-loader/LICENSE`) |
-| `upstream/neoforge` | FancyModLoader (NeoForge) | https://github.com/neoforged/FancyModLoader | `b6b853518f4c04ac743b83d68606aac06bf72545` | LGPL-2.1 (`upstream/neoforge/LICENSE.txt`) |
-| `upstream/forge` | MinecraftForge, loader modules only | https://github.com/MinecraftForge/MinecraftForge | `66d4d888eb9f560a35cd3cc8642f5d8f161fba3d` | LGPL-2.1 (`upstream/forge/LICENSE.txt`) |
+Every file below lives under `upstream/octo/src/main/{java,resources}`, merged
+by [`scripts/sync-upstreams.py`](scripts/sync-upstreams.py). Which project
+supplied which package — and which files were supplied by more than one, where
+the first project listed here wins — is recorded per package in
+[`upstream/octo/ORIGINS.md`](upstream/octo/ORIGINS.md).
+
+| Project | Upstream | Commit | Licence |
+|---|---|---|---|
+| Fabric Loader | https://github.com/FabricMC/fabric-loader | `b907c5b292fc062d75b6d8bf8255ac200109b992` | Apache-2.0 (`upstream/octo/LICENSES/fabric-loader.LICENSE`) |
+| Quilt Loader | https://github.com/QuiltMC/quilt-loader | `c5c3b0f6e67bfa2f0744856b277b1d92884c3965` | Apache-2.0 (`upstream/octo/LICENSES/quilt-loader.LICENSE`) |
+| FancyModLoader (NeoForge) | https://github.com/neoforged/FancyModLoader | `b6b853518f4c04ac743b83d68606aac06bf72545` | LGPL-2.1 (`upstream/octo/LICENSES/neoforge.LICENSE`) |
+| MinecraftForge, loader modules only | https://github.com/MinecraftForge/MinecraftForge | `66d4d888eb9f560a35cd3cc8642f5d8f161fba3d` | LGPL-2.1 (`upstream/octo/LICENSES/forge.LICENSE`) |
 
 Only the loader modules of MinecraftForge are vendored — `fmlloader`,
 `fmlcore`, `javafmllanguage`, `mclanguage`, `lowcodelanguage` and
@@ -20,8 +26,10 @@ Only the loader modules of MinecraftForge are vendored — `fmlloader`,
 Minecraft-derived sources, are deliberately excluded: they are not loader code
 and are not ours to redistribute.
 
-Build wrappers (`gradlew`, `gradle-wrapper.jar`) and CI configuration were
-removed from the vendored copies so they are not mistaken for this project's own.
+Only shipped source roots are vendored. Each project's tests, benchmarks, build
+wrappers, CI configuration and Gradle plumbing are not copied: nothing here
+reads them, they were the bulk of the four checkouts, and keeping them invites
+the mistake of taking them for this project's own.
 
 ## What is compiled into the distributed jar
 
