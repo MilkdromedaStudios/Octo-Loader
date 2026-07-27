@@ -18,21 +18,76 @@ quilted                      2.0.0          Quilt        modern       matches th
 shiny                        1.4.2          Fabric       modern       matches this Minecraft - no translation needed
 ```
 
-## Install
+## Install and use Octo Loader
+
+### Requirements
+
+- Minecraft: Java Edition, installed and started at least once.
+- Java 17 or newer. The official launcher normally selects a suitable Java
+  runtime automatically; command-line and server installations must provide it.
+- A backup of important worlds before trying mods from another Minecraft
+  version. Octo can translate binary interfaces, but it cannot guarantee that
+  an old mod's gameplay or save-data behavior still works.
+
+### Install a client
 
 Download `installer.jar` from the
 [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)
-and double-click it, or from a terminal:
+and double-click it. In the installer:
+
+1. Choose **Client**.
+2. Select the Minecraft directory. On a standard Windows installation this is
+   `%APPDATA%\.minecraft`; custom launcher instances may use a different folder.
+3. Select an installed vanilla Minecraft version and press **Install**. If the
+   version is absent, start that version once in the Minecraft launcher first.
+4. Open or restart the Minecraft launcher, select the new **Octo Loader**
+   installation, and launch it.
+
+The same operations are available from a terminal:
 
 ```bash
 java -jar installer.jar                                   # window
 java -jar installer.jar client --mcVersion 1.20.1         # client, no window
-java -jar installer.jar server --dir /srv/minecraft       # server + start scripts
 java -jar installer.jar uninstall --mcVersion 1.20.1      # removes everything it wrote
 ```
 
 The installer needs no network access — the loader is inside it. It adds one jar
 under `libraries/` and one profile under `versions/`, and touches nothing else.
+It also creates the `mods` directory if it does not exist.
+
+### Install mods
+
+1. Close Minecraft before changing the mod set.
+2. Download the mod's `.jar`, `.zip`, or `.litemod` file from a source you trust.
+   Do not extract the archive.
+3. Put the file directly in `<gameDir>/mods`. For the standard Windows client,
+   that is `%APPDATA%\.minecraft\mods`. A launcher profile with a custom game
+   directory uses that instance's `mods` folder instead.
+4. Keep Fabric, Quilt, Forge, NeoForge, legacy Forge, and LiteLoader mods together
+   in that one folder. Do **not** install another loader profile on top of Octo.
+5. Start the **Octo Loader** installation. The log names every discovered and
+   loaded mod; the complete log is `<gameDir>/.octo/logs/octo-loader.log`.
+
+Octo relaxes a mod's declared Minecraft-version constraint by default, but
+dependencies between mods still matter. Install any library mods listed on the
+mod's download page. Add mods a few at a time when diagnosing a failure, and
+check that each mod supports the client or server side on which it is installed.
+
+Resource packs belong in `<gameDir>/resourcepacks`, not `mods`. A
+`pack.mcmeta` error is produced by an invalid or outdated resource pack and does
+not mean that Octo failed to find the mods directory. Sodium workaround and
+missing Vulkan-extension messages describe the graphics driver/GPU; update the
+graphics driver or disable the feature/mod that requires Vulkan if Minecraft
+does not continue launching.
+
+### Install a server
+
+Create an empty server directory, place the vanilla server jar there, accept
+Minecraft's EULA as required, and run:
+
+```bash
+java -jar installer.jar server --dir /srv/minecraft
+```
 Select **Octo Loader** in your launcher, and put mods in `<gameDir>/mods` (with
 the standard Windows installation, `%APPDATA%\.minecraft\mods`). Any loader,
 any version, all in the same folder. Loader startup and crash details are always
@@ -40,7 +95,10 @@ written to `<gameDir>/.octo/logs/octo-loader.log`, including trace and debug
 messages hidden from the console and failures that happen before Minecraft's
 own logging system starts.
 
-Requires Java 17 or newer.
+The installer creates server start scripts and `/srv/minecraft/mods`. Put
+server-compatible mod archives in that folder, then use `start-octo-server.sh`
+on Linux/macOS or `start-octo-server.bat` on Windows. Clients must also install
+any mods that the mod author marks as required on both sides.
 
 ## What it does that the others do not
 
@@ -184,15 +242,61 @@ layers, and current Forge's `@Mod` reaches into `BusGroup` and `Bindings`.
 Pulling either in would drag in the bootstrap half that has just been replaced.
 The signatures mods compile against are unchanged.
 
-## Building
+## Development
+
+### Prerequisites and checkout
+
+Development requires Git and a JDK 17 or newer; CI builds with JDK 21 while
+emitting Java 17 bytecode. The checked-in Gradle wrapper downloads the expected
+Gradle version, so a system Gradle installation is not required.
 
 ```bash
-./gradlew build                      # compile, run 69 tests
-./gradlew :installer:installerJar    # installer/build/installer/installer.jar
-./gradlew :loader:jar                # loader/build/libs/octo-loader-1.0.0.jar
+git clone https://github.com/MilkdromedaStudios/Octo-Loader.git
+cd Octo-Loader
+./gradlew --version
 ```
 
-Java 17+ to build; the output targets Java 17.
+On Windows, use `gradlew.bat` in place of `./gradlew`.
+
+### Build, test, and package
+
+```bash
+./gradlew build                      # compile and run the complete test suite
+./gradlew test                       # run tests without packaging everything
+./gradlew :loader:test               # loader tests only
+./gradlew :installer:test            # installer tests only
+./gradlew :installer:installerJar    # installer/build/installer/installer.jar
+./gradlew :loader:jar                # loader/build/libs/octo-loader-1.0.0.jar
+./gradlew clean                      # remove generated build output
+```
+
+Build artifacts are written below `loader/build/` and `installer/build/`; these
+directories are generated and should not be committed. Dependency downloads
+come from Maven Central and FabricMC's Maven repository.
+
+To inspect a local mod folder without starting Minecraft, build the loader and
+run its scan command:
+
+```bash
+java -jar loader/build/libs/octo-loader-1.0.0.jar scan \
+  --gameDir /path/to/instance \
+  --modsDir /path/to/instance/mods \
+  --mcVersion 1.20.1
+```
+
+Use `--debug` for verbose console diagnostics. Runtime trace output is also
+written beneath the selected game directory in `.octo/logs/octo-loader.log`.
+
+### Source organization
+
+The root project has two Gradle subprojects. `loader` builds the self-contained
+runtime and command-line scanner; `installer` embeds that loader jar and builds
+the GUI/client/server installer. Mod-facing portions of Fabric Loader, Quilt
+Loader, Forge, and NeoForge are vendored under `upstream/` and imported by the
+loader build. Do not edit generated sources under `build/generated`; change
+Octo's sources or refresh the corresponding vendored upstream instead.
+
+### Tests and validation
 
 The vendored loader APIs are checked for updates every day. The
 [`sync-upstreams` workflow](.github/workflows/sync-upstreams.yml) refreshes all
@@ -201,6 +305,11 @@ test suite, and opens a pull request when anything changed. Updates therefore
 remain automatic without publishing an untested upstream change directly to
 users. Maintainers can run the same refresh locally with
 `python3 scripts/sync-upstreams.py`.
+
+That sync command requires Python 3, Git, and network access. After a sync,
+review the changes in `upstream/` and `THIRD-PARTY-NOTICES.md`, then run
+`./gradlew build --stacktrace`. Do not commit `.gradle/` or any `build/`
+directory.
 
 The tests are not smoke tests. The end-to-end suite compiles six real mods — one
 per ecosystem, plus a LiteLoader mod and one written against a 2014 API that is
@@ -215,6 +324,17 @@ as a mod is really built — hands the loader the restricted original, and then
 asserts that the mod's `@Inject` changed the game's behaviour, that its
 `@Invoker` reached a private method, that its access widener made another one
 callable, and that a class the game declares `final` was subclassed.
+
+Before submitting a change, run at least:
+
+```bash
+./gradlew build --stacktrace
+git diff --check
+git status --short
+```
+
+The `build.yml` workflow repeats the build, packages the installer, scans six
+sample mod formats, and publishes release artifacts from `main`.
 
 ## Layout
 
