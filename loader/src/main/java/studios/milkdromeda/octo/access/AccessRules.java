@@ -2,6 +2,7 @@ package studios.milkdromeda.octo.access;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -19,7 +20,8 @@ import java.util.Set;
  * running game's namespace; the readers do any translation on the way in.
  */
 public final class AccessRules {
-    public static final AccessRules EMPTY = new AccessRules(Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+    public static final AccessRules EMPTY =
+            new AccessRules(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
 
     private final Map<String, Access> classes;
     private final Map<String, Access> methods;
@@ -28,14 +30,18 @@ public final class AccessRules {
     private final Map<String, Access> allMethods;
     /** owner -> access applied to every field it declares (Forge's {@code *}). */
     private final Map<String, Access> allFields;
+    /** owner -> interfaces a class tweaker adds to it. */
+    private final Map<String, Set<String>> injectedInterfaces;
 
     private AccessRules(Map<String, Access> classes, Map<String, Access> methods, Map<String, Access> fields,
-            Map<String, Access> allMethods, Map<String, Access> allFields) {
+            Map<String, Access> allMethods, Map<String, Access> allFields,
+            Map<String, Set<String>> injectedInterfaces) {
         this.classes = classes;
         this.methods = methods;
         this.fields = fields;
         this.allMethods = allMethods;
         this.allFields = allFields;
+        this.injectedInterfaces = injectedInterfaces;
     }
 
     public static Builder builder() {
@@ -44,11 +50,12 @@ public final class AccessRules {
 
     public boolean isEmpty() {
         return classes.isEmpty() && methods.isEmpty() && fields.isEmpty()
-                && allMethods.isEmpty() && allFields.isEmpty();
+                && allMethods.isEmpty() && allFields.isEmpty() && injectedInterfaces.isEmpty();
     }
 
     public int size() {
-        return classes.size() + methods.size() + fields.size() + allMethods.size() + allFields.size();
+        return classes.size() + methods.size() + fields.size() + allMethods.size() + allFields.size()
+                + injectedInterfaces.size();
     }
 
     /** The classes any rule mentions — the loader's cheap opt-out before parsing bytecode. */
@@ -57,7 +64,12 @@ public final class AccessRules {
     }
 
     public boolean touches(String internalName) {
-        return classes.containsKey(internalName);
+        return classes.containsKey(internalName) || injectedInterfaces.containsKey(internalName);
+    }
+
+    /** The interfaces to add to a class, in declaration order. */
+    public Set<String> interfacesFor(String internalName) {
+        return injectedInterfaces.getOrDefault(internalName, Set.of());
     }
 
     public Access forClass(String internalName) {
@@ -104,6 +116,20 @@ public final class AccessRules {
         private final Map<String, Access> fields = new HashMap<>();
         private final Map<String, Access> allMethods = new HashMap<>();
         private final Map<String, Access> allFields = new HashMap<>();
+        private final Map<String, Set<String>> injectedInterfaces = new LinkedHashMap<>();
+
+        /**
+         * Records an interface a class tweaker adds to a game class.
+         *
+         * <p>Fabric API uses this to make vanilla classes implement its own
+         * interfaces, which is what lets a mod cast an {@code Entity} to one of
+         * them. Without it the cast is a {@code ClassCastException} at the first
+         * call rather than anything the mod can guard against.
+         */
+        public Builder injectInterface(String owner, String interfaceName) {
+            injectedInterfaces.computeIfAbsent(owner, ignored -> new LinkedHashSet<>()).add(interfaceName);
+            return this;
+        }
 
         public Builder widenClass(String internalName, Access access) {
             merge(classes, internalName, access);
@@ -137,6 +163,8 @@ public final class AccessRules {
             other.fields.forEach((name, access) -> merge(fields, name, access));
             other.allMethods.forEach((name, access) -> merge(allMethods, name, access));
             other.allFields.forEach((name, access) -> merge(allFields, name, access));
+            other.injectedInterfaces.forEach((owner, interfaces) ->
+                    interfaces.forEach(name -> injectInterface(owner, name)));
             return this;
         }
 
@@ -150,7 +178,7 @@ public final class AccessRules {
 
         public boolean isEmpty() {
             return classes.isEmpty() && methods.isEmpty() && fields.isEmpty()
-                    && allMethods.isEmpty() && allFields.isEmpty();
+                    && allMethods.isEmpty() && allFields.isEmpty() && injectedInterfaces.isEmpty();
         }
 
         public AccessRules build() {
@@ -158,8 +186,11 @@ public final class AccessRules {
                 return EMPTY;
             }
 
+            Map<String, Set<String>> interfaces = new LinkedHashMap<>();
+            injectedInterfaces.forEach((owner, names) -> interfaces.put(owner, Set.copyOf(names)));
+
             return new AccessRules(Map.copyOf(classes), Map.copyOf(methods), Map.copyOf(fields),
-                    Map.copyOf(allMethods), Map.copyOf(allFields));
+                    Map.copyOf(allMethods), Map.copyOf(allFields), Map.copyOf(interfaces));
         }
     }
 }

@@ -332,6 +332,19 @@ public final class OctoClassLoader extends URLClassLoader {
         return globalPipeline.apply(internalName, pipeline.apply(internalName, bytes, context), context);
     }
 
+    /**
+     * Whether this thread is already inside the weaver.
+     *
+     * <p>Mixin loads classes of its own while it works — configuration plugins,
+     * and whatever those plugins touch — and those loads come straight back
+     * here. Calling mixin again from inside itself is the "re-entrance detected
+     * during prepare phase, this will cause serious problems" error, and the
+     * problems are real: the class that was being woven comes out unwoven, and
+     * mods whose mixins silently did not apply fail much later with something
+     * that looks unrelated.
+     */
+    private final ThreadLocal<Boolean> weaving = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     /** Applies mixins, if any mod uses them, and never lets one failing class stop a load. */
     private byte[] weave(byte[] bytes, String internalName, TransformContext context) {
         Transformer current = weaver;
@@ -339,6 +352,16 @@ public final class OctoClassLoader extends URLClassLoader {
         if (current == null) {
             return bytes;
         }
+
+        if (weaving.get()) {
+            // Mixin is asking for this class itself. Handing it back untouched is
+            // right: mixin does not weave its own plugins, and it is the only
+            // answer that does not re-enter the transformer.
+            LOG.debug("not weaving {}: mixin is loading it itself", internalName.replace('/', '.'));
+            return bytes;
+        }
+
+        weaving.set(Boolean.TRUE);
 
         try {
             byte[] result = current.transform(internalName, bytes, context);
@@ -355,6 +378,8 @@ public final class OctoClassLoader extends URLClassLoader {
                     Failures.describe(e));
             OctoLog.detail(e);
             return bytes;
+        } finally {
+            weaving.set(Boolean.FALSE);
         }
     }
 

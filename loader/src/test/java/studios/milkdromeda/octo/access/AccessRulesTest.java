@@ -8,6 +8,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -77,6 +78,46 @@ class AccessRulesTest {
     }
 
     @Nested
+    @DisplayName("Fabric class tweakers")
+    class ClassTweakers {
+        @Test
+        @DisplayName("the classTweaker header is read, not just accessWidener")
+        void readsTheNewerHeader() {
+            AccessRules rules = AccessWidenerReader.read("""
+                    classTweaker\tv2\tnamed
+                    transitive-extendable\tclass\tnet/minecraft/world/item/crafting/Ingredient
+                    """, "test", MappingSet.EMPTY);
+
+            assertTrue(rules.forClass("net/minecraft/world/item/crafting/Ingredient").removeFinal(),
+                    "current Fabric API ships class tweakers, and this is where Ingredient stops being final");
+        }
+
+        @Test
+        @DisplayName("inject-interface adds the interface to the target")
+        void readsInterfaceInjection() {
+            AccessRules rules = AccessWidenerReader.read("""
+                    classTweaker\tv1\tnamed
+                    inject-interface\tnet/minecraft/world/entity/Entity\tcom/example/Extra
+                    """, "test", MappingSet.EMPTY);
+
+            assertEquals(Set.of("com/example/Extra"), rules.interfacesFor("net/minecraft/world/entity/Entity"));
+            assertTrue(rules.touches("net/minecraft/world/entity/Entity"));
+        }
+
+        @Test
+        @DisplayName("an unsupported directive is dropped without losing the rest of the file")
+        void skipsWhatItCannotDo() {
+            AccessRules rules = AccessWidenerReader.read("""
+                    classTweaker\tv2\tnamed
+                    extend-enum\tnet/minecraft/world/item/Rarity\texample
+                    accessible\tclass\tnet/minecraft/Foo
+                    """, "test", MappingSet.EMPTY);
+
+            assertTrue(rules.forClass("net/minecraft/Foo").makePublic());
+        }
+    }
+
+    @Nested
     @DisplayName("Forge access transformers")
     class Transformers {
         @Test
@@ -107,8 +148,56 @@ class AccessRulesTest {
                     """, "test", MappingSet.EMPTY);
 
             assertFalse(rules.forField("net/minecraft/client/Minecraft", "player", "I").makePublic());
-            assertFalse(rules.forField("net/minecraft/client/Minecraft", "player", "I").makeFinal());
+            assertFalse(rules.forField("net/minecraft/client/Minecraft", "player", "I").finalIfPrivate());
         }
+    }
+
+    @Test
+    @DisplayName("widening an inherited method does not make it final, so overrides still link")
+    void neverFinalisesAnInheritedMethod() throws Exception {
+        // The exact shape that crashed a real launch: a widener names a method
+        // the game's own subclass overrides. Marking it final there turns every
+        // override into an IncompatibleClassChangeError when the subclass loads.
+        Map<String, byte[]> compiled = SourceCompiler.compile(Map.of(
+                "game.Living", """
+                        package game;
+                        public class Living {
+                            protected void hurtArmor(float amount) { }
+                            private String secret() { return "hidden"; }
+                        }
+                        """,
+                "game.Player", """
+                        package game;
+                        public class Player extends Living {
+                            @Override protected void hurtArmor(float amount) { }
+                        }
+                        """));
+
+        AccessRules rules = AccessWidenerReader.read("""
+                accessWidener\tv2\tnamed
+                accessible\tmethod\tgame/Living\thurtArmor\t(F)V
+                accessible\tmethod\tgame/Living\tsecret\t()Ljava/lang/String;
+                """, "test", MappingSet.EMPTY);
+
+        AccessRuleTransformer transformer = new AccessRuleTransformer(rules);
+        TransformContext context = TransformContext.of(null, name -> true);
+
+        ByteClassLoader loader = new ByteClassLoader(getClass().getClassLoader())
+                .define("game.Living", transformer.transform("game/Living", compiled.get("game.Living"), context))
+                .define("game.Player", compiled.get("game.Player"));
+
+        Class<?> living = loader.loadClass("game.Living");
+
+        assertTrue(Modifier.isPublic(living.getDeclaredMethod("hurtArmor", float.class).getModifiers()),
+                "the inherited method should have been made public");
+        assertFalse(Modifier.isFinal(living.getDeclaredMethod("hurtArmor", float.class).getModifiers()),
+                "but it must not have been made final");
+        assertTrue(Modifier.isFinal(living.getDeclaredMethod("secret").getModifiers()),
+                "a widened private method is still finalised, as Fabric does");
+
+        // The real proof: the subclass links. Without the fix this throws
+        // IncompatibleClassChangeError: overrides final method.
+        assertEquals(living, loader.loadClass("game.Player").getSuperclass());
     }
 
     @Test
