@@ -3,6 +3,7 @@ package studios.milkdromeda.octo.launch;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.List;
 
 import studios.milkdromeda.octo.mod.Side;
@@ -158,12 +159,72 @@ public final class OctoMain {
             Path requested = Path.of(modsDir);
             builder.modDir((requested.isAbsolute() ? requested : gameDir.resolve(requested))
                     .toAbsolutePath().normalize());
+        } else {
+            defaultModDirectories(gameDir, System.getProperty("java.class.path", ""))
+                    .forEach(builder::modDir);
         }
 
         gameJars.forEach(builder::gameJar);
 
         LOG.info("Octo Loader starting from {}", gameDir);
         new OctoLauncher(builder.build()).launch();
+    }
+
+    /**
+     * Chooses the normal instance mods directory, with a conservative fallback
+     * for launcher profiles whose {@code --gameDir} points at an empty profile.
+     *
+     * <p>The official launcher and several third-party launchers can keep the
+     * game jar under one Minecraft installation while passing a separate
+     * profile directory as {@code --gameDir}. Players commonly leave their jars
+     * in the installation's {@code mods} folder. Previously Octo scanned only
+     * the empty profile folder and silently loaded nothing. We use the shared
+     * folder only when the instance folder contains no mod archives, so a
+     * deliberately isolated instance never has two mod sets combined.
+     */
+    static List<Path> defaultModDirectories(Path gameDir, String classPath) {
+        Path instanceMods = gameDir.resolve("mods").toAbsolutePath().normalize();
+
+        if (containsModArchives(instanceMods)) {
+            return List.of(instanceMods);
+        }
+
+        Path installation = installationRoot(classPath);
+
+        if (installation == null) {
+            return List.of(instanceMods);
+        }
+
+        Path sharedMods = installation.resolve("mods").toAbsolutePath().normalize();
+
+        if (sharedMods.equals(instanceMods) || !containsModArchives(sharedMods)) {
+            return List.of(instanceMods);
+        }
+
+        LOG.warn("no mod archives were found in {}; using launcher installation mods folder {}",
+                instanceMods, sharedMods);
+        return List.of(sharedMods);
+    }
+
+    private static boolean containsModArchives(Path directory) {
+        if (!Files.isDirectory(directory)) {
+            return false;
+        }
+
+        try (var files = Files.list(directory)) {
+            return files.anyMatch(path -> {
+                if (!Files.isRegularFile(path)) {
+                    return false;
+                }
+
+                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                return !name.endsWith(".disabled") && (name.endsWith(".jar")
+                        || name.endsWith(".zip") || name.endsWith(".litemod"));
+            });
+        } catch (java.io.IOException error) {
+            LOG.warn("could not inspect mods folder {}: {}", directory, error.toString());
+            return false;
+        }
     }
 
     /**
