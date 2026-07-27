@@ -109,8 +109,10 @@ public final class AccessWidenerReader {
         // rather than following the <access> <type> <name> shape.
         if (verb.equals("inject-interface")) {
             require(parts.length >= 3, "inject-interface needs a class and an interface");
+            // The interface may be written with generics, which belong in the
+            // target's signature rather than its interface list.
             rules.injectInterface(route.mapClass(parts[1].replace('.', '/')),
-                    route.mapClass(parts[2].replace('.', '/')));
+                    InjectedInterface.parse(remapGenericName(parts[2], route)));
             return;
         }
 
@@ -145,6 +147,18 @@ public final class AccessWidenerReader {
             }
             default -> throw new IllegalArgumentException("unknown target type " + type);
         }
+    }
+
+    /** Translates the erased half of a possibly-generic name, leaving the arguments alone. */
+    private static String remapGenericName(String declared, MappingSet route) {
+        String name = declared.replace('.', '/');
+        int generics = name.indexOf('<');
+
+        if (generics < 0) {
+            return route.mapClass(name);
+        }
+
+        return route.mapClass(name.substring(0, generics)) + name.substring(generics);
     }
 
     private static String strippedVerb(String token) {

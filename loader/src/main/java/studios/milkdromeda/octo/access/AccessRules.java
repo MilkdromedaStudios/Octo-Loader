@@ -31,11 +31,11 @@ public final class AccessRules {
     /** owner -> access applied to every field it declares (Forge's {@code *}). */
     private final Map<String, Access> allFields;
     /** owner -> interfaces a class tweaker adds to it. */
-    private final Map<String, Set<String>> injectedInterfaces;
+    private final Map<String, Set<InjectedInterface>> injectedInterfaces;
 
     private AccessRules(Map<String, Access> classes, Map<String, Access> methods, Map<String, Access> fields,
             Map<String, Access> allMethods, Map<String, Access> allFields,
-            Map<String, Set<String>> injectedInterfaces) {
+            Map<String, Set<InjectedInterface>> injectedInterfaces) {
         this.classes = classes;
         this.methods = methods;
         this.fields = fields;
@@ -68,7 +68,7 @@ public final class AccessRules {
     }
 
     /** The interfaces to add to a class, in declaration order. */
-    public Set<String> interfacesFor(String internalName) {
+    public Set<InjectedInterface> interfacesFor(String internalName) {
         return injectedInterfaces.getOrDefault(internalName, Set.of());
     }
 
@@ -116,7 +116,7 @@ public final class AccessRules {
         private final Map<String, Access> fields = new HashMap<>();
         private final Map<String, Access> allMethods = new HashMap<>();
         private final Map<String, Access> allFields = new HashMap<>();
-        private final Map<String, Set<String>> injectedInterfaces = new LinkedHashMap<>();
+        private final Map<String, Set<InjectedInterface>> injectedInterfaces = new LinkedHashMap<>();
 
         /**
          * Records an interface a class tweaker adds to a game class.
@@ -126,8 +126,8 @@ public final class AccessRules {
          * them. Without it the cast is a {@code ClassCastException} at the first
          * call rather than anything the mod can guard against.
          */
-        public Builder injectInterface(String owner, String interfaceName) {
-            injectedInterfaces.computeIfAbsent(owner, ignored -> new LinkedHashSet<>()).add(interfaceName);
+        public Builder injectInterface(String owner, InjectedInterface added) {
+            injectedInterfaces.computeIfAbsent(owner, ignored -> new LinkedHashSet<>()).add(added);
             return this;
         }
 
@@ -186,7 +186,7 @@ public final class AccessRules {
                 return EMPTY;
             }
 
-            Map<String, Set<String>> interfaces = new LinkedHashMap<>();
+            Map<String, Set<InjectedInterface>> interfaces = new LinkedHashMap<>();
             injectedInterfaces.forEach((owner, names) -> interfaces.put(owner, Set.copyOf(names)));
 
             return new AccessRules(Map.copyOf(classes), Map.copyOf(methods), Map.copyOf(fields),

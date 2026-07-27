@@ -100,8 +100,40 @@ class AccessRulesTest {
                     inject-interface\tnet/minecraft/world/entity/Entity\tcom/example/Extra
                     """, "test", MappingSet.EMPTY);
 
-            assertEquals(Set.of("com/example/Extra"), rules.interfacesFor("net/minecraft/world/entity/Entity"));
+            assertEquals(Set.of(new InjectedInterface("com/example/Extra", "Lcom/example/Extra;")),
+                    rules.interfacesFor("net/minecraft/world/entity/Entity"));
             assertTrue(rules.touches("net/minecraft/world/entity/Entity"));
+        }
+
+        @Test
+        @DisplayName("a generic interface keeps its arguments out of the name")
+        void separatesGenericsFromTheName() {
+            AccessRules rules = AccessWidenerReader.read("""
+                    classTweaker\tv1\tnamed
+                    inject-interface\tnet/minecraft/client/model/Model\tcom/example/FabricModel<TT;>
+                    """, "test", MappingSet.EMPTY);
+
+            InjectedInterface injected =
+                    rules.interfacesFor("net/minecraft/client/model/Model").iterator().next();
+
+            // The name goes in the interface list, where "<" is illegal; the
+            // whole thing goes in the signature, where it is required.
+            assertEquals("com/example/FabricModel", injected.rawName());
+            assertEquals("Lcom/example/FabricModel<TT;>;", injected.signature());
+            assertTrue(injected.hasGenerics());
+        }
+
+        @Test
+        @DisplayName("an interface name that could never load is refused rather than injected")
+        void refusesAnUnusableName() {
+            AccessRules rules = AccessWidenerReader.read("""
+                    classTweaker\tv1\tnamed
+                    inject-interface\tnet/minecraft/Foo\tcom/example/Broken;
+                    inject-interface\tnet/minecraft/Foo\tcom/example/Fine
+                    """, "test", MappingSet.EMPTY);
+
+            assertEquals(Set.of(new InjectedInterface("com/example/Fine", "Lcom/example/Fine;")),
+                    rules.interfacesFor("net/minecraft/Foo"));
         }
 
         @Test
@@ -198,6 +230,47 @@ class AccessRulesTest {
         // The real proof: the subclass links. Without the fix this throws
         // IncompatibleClassChangeError: overrides final method.
         assertEquals(living, loader.loadClass("game.Player").getSuperclass());
+    }
+
+    @Test
+    @DisplayName("a class with a generic interface injected into it still loads")
+    void injectsAGenericInterfaceWithoutBreakingTheClass() throws Exception {
+        // Reproduces a real crash during the game's bootstrap:
+        //   ClassFormatError: Illegal class name
+        //   "net/fabricmc/.../FabricModel" in class file net/minecraft/client/model/Model
+        // The declared interface carried generics, and the generics went into
+        // the interface list, where the JVM will not have them.
+        Map<String, byte[]> compiled = SourceCompiler.compile(Map.of(
+                "game.Model", """
+                        package game;
+                        public class Model { public String describe() { return "model"; } }
+                        """,
+                "api.FabricModel", """
+                        package api;
+                        public interface FabricModel<T> { default T nothing() { return null; } }
+                        """));
+
+        AccessRules rules = AccessWidenerReader.read("""
+                classTweaker\tv1\tnamed
+                inject-interface\tgame/Model\tapi/FabricModel<Ljava/lang/String;>
+                """, "test", MappingSet.EMPTY);
+
+        byte[] injected = new AccessRuleTransformer(rules).transform("game/Model",
+                compiled.get("game.Model"), TransformContext.of(null, name -> true));
+
+        Class<?> model = new ByteClassLoader(getClass().getClassLoader())
+                .define("game.Model", injected)
+                .define("api.FabricModel", compiled.get("api.FabricModel"))
+                .loadClass("game.Model");
+
+        assertEquals("api.FabricModel", model.getInterfaces()[0].getName(),
+                "the target should implement the injected interface");
+        assertEquals("api.FabricModel<java.lang.String>",
+                model.getGenericInterfaces()[0].getTypeName(),
+                "and the generics should have gone to the signature, where they belong");
+        assertEquals("model", model.getDeclaredMethod("describe")
+                .invoke(model.getDeclaredConstructor().newInstance()),
+                "the class should still work");
     }
 
     @Test
