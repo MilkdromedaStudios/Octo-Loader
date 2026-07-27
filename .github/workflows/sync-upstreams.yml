@@ -24,7 +24,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Refresh vendored sources
+      - name: Refresh the merged upstream tree
         run: python3 scripts/sync-upstreams.py
 
       - name: Verify the combined loader
@@ -38,6 +38,7 @@ jobs:
           commit-message: Sync upstream loader sources
           title: Sync upstream loader sources
           body: |
-            Automated refresh of Fabric Loader, Quilt Loader, Forge and NeoForge sources.
+            Automated refresh of `upstream/octo`, the single merged tree built from the
+            Fabric Loader, Quilt Loader, Forge and NeoForge sources.
 
             The complete combined-loader test suite passed before this pull request was opened.

@@ -67,18 +67,18 @@ public final class OctoClassLoader extends URLClassLoader {
     private final Map<String, byte[]> phantomCache = new ConcurrentHashMap<>();
     private final PhantomClasses phantoms;
     private final TransformPipeline gamePipeline;
-    private final boolean stubMissingApi;
+    private final LaunchContext.CompatOptions compat;
     /** Rewrites that apply to everything — the game included — after each mod's own. */
     private volatile TransformPipeline globalPipeline = TransformPipeline.empty();
     /** Mixin, which runs last and is deliberately not part of what mixin itself reads. */
     private volatile Transformer weaver;
 
     public OctoClassLoader(List<URL> urls, ClassLoader parent, TransformPipeline gamePipeline,
-            PhantomClasses phantoms, boolean stubMissingApi) {
+            PhantomClasses phantoms, LaunchContext.CompatOptions compat) {
         super("octo", urls.toArray(new URL[0]), parent);
         this.gamePipeline = gamePipeline;
         this.phantoms = phantoms;
-        this.stubMissingApi = stubMissingApi;
+        this.compat = compat;
     }
 
     /** Attaches a mod's jar and the pipeline its classes must pass through. */
@@ -269,7 +269,7 @@ public final class OctoClassLoader extends URLClassLoader {
 
     /** Generates a stand-in for a class an old mod expects and this runtime lacks. */
     private byte[] phantomFor(String name) {
-        if (!stubMissingApi) {
+        if (!compat.stubMissingApi()) {
             return null;
         }
 
@@ -374,9 +374,18 @@ public final class OctoClassLoader extends URLClassLoader {
             throw e;
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
-            LOG.error("mixins for {} could not be applied: {}", internalName.replace('/', '.'),
-                    Failures.describe(e));
+            String className = internalName.replace('/', '.');
+            LOG.error("mixins for {} could not be applied: {}", className, Failures.describe(e));
             OctoLog.detail(e);
+
+            // Handing back the unwoven class is the quiet failure this loader is
+            // full of: the mod that owns the mixin is running, the change it
+            // exists to make is not, and what breaks is some other mod, later.
+            if (compat.strict()) {
+                throw new ModLoadingException("a mod's mixins could not be applied to " + className,
+                        List.of(Failures.describe(e)), e);
+            }
+
             return bytes;
         } finally {
             weaving.set(Boolean.FALSE);

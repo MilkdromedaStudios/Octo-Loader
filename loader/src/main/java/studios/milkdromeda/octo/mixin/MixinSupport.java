@@ -62,14 +62,18 @@ public final class MixinSupport {
     private MixinSupport() {
     }
 
+    /** Octo's own configuration, which hooks the game's startup. */
+    private static final String OWN_CONFIG = "octo.mixins.json";
+
     /**
      * Boots mixin over the mods that carry configs.
      *
-     * @return a transformer to install on the class loader, or {@code null} when
-     *         no mod uses mixin or mixin could not start
+     * @return the transformer to install on the class loader
+     * @throws IllegalStateException when mixin could not be started, which the
+     *         caller turns into a refusal to launch. Returning {@code null} and
+     *         logging, as this used to, produced a game where every mixin-based
+     *         mod was present and quietly inert.
      */
-    /** Octo's own configuration, which hooks the game's startup. */
-    private static final String OWN_CONFIG = "octo.mixins.json";
 
     public static synchronized Transformer bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
         raiseCompatibilityCeiling();
@@ -107,8 +111,7 @@ public final class MixinSupport {
             IMixinTransformer transformer = OctoMixinService.transformer();
 
             if (transformer == null) {
-                LOG.warn("mixin started but produced no transformer; mods using mixins will not be applied");
-                return null;
+                throw new IllegalStateException("mixin started but produced no transformer");
             }
 
             LOG.info("mixin {} ready with {} config(s) from {} mod(s), up to {}", MixinBootstrap.VERSION,
@@ -117,11 +120,7 @@ public final class MixinSupport {
             return new MixinTransformer(transformer);
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
-            // A loader that cannot start mixin is still a loader: the mods that do
-            // not use it have no reason to be punished for the ones that do.
-            LOG.error("mixin could not start, so mixin-based mods will not work: {}", Failures.describe(e));
-            OctoLog.detail(e);
-            return null;
+            throw new IllegalStateException("mixin could not start: " + Failures.describe(e), e);
         }
     }
 
@@ -167,7 +166,10 @@ public final class MixinSupport {
                     out.add(new Config(mod.id(), path));
                 }
             } catch (IOException | RuntimeException e) {
-                LOG.warn("{}: could not read its mixin configs: {}", mod.id(), e.toString());
+                // The jar was readable minutes ago, during discovery. If it is not
+                // readable now, this mod's mixins are silently absent, and the mod
+                // will fail later in a way that names the wrong culprit.
+                throw new IllegalStateException(mod.id() + ": could not read its mixin configs", e);
             }
         }
 
