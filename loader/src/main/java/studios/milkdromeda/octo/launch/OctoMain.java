@@ -263,9 +263,9 @@ public final class OctoMain {
                 .translateOldMods(!Boolean.getBoolean("octo.noTranslate"))
                 .stubMissingApi(!Boolean.getBoolean("octo.noStubs"))
                 .relaxVersionChecks(!Boolean.getBoolean("octo.strictVersions"))
-                // Strict is the default now. -Docto.strict=true is still accepted
-                // so that existing launcher profiles carrying it keep working.
-                .strict(!Boolean.getBoolean("octo.lenient"));
+                // Off unless asked for: a player wants the game to start and the
+                // problems shown, not a stack trace instead of Minecraft.
+                .strict(Boolean.getBoolean("octo.strict"));
     }
 
     private static Side detectSide(List<String> arguments) {

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -147,8 +148,8 @@ class EndToEndLoaderTest {
     }
 
     @Test
-    @DisplayName("a mod whose dependency is not installed stops the launch and names it")
-    void anUnsatisfiableDependencyStopsTheLaunch() throws Exception {
+    @DisplayName("a mod whose dependency is not installed is reported, and the game still starts")
+    void anUnsatisfiableDependencyIsReported() throws Exception {
         Path gameJar = buildGameJar();
 
         new JarBuilder().file("fabric.mod.json", """
@@ -156,52 +157,43 @@ class EndToEndLoaderTest {
                   "depends": { "notinstalled": "*" } }
                 """).writeTo(modsDir.resolve("needsmissing.jar"));
 
-        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
+        OctoLauncher launcher = new OctoLauncher(context(gameJar).build());
+        LaunchResult result = launcher.load();
+
+        assertTrue(result.loaded().isEmpty(), "the mod should not have loaded");
+        assertNotNull(result.classLoader(), "the game should still have somewhere to run");
+        assertTrue(launcher.report().hasErrors(), "the failure should be in the report");
+        assertTrue(launcher.report().render().contains("needsmissing"),
+                "the report should name the mod: " + launcher.report().render());
+        assertTrue(launcher.report().render().contains("notinstalled"),
+                "and what it was missing: " + launcher.report().render());
+    }
+
+    @Test
+    @DisplayName("with --strict, the same mod stops the launch instead")
+    void strictModeRefusesAnUnsatisfiableDependency() throws Exception {
+        Path gameJar = buildGameJar();
+
+        new JarBuilder().file("fabric.mod.json", """
+                { "schemaVersion": 1, "id": "needsmissing", "version": "1.0.0",
+                  "depends": { "notinstalled": "*" } }
+                """).writeTo(modsDir.resolve("needsmissing.jar"));
+
+        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launchStrictly(gameJar));
 
         assertTrue(refusal.getMessage().contains("needsmissing"),
                 "the refusal should name the mod: " + refusal.getMessage());
-        assertTrue(refusal.getMessage().contains("notinstalled"),
-                "and what it was missing: " + refusal.getMessage());
     }
 
     @Test
-    @DisplayName("with --lenient, that mod is skipped and the game still starts")
-    void lenientModeSkipsAnUnsatisfiableDependency() throws Exception {
-        Path gameJar = buildGameJar();
-
-        new JarBuilder().file("fabric.mod.json", """
-                { "schemaVersion": 1, "id": "needsmissing", "version": "1.0.0",
-                  "depends": { "notinstalled": "*" } }
-                """).writeTo(modsDir.resolve("needsmissing.jar"));
-
-        LaunchResult result = launchLeniently(gameJar);
-
-        assertTrue(result.loaded().isEmpty(), "the mod should not have loaded");
-        assertEquals(1, result.resolution().fatalProblems().size());
-        assertTrue(result.resolution().fatalProblems().get(0).message().contains("notinstalled"));
-    }
-
-    @Test
-    @DisplayName("a mod that throws an Error stops the launch rather than disappearing")
-    void oneBrokenModStopsTheLaunch() throws Exception {
+    @DisplayName("a mod that throws an Error is reported by name, and every other mod still loads")
+    void oneBrokenModIsReportedAndTheRestLoad() throws Exception {
         Path gameJar = buildGameJar();
         buildFabricMod();
         buildExplodingMod();
 
-        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
-
-        assertTrue(refusal.getMessage().contains("explodingmod"),
-                "the refusal should name the mod that failed: " + refusal.getMessage());
-    }
-
-    @Test
-    @DisplayName("with --lenient, a mod that throws an Error is skipped and every other mod still loads")
-    void lenientModeSkipsOneBrokenMod() throws Exception {
-        Path gameJar = buildGameJar();
-        buildFabricMod();
-        buildExplodingMod();
-
-        LaunchResult result = launchLeniently(gameJar);
+        OctoLauncher launcher = new OctoLauncher(context(gameJar).build());
+        LaunchResult result = launcher.load();
 
         assertEquals(1, result.failed().size(), "only the broken mod should have failed: " + result.failed());
         assertEquals("explodingmod", result.failed().get(0).id());
@@ -210,20 +202,114 @@ class EndToEndLoaderTest {
                         + result.failed().get(0).failure());
 
         assertRan(result, "fabricmod", "com.example.fabric.FabricMod");
+        assertTrue(launcher.report().render().contains("explodingmod"),
+                "the report should name it: " + launcher.report().render());
     }
 
     @Test
-    @DisplayName("a jar whose metadata will not parse stops the launch instead of being skipped")
-    void brokenMetadataStopsTheLaunch() throws Exception {
+    @DisplayName("a jar whose metadata will not parse is named in the report, and the rest still load")
+    void brokenMetadataIsReported() throws Exception {
         Path gameJar = buildGameJar();
         buildFabricMod();
         new JarBuilder().file("fabric.mod.json", "{ this is not json")
                 .writeTo(modsDir.resolve("corrupt.jar"));
 
-        ModLoadingException refusal = assertThrows(ModLoadingException.class, () -> launch(gameJar));
+        OctoLauncher launcher = new OctoLauncher(context(gameJar).build());
+        LaunchResult result = launcher.load();
 
-        assertTrue(refusal.getMessage().contains("corrupt.jar"),
-                "the refusal should name the file: " + refusal.getMessage());
+        assertRan(result, "fabricmod", "com.example.fabric.FabricMod");
+        assertTrue(launcher.report().render().contains("corrupt.jar"),
+                "the report should name the file: " + launcher.report().render());
+    }
+
+    @Test
+    @DisplayName("a clean launch produces an empty report and no window")
+    void aCleanLaunchHasNothingToReport() throws Exception {
+        Path gameJar = buildGameJar();
+        buildFabricMod();
+
+        OctoLauncher launcher = new OctoLauncher(context(gameJar).build());
+        launcher.load();
+
+        assertTrue(launcher.report().isEmpty(), "nothing should have been reported: " + launcher.report().render());
+    }
+
+    @Test
+    @DisplayName("a mod calling loader API Octo never implemented loads instead of killing the launch")
+    void aCallIntoUnimplementedLoaderApiIsCovered() throws Exception {
+        Path gameJar = buildGameJar();
+        buildApiGapMod();
+
+        LaunchResult result = launch(gameJar);
+
+        assertNotNull(result.mod("gapmod"), "the mod should have loaded: " + result.failed());
+        assertTrue(result.failed().isEmpty(), "nothing should have failed: " + result.failed());
+
+        Class<?> type = Class.forName("com.example.gap.GapMod", false, result.classLoader());
+        assertTrue(type.getField("ran").getBoolean(null), "its initialiser should have run to the end");
+        assertNull(type.getField("answer").get(null), "the unimplemented call should have produced null");
+
+        assertTrue(result.mod("gapmod").appliedFixes().stream()
+                        .anyMatch(fix -> fix.contains("neverImplementedByOcto")),
+                "the gap should be recorded on the mod: " + result.mod("gapmod").appliedFixes());
+    }
+
+    /**
+     * A mod whose initialiser calls a method Octo does not have.
+     *
+     * <p>Assembled rather than compiled, because javac will not emit a call to a
+     * method that does not exist — which is the entire situation being tested.
+     * This is what Create does from a mixin plugin, and before the loader
+     * covered it, the {@code NoSuchMethodError} ended the launch.
+     */
+    private void buildApiGapMod() throws IOException {
+        String internalName = "com/example/gap/GapMod";
+        String modList = "net/neoforged/fml/ModList";
+        org.objectweb.asm.ClassWriter writer =
+                new org.objectweb.asm.ClassWriter(org.objectweb.asm.ClassWriter.COMPUTE_MAXS);
+
+        writer.visit(org.objectweb.asm.Opcodes.V17, org.objectweb.asm.Opcodes.ACC_PUBLIC, internalName, null,
+                "java/lang/Object", new String[] { "net/fabricmc/api/ModInitializer" });
+        writer.visitField(org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC,
+                "ran", "Z", null, null).visitEnd();
+        writer.visitField(org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC,
+                "answer", "Ljava/lang/Object;", null, null).visitEnd();
+
+        org.objectweb.asm.MethodVisitor constructor =
+                writer.visitMethod(org.objectweb.asm.Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        constructor.visitInsn(org.objectweb.asm.Opcodes.RETURN);
+        constructor.visitMaxs(0, 0);
+        constructor.visitEnd();
+
+        org.objectweb.asm.MethodVisitor initialize =
+                writer.visitMethod(org.objectweb.asm.Opcodes.ACC_PUBLIC, "onInitialize", "()V", null, null);
+        initialize.visitCode();
+        initialize.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESTATIC, modList, "get", "()L" + modList + ";", false);
+        initialize.visitLdcInsn("somemod");
+        initialize.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKEVIRTUAL, modList, "neverImplementedByOcto",
+                "(Ljava/lang/String;)Ljava/lang/Object;", false);
+        initialize.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC, internalName, "answer", "Ljava/lang/Object;");
+        initialize.visitInsn(org.objectweb.asm.Opcodes.ICONST_1);
+        initialize.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC, internalName, "ran", "Z");
+        initialize.visitInsn(org.objectweb.asm.Opcodes.RETURN);
+        initialize.visitMaxs(0, 0);
+        initialize.visitEnd();
+        writer.visitEnd();
+
+        new JarBuilder()
+                .classes(Map.of("com.example.gap.GapMod", writer.toByteArray()))
+                .file("fabric.mod.json", """
+                        {
+                          "schemaVersion": 1,
+                          "id": "gapmod",
+                          "version": "1.0.0",
+                          "entrypoints": { "main": ["com.example.gap.GapMod"] }
+                        }
+                        """)
+                .writeTo(modsDir.resolve("gap-sample.jar"));
     }
 
     @Test
@@ -264,10 +350,10 @@ class EndToEndLoaderTest {
         return new OctoLauncher(context(gameJar).build()).load();
     }
 
-    /** The old behaviour: skip what cannot be loaded and start the game anyway. */
-    private LaunchResult launchLeniently(Path gameJar) {
+    /** What a build or a server wants: stop on the first error rather than report it. */
+    private LaunchResult launchStrictly(Path gameJar) {
         return new OctoLauncher(context(gameJar)
-                .compat(new LaunchContext.CompatOptions().strict(false))
+                .compat(new LaunchContext.CompatOptions().strict(true))
                 .build()).load();
     }
 

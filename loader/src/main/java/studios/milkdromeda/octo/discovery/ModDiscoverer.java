@@ -335,8 +335,20 @@ public final class ModDiscoverer {
 
             try {
                 Path target = extractionDir.resolve(parent.id()).resolve(path.replace('/', '_'));
-                Files.createDirectories(target.getParent());
-                Files.write(target, bytes);
+
+                // Only write when it is not already there. Fabric API alone is
+                // forty of these, and re-extracting every one of them on every
+                // launch was most of the ten seconds before the game appeared.
+                // Size is enough of a check: these come out of a jar whose own
+                // entry would have to change for the bytes to differ, and a
+                // changed mod arrives as a different file in the mods folder.
+                if (!Files.isRegularFile(target) || Files.size(target) != bytes.length) {
+                    Files.createDirectories(target.getParent());
+                    Files.write(target, bytes);
+                } else {
+                    LOG.debug("{}: reusing the already-unpacked {}", parent.id(), path);
+                }
+
                 out.addAll(discoverFile(target, parent, discovery));
             } catch (IOException e) {
                 // A nested jar that cannot be unpacked is a mod the player will

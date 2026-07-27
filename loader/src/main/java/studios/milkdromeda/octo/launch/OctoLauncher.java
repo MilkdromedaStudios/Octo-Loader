@@ -24,11 +24,14 @@ import studios.milkdromeda.octo.mixin.MixinSupport;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
+import studios.milkdromeda.octo.report.LoadingReport;
+import studios.milkdromeda.octo.report.ReportWindow;
 import studios.milkdromeda.octo.resolve.ModResolver;
 import studios.milkdromeda.octo.resolve.Resolution;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformPipeline;
 import studios.milkdromeda.octo.util.Failures;
@@ -59,13 +62,19 @@ public final class OctoLauncher {
     /**
      * Runs everything up to, but not including, the game's own main method.
      *
-     * <p>When something goes wrong here — a corrupt jar, metadata that will not
-     * parse, a mod that throws where nothing should — the launch stops and says
-     * what and why. That is a deliberate reversal: this loader used to log a
-     * line and start Minecraft anyway, which meant a player whose mods were not
-     * loading got a working-looking game and no explanation. Starting the game
-     * without the mods it was started for is not a lesser failure, it is a
-     * silent one. {@code -Docto.lenient=true} restores the old behaviour.
+     * <p>Minecraft starts. Whatever happens here — a corrupt jar, metadata that
+     * will not parse, a mod that throws where nothing should — the caller gets a
+     * class loader it can hand the game to, and every failure along the way is
+     * collected into a {@link LoadingReport} that is written to disk, printed to
+     * the log, and put on screen as the game boots.
+     *
+     * <p>Both of the other answers have been tried here and both are worse.
+     * Logging a line and carrying on is invisible: the player gets a game that
+     * looks fine with nothing in it. Refusing to start is visible but useless: a
+     * folder of forty mods on a Minecraft newer than any of them will always
+     * have something to complain about, and almost none of it is a reason to be
+     * unable to play. {@code -Docto.strict=true} still refuses, for automation
+     * and for anyone who wants the launch to fail a build.
      */
     public LaunchResult load() {
         LOG.info("Octo Loader {} starting for Minecraft {} ({})", OctoRuntime.VERSION,
@@ -74,7 +83,7 @@ public final class OctoLauncher {
         OctoRuntime runtime = OctoRuntime.initialise(context);
         PhantomClasses phantoms = new PhantomClasses();
         OctoClassLoader classLoader = new OctoClassLoader(gameUrls(), getClass().getClassLoader(),
-                TransformPipeline.empty(), phantoms, context.compat());
+                TransformPipeline.empty(), phantoms, context.compat(), report);
 
         if (Boolean.getBoolean("octo.safeMode")) {
             LOG.warn("safe mode: Minecraft will start with no mods at all");
@@ -82,23 +91,71 @@ public final class OctoLauncher {
         }
 
         try {
-            return loadMods(runtime, classLoader, phantoms);
+            LaunchResult result = loadMods(runtime, classLoader, phantoms);
+            publish();
+            return result;
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
+            OctoLog.detail(e);
+
+            // Mod loading fell over somewhere it could not recover from. The
+            // game still starts, because a Minecraft with no mods is worth more
+            // than no Minecraft, and the reason is on screen either way.
+            record(LoadingReport.Severity.ERROR, "Octo", "mod loading stopped early, so no mods are running",
+                    Failures.describe(e));
+            LOG.error("mod loading failed, so Minecraft is starting without mods: {}", Failures.describe(e));
 
             if (context.compat().strict()) {
-                OctoLog.detail(e);
-
                 throw e instanceof ModLoadingException refusal ? refusal
                         : new ModLoadingException("Octo could not load your mods: " + Failures.describe(e),
                                 List.of("The full stack trace is in " + logFile() + "."), e);
             }
 
-            LOG.error("mod loading failed, so Minecraft is starting without mods: {}", Failures.describe(e));
-            OctoLog.detail(e);
-            LOG.error("the full trace is in {}; -Docto.safeMode=true skips mod loading entirely", logFile());
+            publish();
             return new LaunchResult(runtime, new Resolution(), classLoader, List.of(), List.of());
         }
+    }
+
+    /**
+     * Writes the report out and puts it on screen, once, at the end of loading.
+     *
+     * <p>Deliberately the last thing before the game is handed control: the
+     * window is not modal and does not hold the launch up, so what the player
+     * sees is Minecraft starting with a panel next to it saying what is missing.
+     */
+    private void publish() {
+        if (report.isEmpty()) {
+            LOG.info("no mod loading problems to report");
+            return;
+        }
+
+        report.render().lines().forEach(line -> LOG.warn("{}", line));
+        Path reportFile = writeReport();
+
+        if (context.side() == Side.CLIENT && !Boolean.getBoolean("octo.noReportWindow")) {
+            ReportWindow.show(report, reportFile == null ? logFile() : reportFile);
+        }
+    }
+
+    private Path writeReport() {
+        Path file = context.octoDir().resolve("logs").resolve("mod-report.txt");
+
+        try {
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, report.render());
+            LOG.info("the mod report is in {}", file);
+            return file;
+        } catch (java.io.IOException e) {
+            LOG.warn("could not write the mod report to {}: {}", file, e.toString());
+            return null;
+        }
+    }
+
+    /** What went wrong this launch, for the window and the report file. */
+    private final LoadingReport report = new LoadingReport();
+
+    public LoadingReport report() {
+        return report;
     }
 
     private LaunchResult loadMods(OctoRuntime runtime, OctoClassLoader classLoader, PhantomClasses phantoms) {
@@ -113,13 +170,20 @@ public final class OctoLauncher {
         discovery.describe().forEach(LOG::debug);
 
         // A jar that says it is a mod and could not be read is never acceptable
-        // collateral: it is a mod the player chose, downloaded and installed.
-        if (!discovery.failures().isEmpty()) {
-            refuse(discovery.failures().size() + " file(s) in the mods folder could not be loaded", discovery);
+        // collateral: it is a mod the player chose, downloaded and installed, so
+        // it is named individually rather than counted.
+        for (Discovery.Inspection failure : discovery.failures()) {
+            record(LoadingReport.Severity.ERROR, failure.file().getFileName().toString(),
+                    failure.verdict() == Discovery.Verdict.BROKEN_METADATA
+                            ? "its metadata could not be read, so it was not loaded"
+                            : "the file could not be opened, so it was not loaded",
+                    failure.detail());
         }
 
         if (candidates.isEmpty() && discovery.filesInspected() > 0) {
-            refuse("nothing in the mods folder turned out to be a mod", discovery);
+            record(LoadingReport.Severity.ERROR, "the mods folder",
+                    "none of the " + discovery.filesInspected() + " file(s) here turned out to be a mod",
+                    String.join(System.lineSeparator(), discovery.describe()));
         }
 
         if (candidates.isEmpty()) {
@@ -132,14 +196,15 @@ public final class OctoLauncher {
 
         report(resolution);
 
-        if (!resolution.fatalProblems().isEmpty()) {
-            refuse(resolution.fatalProblems().size() + " mod(s) were refused by dependency resolution",
-                    resolution.fatalProblems().stream().map(Resolution.Problem::toString).toList());
+        for (Resolution.Problem problem : resolution.fatalProblems()) {
+            record(LoadingReport.Severity.ERROR, problem.modId(), problem.message(), "");
         }
 
         if (!candidates.isEmpty() && resolution.order().isEmpty()) {
-            refuse(candidates.size() + " mod(s) were found, but none passed dependency resolution",
-                    resolution.problems().stream().map(Resolution.Problem::toString).toList());
+            record(LoadingReport.Severity.ERROR, "the mods folder",
+                    candidates.size() + " mod(s) were found and none passed dependency resolution",
+                    resolution.problems().stream().map(Resolution.Problem::toString)
+                            .collect(Collectors.joining(System.lineSeparator())));
         }
 
         List<LoadedMod> mods = new ArrayList<>();
@@ -155,8 +220,11 @@ public final class OctoLauncher {
             classLoader.addMod(mod, timeCapsule.pipelineFor(mod));
         }
 
-        // All three of these rewrite the game itself on behalf of the mods, so they
-        // are installed before a single class is loaded and apply to every jar.
+        // All of these rewrite the game itself on behalf of the mods, so they are
+        // installed before a single class is loaded and apply to every jar —
+        // including the mixin configuration plugins mixin loads during its own
+        // bootstrap, which is where a mod first calls into the loader's API.
+        installApiGapCover(classLoader);
         installAccessRules(mods, classLoader);
         installMixins(mods, classLoader);
 
@@ -210,36 +278,46 @@ public final class OctoLauncher {
             LOG.info("running: {}", loaded.stream().map(LoadedMod::id).sorted().collect(Collectors.joining(", ")));
         }
 
-        if (!failed.isEmpty()) {
-            refuse(failed.size() + " mod(s) were loaded but did not survive initialisation",
-                    failed.stream().map(mod -> mod.id() + ": " + Failures.describe(mod.failure())).toList());
+        // Not a failure, but the most useful thing in the log for anyone working
+        // on Octo: the exact list of API this mod folder wanted and did not find.
+        if (apiGaps != null && !apiGaps.gaps().isEmpty()) {
+            LOG.warn("{} loader API member(s) are not implemented and returned defaults:", apiGaps.gaps().size());
+            apiGaps.gaps().forEach(gap -> LOG.warn("  {}", gap));
+            record(LoadingReport.Severity.WARNING, "Octo",
+                    apiGaps.gaps().size() + " loader API member(s) are not implemented yet and returned defaults",
+                    String.join(System.lineSeparator(), apiGaps.gaps()));
+        }
+
+        for (LoadedMod mod : failed) {
+            record(LoadingReport.Severity.ERROR, mod.id(), "it failed while starting up, so it is not running",
+                    Failures.describe(mod.failure()));
         }
 
         return new LaunchResult(runtime, resolution, classLoader, loaded, failed);
     }
 
     /**
-     * Stops the launch, or does not, according to {@link LaunchContext.CompatOptions#strict()}.
+     * Notes something that went wrong, without stopping.
      *
-     * <p>Every path that used to end in a warning and a mod-less game comes
-     * through here, so the choice between the two behaviours is made in one
-     * place and the evidence is written out the same way either way.
+     * <p>Every path that could end a launch comes through here, so "what does
+     * Octo do about a mod that will not load" is answered in one place: it
+     * writes it down and keeps going, and the player is shown the list when the
+     * game starts. Under {@code -Docto.strict=true} the first error is thrown
+     * instead, which is what a build or a server operator wants.
      */
-    private void refuse(String summary, List<String> detail) {
-        refuse(summary, detail, null);
-    }
+    private void record(LoadingReport.Severity severity, String source, String summary, String detail) {
+        report.add(severity, source, summary, detail);
 
-    private void refuse(String summary, Discovery discovery) {
-        refuse(summary, discovery.describe(), null);
-    }
-
-    private void refuse(String summary, List<String> detail, Throwable cause) {
-        if (context.compat().strict()) {
-            throw new ModLoadingException(summary, detail, cause);
+        if (severity == LoadingReport.Severity.ERROR) {
+            LOG.error("{}: {}", source, summary);
+        } else {
+            LOG.warn("{}: {}", source, summary);
         }
 
-        LOG.warn("{} (continuing because -Docto.lenient=true)", summary);
-        detail.forEach(line -> LOG.warn("  {}", line));
+        if (severity == LoadingReport.Severity.ERROR && context.compat().strict()) {
+            throw new ModLoadingException(source + ": " + summary,
+                    detail == null || detail.isBlank() ? List.of() : detail.lines().toList());
+        }
     }
 
     private Path logFile() {
@@ -340,6 +418,24 @@ public final class OctoLauncher {
      * {@code IllegalAccessError} at the first call and one that subclasses a
      * final game class failed to link at all.
      */
+    /**
+     * Makes a call into a corner of the four APIs that Octo has not implemented
+     * return a default instead of killing the launch.
+     *
+     * <p>Octo implements the mod-facing half of four loaders, and "the mod-facing
+     * half" has no edge — every large mod reaches somewhere nobody anticipated.
+     * Before this, one such call was a {@code NoSuchMethodError} at class-load
+     * time, which is fatal wherever it happens and happens most often inside a
+     * mixin plugin, before any mod has run.
+     */
+    private void installApiGapCover(OctoClassLoader classLoader) {
+        apiGaps = new MissingMemberTransformer(getClass().getClassLoader());
+        classLoader.addGlobalTransformer(apiGaps);
+    }
+
+    /** What the mods asked Octo for and did not get, collected over the launch. */
+    private MissingMemberTransformer apiGaps;
+
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
         AccessRules rules = AccessRuleLoader.collect(mods);
 
@@ -365,10 +461,12 @@ public final class OctoLauncher {
 
             // Without mixin, Sodium, Create, Iris and the whole Fabric API load
             // and then fail at their first call into something a mixin was meant
-            // to have added. Continuing here is how a mixin failure turns into
-            // ten unrelated-looking mod failures later.
-            refuse("mixin could not start, so no mod's mixins would be applied",
-                    List.of(Failures.describe(e), "The full stack trace is in " + logFile() + "."), e);
+            // to have added, so this is reported as the cause rather than left
+            // for ten unrelated-looking mod failures to imply.
+            record(LoadingReport.Severity.ERROR, "Octo",
+                    "mixin could not start, so no mod's mixins were applied",
+                    Failures.describe(e) + System.lineSeparator()
+                            + "The full stack trace is in " + logFile() + ".");
         }
     }
 

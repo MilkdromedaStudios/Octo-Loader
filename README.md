@@ -187,37 +187,48 @@ the mod to the translation layer. Bounds *between mods* are still enforced —
 those describe APIs the loader cannot fix. `-Docto.strictVersions=true` restores
 the usual behaviour of enforcing the game version too.
 
-### It stops rather than starting without your mods
+### The game always starts, and tells you what is missing
 
-If a mod you installed cannot be loaded, Octo does not start Minecraft. It
-stops, and it tells you which file and why:
+Minecraft launches. If a mod you installed could not be loaded, that is not a
+reason to be unable to play — it is a reason to be told. So every failure is
+collected, written to `.octo/logs/mod-report.txt`, printed to the log, and shown
+in a panel as the game boots:
 
 ```
-studios.milkdromeda.octo.launch.ModLoadingException: 1 file(s) in the mods folder could not be loaded
-scanned [/home/you/.minecraft/mods]
-  sodium-fabric-0.6.13.jar: loaded sodium
-  create-1.21.1.jar: broken metadata — fabric.mod.json: malformed JSON at line 4
+1 mod is not running, and 6 needed adjusting
 
-Octo refuses to start Minecraft without the mods you installed.
-  -Docto.lenient=true   start anyway, with whatever could be loaded
-  -Docto.safeMode=true  start with no mods at all
-  -Docto.debug=true     log every decision the loader makes
+Not running
+
+  create-1.21.1.jar - its metadata could not be read, so it was not loaded
+      fabric.mod.json: malformed JSON: Expected ':' at line 1 column 29
+
+Loaded with changes
+
+  ancientmod - built for Minecraft 1.7.10, translated to run here
 ```
 
-This is a reversal of what the loader used to do, and the reason is that the
-old behaviour was indistinguishable from a broken install. A jar that would not
-parse produced one warning line and then a perfectly normal-looking game with
-nothing in it — no crash, no error screen, and a log the player had no reason to
-open. Every route that used to end that way now ends here instead: metadata that
-will not parse, an archive that will not open, a mods folder whose contents all
-turned out to be something else, dependency resolution rejecting everything,
-mixin failing to start, and any mod that throws while it is being initialised.
+Both of the other answers have been tried here and both are worse. Logging a
+line and carrying on is invisible: the player gets a game that looks fine with
+nothing in it, no crash and no reason to open a log. Refusing to start is
+visible but useless: a folder of forty mods on a Minecraft newer than any of
+them will always have something to complain about, and almost none of it is a
+reason to keep somebody out of their world.
 
-An empty mods folder is not a failure, and a plain library jar sitting among the
-mods is not either. `--lenient` (or `-Docto.lenient=true` from a launcher
-profile) restores the old skip-and-carry-on behaviour for anyone who would
-rather play without a mod than not play, and `octo scan` reports the same
-verdicts without starting anything.
+Everything that could end a launch ends in that report instead — metadata that
+will not parse, an archive that will not open, dependency resolution rejecting a
+mod, mixin failing to start, a mixin that would not apply, a mod that throws
+while initialising, and every loader API call Octo has not implemented.
+
+The panel is a window of Octo's own rather than a Minecraft screen, because Octo
+is compiled without Minecraft on the class path and has to work on versions
+released after it: there is no `Screen` class it can safely extend. It is not
+modal and does not hold the launch up.
+
+- `-Docto.strict=true` stops on the first error instead — for builds, servers
+  and anything with nobody there to read a window.
+- `-Docto.noReportWindow=true` keeps the report to the log and the file.
+- `-Docto.safeMode=true` starts with no mods at all.
+- `octo scan` reports the same verdicts without starting anything.
 
 ## Command line
 
@@ -233,15 +244,15 @@ octo version
   --side client|server  which side to load for
   --no-translate        do not translate mods built for older versions
   --no-stubs            do not stand in for classes that no longer exist
-  --lenient             start the game even when mods could not be loaded
+  --strict              stop on the first mod that cannot be loaded
   --debug               verbose logging
 ```
 
 When launched from a launcher profile the entrypoint is
 `studios.milkdromeda.octo.launch.OctoMain`, which reads the same switches from
-system properties (`-Docto.lenient=true`, `-Docto.noTranslate=true`,
-`-Docto.noStubs=true`, `-Docto.safeMode=true`, `-Docto.debug=true`) so the
-launcher's own argument list is left alone.
+system properties (`-Docto.strict=true`, `-Docto.noTranslate=true`,
+`-Docto.noStubs=true`, `-Docto.safeMode=true`, `-Docto.noReportWindow=true`,
+`-Docto.debug=true`) so the launcher's own argument list is left alone.
 
 ## How the four loaders are merged
 

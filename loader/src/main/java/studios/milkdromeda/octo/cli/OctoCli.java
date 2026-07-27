@@ -70,7 +70,7 @@ public final class OctoCli {
                   --mainClass <name>    game entrypoint (default: read from the jar)
                   --no-translate        do not translate mods built for older versions
                   --no-stubs            do not stand in for classes that no longer exist
-                  --lenient             start the game even when mods could not be loaded
+                  --strict              stop on the first mod that cannot be loaded
                   --debug               verbose logging
                 """);
     }
@@ -163,7 +163,7 @@ public final class OctoCli {
             Side side = Side.CLIENT;
             boolean translate = true;
             boolean stubs = true;
-            boolean strict = true;
+            boolean strict = false;
 
             for (int i = 0; i < arguments.size(); i++) {
                 String argument = arguments.get(i);

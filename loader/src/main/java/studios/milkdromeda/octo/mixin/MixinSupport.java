@@ -5,8 +5,10 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.Manifest;
 
@@ -59,6 +61,32 @@ public final class MixinSupport {
     private static final Set<String> REGISTERED = new LinkedHashSet<>();
     private static boolean booted;
 
+    /** Which mod each registered config belongs to, for naming culprits later. */
+    private static final Map<String, String> OWNERS = new LinkedHashMap<>();
+
+    /**
+     * The mod that owns a mixin config named somewhere in {@code text}.
+     *
+     * <p>Mixin's failures say which configuration went wrong and nothing about
+     * which mod shipped it, which in a folder of forty-five mixin-using mods is
+     * most of the way to useless.
+     *
+     * @return the mod id, or {@code null} when nothing in the text is recognised
+     */
+    public static synchronized String ownerOfConfigIn(String text) {
+        if (text == null) {
+            return null;
+        }
+
+        for (Map.Entry<String, String> entry : OWNERS.entrySet()) {
+            if (text.contains(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
+    }
+
     private MixinSupport() {
     }
 
@@ -93,6 +121,8 @@ public final class MixinSupport {
                     : MixinEnvironment.Side.SERVER);
 
             for (Config config : configs) {
+                OWNERS.putIfAbsent(config.path(), config.modId());
+
                 if (!REGISTERED.add(config.path())) {
                     continue;
                 }
