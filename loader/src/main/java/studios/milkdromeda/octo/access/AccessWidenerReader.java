@@ -1,13 +1,14 @@
 package studios.milkdromeda.octo.access;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.compat.mapping.MappingSet;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
- * Reads Fabric's and Quilt's {@code .accesswidener} files.
+ * Reads Fabric's and Quilt's access files, in both of the formats in use.
  *
  * <pre>
  * accessWidener v2 named
@@ -16,10 +17,22 @@ import studios.milkdromeda.octo.util.OctoLog;
  * mutable      field   net/minecraft/world/item/Item   maxStackSize  I
  * </pre>
  *
- * <p>The header names the namespace the file was written in. When the game is
- * running in a different one and a mapping route exists, every name is
- * translated on the way in — a widener written against intermediary names still
- * finds the right members on a Mojang-named runtime.
+ * <p>Recent Fabric replaced {@code .accesswidener} with the class tweaker, whose
+ * files are the same grammar under a {@code classTweaker} header plus two new
+ * directives. Reading only the older header meant every current Fabric API
+ * module's file was skipped — which is where the {@code extendable} rules for
+ * {@code Ingredient} and friends live, so the mods needing them failed to link.
+ *
+ * <pre>
+ * classTweaker v2 named
+ * transitive-extendable  class  net/minecraft/world/item/crafting/Ingredient
+ * inject-interface       net/minecraft/world/entity/Entity  com/example/MyInterface
+ * extend-enum            net/minecraft/world/item/Rarity    example_rarity
+ * </pre>
+ *
+ * <p>The header also names the namespace the file was written in. When the game
+ * is running in a different one and a mapping route exists, every name is
+ * translated on the way in.
  *
  * <p>{@code transitive-} prefixes are accepted and mean nothing here: they
  * control what a mod's <em>dependents</em> may compile against, which is a
@@ -27,6 +40,8 @@ import studios.milkdromeda.octo.util.OctoLog;
  */
 public final class AccessWidenerReader {
     private static final OctoLog LOG = OctoLog.of(AccessWidenerReader.class);
+
+    private static final String TRANSITIVE = "transitive-";
 
     private AccessWidenerReader() {
     }
@@ -53,8 +68,8 @@ public final class AccessWidenerReader {
             String[] parts = line.split("[\\s\\t]+");
 
             if (!sawHeader) {
-                if (!parts[0].equalsIgnoreCase("accessWidener")) {
-                    LOG.warn("{} does not start with an accessWidener header; ignoring it", origin);
+                if (!isHeader(parts[0])) {
+                    LOG.warn("{} does not start with an access widener or class tweaker header; ignoring it", origin);
                     return AccessRules.EMPTY;
                 }
 
@@ -83,18 +98,35 @@ public final class AccessWidenerReader {
         return built;
     }
 
+    private static boolean isHeader(String token) {
+        return token.equalsIgnoreCase("accessWidener") || token.equalsIgnoreCase("classTweaker");
+    }
+
     private static void apply(AccessRules.Builder rules, String[] parts, MappingSet route) {
+        String verb = strippedVerb(parts[0]);
+
+        // Class tweaker directives, which name their two arguments directly
+        // rather than following the <access> <type> <name> shape.
+        if (verb.equals("inject-interface")) {
+            require(parts.length >= 3, "inject-interface needs a class and an interface");
+            rules.injectInterface(route.mapClass(parts[1].replace('.', '/')),
+                    route.mapClass(parts[2].replace('.', '/')));
+            return;
+        }
+
+        if (verb.equals("extend-enum")) {
+            // Adding a constant to an enum means rewriting its initialiser and
+            // its $VALUES array; Octo does not do that, and half-doing it would
+            // produce an enum whose values() disagrees with its constants.
+            require(parts.length >= 3, "extend-enum needs a class and a constant name");
+            throw new UnsupportedOperationException("extend-enum is not supported");
+        }
+
         if (parts.length < 3) {
             throw new IllegalArgumentException("expected <access> <type> <name...>");
         }
 
-        String verb = parts[0].toLowerCase(java.util.Locale.ROOT);
-
-        if (verb.startsWith("transitive-")) {
-            verb = verb.substring("transitive-".length());
-        }
-
-        String type = parts[1].toLowerCase(java.util.Locale.ROOT);
+        String type = parts[1].toLowerCase(Locale.ROOT);
         String owner = route.mapClass(parts[2].replace('.', '/'));
 
         switch (type) {
@@ -115,6 +147,11 @@ public final class AccessWidenerReader {
         }
     }
 
+    private static String strippedVerb(String token) {
+        String verb = token.toLowerCase(Locale.ROOT);
+        return verb.startsWith(TRANSITIVE) ? verb.substring(TRANSITIVE.length()) : verb;
+    }
+
     private static Access classAccess(String verb) {
         return switch (verb) {
             case "accessible" -> Access.PUBLIC;
@@ -127,9 +164,7 @@ public final class AccessWidenerReader {
 
     private static Access methodAccess(String verb) {
         return switch (verb) {
-            // Fabric makes a widened private method final, so that opening it up
-            // does not silently turn it into something subclasses can override.
-            case "accessible" -> new Access(true, false, false, true);
+            case "accessible" -> Access.ACCESSIBLE_MEMBER;
             case "extendable" -> Access.EXTENDABLE;
             default -> throw new IllegalArgumentException("unknown method access " + verb);
         };

@@ -1,5 +1,9 @@
 package studios.milkdromeda.octo.access;
 
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -65,7 +69,26 @@ public final class AccessRuleTransformer implements Transformer {
         public void visit(int version, int access, String name, String signature, String superName,
                 String[] interfaces) {
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
-            super.visit(version, rules.forClass(className).applyTo(access), name, signature, superName, interfaces);
+            super.visit(version, rules.forClass(className).applyTo(access), name, signature, superName,
+                    withInjectedInterfaces(interfaces));
+        }
+
+        /** Adds the interfaces a class tweaker declared, keeping the ones already there. */
+        private String[] withInjectedInterfaces(String[] declared) {
+            Set<String> injected = rules.interfacesFor(className);
+
+            if (injected.isEmpty()) {
+                return declared;
+            }
+
+            Set<String> all = new LinkedHashSet<>();
+
+            if (declared != null) {
+                all.addAll(Arrays.asList(declared));
+            }
+
+            all.addAll(injected);
+            return all.toArray(new String[0]);
         }
 
         /**
@@ -83,18 +106,8 @@ public final class AccessRuleTransformer implements Transformer {
         public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
                 String[] exceptions) {
             Access rule = rules.forMethod(className, name, descriptor);
-            int updated = rule.applyTo(access);
-
-            // Opening a private method up marks it final so that widening it does
-            // not turn it into something a subclass can suddenly override. That
-            // flag is illegal on constructors, abstract methods and anything in
-            // an interface, and the verifier rejects the class if it is set.
-            if ((updated & Opcodes.ACC_FINAL) != 0 && (access & Opcodes.ACC_FINAL) == 0
-                    && (isInterface || name.startsWith("<") || (access & Opcodes.ACC_ABSTRACT) != 0)) {
-                updated &= ~Opcodes.ACC_FINAL;
-            }
-
-            return super.visitMethod(updated, name, descriptor, signature, exceptions);
+            return super.visitMethod(rule.applyToMethod(access, name, isInterface), name, descriptor, signature,
+                    exceptions);
         }
 
         @Override

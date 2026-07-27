@@ -105,6 +105,11 @@ public final class OctoLauncher {
         Thread.currentThread().setContextClassLoader(classLoader);
 
         try {
+            // Before any mod runs, not after: a mod's initialiser is entitled to
+            // register a block or read a tag, and both need the game's registries
+            // to exist.
+            GameBootstrap.run(classLoader);
+
             construct(mods, classLoader);
 
             for (Lifecycle phase : Lifecycle.values()) {
