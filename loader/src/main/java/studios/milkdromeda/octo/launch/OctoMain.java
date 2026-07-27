@@ -51,6 +51,10 @@ public final class OctoMain {
      * {@code libraries/} layout gives us the actual installation root.
      */
     static Path gameDirectory(List<String> arguments, String classPath) {
+        return gameDirectory(arguments, classPath, System.getenv("APPDATA"), System.getProperty("user.home"));
+    }
+
+    static Path gameDirectory(List<String> arguments, String classPath, String appData, String userHome) {
         String declared = argument(arguments, "--gameDir", null);
 
         if (declared != null && !declared.isBlank() && !declared.contains("${")) {
@@ -62,6 +66,25 @@ public final class OctoMain {
         if (fromClassPath != null) {
             LOG.warn("--gameDir was not supplied; inferred the Minecraft directory as {}", fromClassPath);
             return fromClassPath;
+        }
+
+        // The official Windows launcher uses %APPDATA%\.minecraft.  Prefer it
+        // over the process directory when a launcher supplies neither a usable
+        // --gameDir nor a class path laid out like a normal installation.
+        // Launchers are often started from Program Files, which previously made
+        // Octo silently scan Program Files/mods instead of the player's folder.
+        if (appData != null && !appData.isBlank()) {
+            Path minecraftDirectory = Path.of(appData).resolve(".minecraft").toAbsolutePath().normalize();
+            LOG.warn("--gameDir was not supplied; using the standard Minecraft directory {}",
+                    minecraftDirectory);
+            return minecraftDirectory;
+        }
+
+        if (userHome != null && !userHome.isBlank()) {
+            Path minecraftDirectory = Path.of(userHome).resolve(".minecraft").toAbsolutePath().normalize();
+            LOG.warn("--gameDir was not supplied; using the standard Minecraft directory {}",
+                    minecraftDirectory);
+            return minecraftDirectory;
         }
 
         Path workingDirectory = Path.of(".").toAbsolutePath().normalize();
@@ -132,7 +155,9 @@ public final class OctoMain {
         String modsDir = argument(arguments, "--modsDir", null);
 
         if (modsDir != null) {
-            builder.modDir(Path.of(modsDir).toAbsolutePath());
+            Path requested = Path.of(modsDir);
+            builder.modDir((requested.isAbsolute() ? requested : gameDir.resolve(requested))
+                    .toAbsolutePath().normalize());
         }
 
         gameJars.forEach(builder::gameJar);
