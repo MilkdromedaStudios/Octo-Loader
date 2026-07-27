@@ -23,7 +23,7 @@ public final class OctoMain {
 
     public static void main(String[] args) throws Exception {
         List<String> arguments = List.of(args);
-        Path gameDir = Path.of(argument(arguments, "--gameDir", ".")).toAbsolutePath().normalize();
+        Path gameDir = gameDirectory(arguments, System.getProperty("java.class.path", ""));
         Path logFile = gameDir.resolve(".octo").resolve("logs").resolve("octo-loader.log");
 
         try {
@@ -38,6 +38,72 @@ public final class OctoMain {
             }
             throw (Error) error;
         }
+    }
+
+    /**
+     * Locates the installation even when a launcher does not pass {@code --gameDir}.
+     *
+     * <p>Older Octo profiles did not add that argument, and some third-party
+     * launchers omit or fail to expand it. Falling back to the process working
+     * directory is unreliable because launchers commonly start Java from their
+     * own application directory. The Minecraft version jar and libraries are
+     * already on the class path, so either standard {@code versions/} or
+     * {@code libraries/} layout gives us the actual installation root.
+     */
+    static Path gameDirectory(List<String> arguments, String classPath) {
+        String declared = argument(arguments, "--gameDir", null);
+
+        if (declared != null && !declared.isBlank() && !declared.contains("${")) {
+            return Path.of(declared).toAbsolutePath().normalize();
+        }
+
+        Path fromClassPath = installationRoot(classPath);
+
+        if (fromClassPath != null) {
+            LOG.warn("--gameDir was not supplied; inferred the Minecraft directory as {}", fromClassPath);
+            return fromClassPath;
+        }
+
+        Path workingDirectory = Path.of(".").toAbsolutePath().normalize();
+        LOG.warn("--gameDir was not supplied and the installation could not be inferred; using {}",
+                workingDirectory);
+        return workingDirectory;
+    }
+
+    private static Path installationRoot(String classPath) {
+        Path libraryRoot = null;
+
+        for (String entry : classPath.split(java.io.File.pathSeparator)) {
+            if (entry.isBlank()) {
+                continue;
+            }
+
+            Path path;
+
+            try {
+                path = Path.of(entry).toAbsolutePath().normalize();
+            } catch (RuntimeException ignored) {
+                continue;
+            }
+
+            for (Path parent = path.getParent(); parent != null; parent = parent.getParent()) {
+                Path name = parent.getFileName();
+
+                if (name == null) {
+                    continue;
+                }
+
+                if (name.toString().equals("versions")) {
+                    return parent.getParent();
+                }
+
+                if (libraryRoot == null && name.toString().equals("libraries")) {
+                    libraryRoot = parent.getParent();
+                }
+            }
+        }
+
+        return libraryRoot;
     }
 
     private static void launch(List<String> arguments, Path gameDir) throws Exception {
