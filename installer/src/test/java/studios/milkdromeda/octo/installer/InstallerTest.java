@@ -61,6 +61,10 @@ class InstallerTest {
         assertEquals("studios.milkdromeda.octo.launch.OctoMain", json.get("mainClass").getAsString());
         assertEquals("studios.milkdromeda:octo-loader:1.0.0",
                 json.getAsJsonArray("libraries").get(0).getAsJsonObject().get("name").getAsString());
+        assertEquals(List.of("--gameDir", "${game_directory}"),
+                json.getAsJsonObject("arguments").getAsJsonArray("game").asList().stream()
+                        .map(element -> element.getAsString()).toList(),
+                "Octo must be told which mods directory belongs to this installation");
 
         assertTrue(Files.isRegularFile(MinecraftPaths.libraryPath(gameDirectory,
                         ClientInstaller.GROUP, ClientInstaller.ARTIFACT, "1.0.0")),
@@ -101,6 +105,9 @@ class InstallerTest {
         assertTrue(profiles.has("octo-loader-1.20.1"));
         assertEquals("octo-loader-1.20.1",
                 profiles.getAsJsonObject("octo-loader-1.20.1").get("lastVersionId").getAsString());
+        assertEquals(gameDirectory.toAbsolutePath().normalize().toString(),
+                profiles.getAsJsonObject("octo-loader-1.20.1").get("gameDir").getAsString(),
+                "the launcher profile should preserve the installation's game directory");
         assertTrue(root.has("settings"), "unrelated settings should be preserved");
     }
 
