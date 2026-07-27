@@ -68,14 +68,17 @@ public final class MixinSupport {
      * @return a transformer to install on the class loader, or {@code null} when
      *         no mod uses mixin or mixin could not start
      */
+    /** Octo's own configuration, which hooks the game's startup. */
+    private static final String OWN_CONFIG = "octo.mixins.json";
+
     public static synchronized Transformer bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
         raiseCompatibilityCeiling();
-        List<Config> configs = discover(mods);
+        List<Config> configs = new ArrayList<>(discover(mods));
 
-        if (configs.isEmpty()) {
-            LOG.debug("no mod supplies a mixin configuration");
-            return null;
-        }
+        // Always registered, even with no mixin-using mods present: this is how
+        // the loader learns that the game has started, and a Fabric mod's client
+        // initialiser is meant to run at that moment rather than before it.
+        configs.add(new Config("octo", OWN_CONFIG));
 
         OctoMixinService.attach(classLoader);
 
