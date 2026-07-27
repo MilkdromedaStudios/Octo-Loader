@@ -13,6 +13,11 @@ subprojects {
 
     tasks.withType(Test).configureEach {
         useJUnitPlatform()
+
+        // The loader shows its mod report in a window when a launch had
+        // problems. A test suite that opens windows is a test suite nobody runs.
+        systemProperty 'java.awt.headless', 'true'
+        systemProperty 'octo.noReportWindow', 'true'
         testLogging {
             events 'passed', 'skipped', 'failed'
             exceptionFormat = 'full'

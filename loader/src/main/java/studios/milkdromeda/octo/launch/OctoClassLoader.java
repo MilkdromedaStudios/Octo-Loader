@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import studios.milkdromeda.octo.mod.ModSource;
+import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformContext;
@@ -68,17 +69,19 @@ public final class OctoClassLoader extends URLClassLoader {
     private final PhantomClasses phantoms;
     private final TransformPipeline gamePipeline;
     private final LaunchContext.CompatOptions compat;
+    private final LoadingReport report;
     /** Rewrites that apply to everything — the game included — after each mod's own. */
     private volatile TransformPipeline globalPipeline = TransformPipeline.empty();
     /** Mixin, which runs last and is deliberately not part of what mixin itself reads. */
     private volatile Transformer weaver;
 
     public OctoClassLoader(List<URL> urls, ClassLoader parent, TransformPipeline gamePipeline,
-            PhantomClasses phantoms, LaunchContext.CompatOptions compat) {
+            PhantomClasses phantoms, LaunchContext.CompatOptions compat, LoadingReport report) {
         super("octo", urls.toArray(new URL[0]), parent);
         this.gamePipeline = gamePipeline;
         this.phantoms = phantoms;
         this.compat = compat;
+        this.report = report;
     }
 
     /** Attaches a mod's jar and the pipeline its classes must pass through. */
@@ -378,11 +381,16 @@ public final class OctoClassLoader extends URLClassLoader {
             LOG.error("mixins for {} could not be applied: {}", className, Failures.describe(e));
             OctoLog.detail(e);
 
-            // Handing back the unwoven class is the quiet failure this loader is
-            // full of: the mod that owns the mixin is running, the change it
-            // exists to make is not, and what breaks is some other mod, later.
+            // Handing this back unwoven is a real loss — the mod that owns the
+            // mixin runs, the change it exists to make does not, and what breaks
+            // is usually some other mod much later. So the game still starts,
+            // but the mod is named in the report rather than left to be guessed.
+            String culprit = culpritOf(e);
+            report.error(culprit, "one of its mixins could not be applied to " + className.replace('/', '.')
+                    + ", so part of what it does is missing", Failures.describe(e));
+
             if (compat.strict()) {
-                throw new ModLoadingException(describeCulprit(e) + " mixins could not be applied to " + className,
+                throw new ModLoadingException(culprit + ": mixins could not be applied to " + className,
                         List.of(Failures.describe(e)), e);
             }
 
@@ -400,10 +408,10 @@ public final class OctoClassLoader extends URLClassLoader {
      * message usually contains the offending config's file name, which is
      * enough to get from there to a mod id.
      */
-    private static String describeCulprit(Throwable error) {
+    private static String culpritOf(Throwable error) {
         String owner = studios.milkdromeda.octo.mixin.MixinSupport
                 .ownerOfConfigIn(Failures.describe(error));
-        return owner == null ? "a mod's" : owner + "'s";
+        return owner == null ? "a mod" : owner;
     }
 
     /** Whether this loader has already defined a class, without trying to load it. */

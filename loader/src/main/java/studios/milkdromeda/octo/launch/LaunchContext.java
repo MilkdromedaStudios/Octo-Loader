@@ -87,7 +87,7 @@ public final class LaunchContext {
         private boolean relaxVersionChecks = true;
         private boolean stubMissingApi = true;
         private boolean allowCrossEcosystem = true;
-        private boolean strict = true;
+        private boolean strict;
 
         /** Remap and rewrite mods built for an older Minecraft. */
         public boolean translateOldMods() {
@@ -110,18 +110,16 @@ public final class LaunchContext {
         }
 
         /**
-         * Abort the launch when a mod that should have loaded did not.
+         * Abort the launch on the first error instead of reporting it.
          *
-         * <p>On by default, and deliberately so. The alternative — carrying on
-         * into a game with no mods in it — is the single worst thing this loader
-         * can do, because it looks exactly like a launch that worked. Every
-         * report of "Octo isn't loading my mods" is a launch that had already
-         * decided which file it could not read and wrote one line about it
-         * before starting Minecraft anyway. A loader that stops and says what
-         * went wrong is fixable; one that shrugs is not.
+         * <p>Off by default: Minecraft starts, and what went wrong is written to
+         * the log, saved to {@code .octo/logs/mod-report.txt} and shown on screen
+         * as the game boots. That is Forge's answer and it is the right one for
+         * a player, who can read a list of what is missing and still go and play.
          *
-         * <p>{@code -Docto.lenient=true} restores the old behaviour for anyone
-         * who would rather play without a mod than not play.
+         * <p>{@code -Docto.strict=true} turns the first error back into a refusal
+         * to launch, which is what a build, a test or a server operator wants —
+         * there is nobody there to read a window.
          */
         public boolean strict() {
             return strict;
