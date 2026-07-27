@@ -125,6 +125,9 @@ class InstallerTest {
     @DisplayName("uninstalling removes everything the installer wrote")
     void uninstallLeavesNothingBehind() throws IOException {
         givenMinecraftInstalled("1.20.1");
+        Files.writeString(gameDirectory.resolve("launcher_profiles.json"), """
+                { "profiles": { "existing": { "name": "Keep me", "lastVersionId": "1.20.1" } } }
+                """);
         ClientInstaller installer = new ClientInstaller(gameDirectory, "1.0.0", log);
         installer.install("1.20.1");
 
@@ -135,6 +138,13 @@ class InstallerTest {
                 ClientInstaller.GROUP, ClientInstaller.ARTIFACT, "1.0.0")));
         assertTrue(Files.isRegularFile(gameDirectory.resolve("versions/1.20.1/1.20.1.json")),
                 "the vanilla version should still be installed");
+
+        JsonObject profiles = JsonParser.parseString(
+                Files.readString(gameDirectory.resolve("launcher_profiles.json"), StandardCharsets.UTF_8))
+                .getAsJsonObject().getAsJsonObject("profiles");
+        assertFalse(profiles.has("octo-loader-1.20.1"),
+                "the launcher must not keep offering a profile whose version and library were removed");
+        assertTrue(profiles.has("existing"), "uninstall must preserve unrelated launcher profiles");
     }
 
     @Test
