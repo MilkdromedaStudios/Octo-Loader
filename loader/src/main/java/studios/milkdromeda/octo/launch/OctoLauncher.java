@@ -6,7 +6,9 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import studios.milkdromeda.octo.access.AccessRuleLoader;
@@ -480,8 +482,22 @@ public final class OctoLauncher {
         }
     }
 
+    /**
+     * Everything the loader's class loader owns: the game, and the libraries it
+     * came with.
+     *
+     * <p>The libraries matter as much as the game does. A class the loader does
+     * not own is loaded by the class loader that started Octo, which means no
+     * mod's mixin can touch it and no interface a mod adds to it exists on the
+     * copy the game actually uses. Fabric API's dimension module adds an
+     * interface to DataFixerUpper's {@code TaggedChoice} and casts to it from a
+     * Minecraft class; with the library outside and Minecraft inside, that cast
+     * is between two unrelated classes with the same name, and the game dies in
+     * its own static initialiser before drawing anything.
+     */
     private List<URL> gameUrls() {
         List<URL> urls = new ArrayList<>();
+        Set<Path> seen = new LinkedHashSet<>();
 
         for (Path jar : context.gameJars()) {
             if (!Files.exists(jar)) {
@@ -489,14 +505,31 @@ public final class OctoLauncher {
                 continue;
             }
 
-            try {
-                urls.add(jar.toUri().toURL());
-            } catch (MalformedURLException e) {
-                LOG.warn("could not use game jar {}: {}", jar, e.toString());
+            add(urls, seen, jar);
+        }
+
+        for (Path jar : context.libraryJars()) {
+            if (Files.exists(jar)) {
+                add(urls, seen, jar);
             }
         }
 
+        LOG.debug("the loader owns {} class path entrie(s)", urls.size());
         return urls;
+    }
+
+    private void add(List<URL> urls, Set<Path> seen, Path jar) {
+        Path normalised = jar.toAbsolutePath().normalize();
+
+        if (!seen.add(normalised)) {
+            return;
+        }
+
+        try {
+            urls.add(normalised.toUri().toURL());
+        } catch (MalformedURLException e) {
+            LOG.warn("could not use {}: {}", normalised, e.toString());
+        }
     }
 
     /**

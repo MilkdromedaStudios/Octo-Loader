@@ -12,6 +12,7 @@ public final class LaunchContext {
     private final List<Path> modDirs;
     private final Path configDir;
     private final List<Path> gameJars;
+    private final List<Path> libraryJars;
     private final Side side;
     private final String minecraftVersion;
     private final String mainClass;
@@ -24,6 +25,7 @@ public final class LaunchContext {
         this.modDirs = List.copyOf(builder.modDirs);
         this.configDir = builder.configDir != null ? builder.configDir : builder.gameDir.resolve("config");
         this.gameJars = List.copyOf(builder.gameJars);
+        this.libraryJars = List.copyOf(builder.libraryJars);
         this.side = builder.side;
         this.minecraftVersion = builder.minecraftVersion;
         this.mainClass = builder.mainClass;
@@ -55,6 +57,21 @@ public final class LaunchContext {
 
     public List<Path> gameJars() {
         return gameJars;
+    }
+
+    /**
+     * The rest of the launch class path: DataFixerUpper, LWJGL, netty, log4j.
+     *
+     * <p>These have to be loaded by Octo's class loader rather than the one that
+     * started it, because mods mix into them. Fabric API's dimension module adds
+     * an interface to {@code com.mojang.datafixers.types.templates.TaggedChoice}
+     * and then casts to it from a Minecraft class; with the library on the
+     * system class path and Minecraft inside the loader, the cast is between two
+     * different copies of the same name and the game dies before its first
+     * frame. Everything a mod can reach has to live on the same side.
+     */
+    public List<Path> libraryJars() {
+        return libraryJars;
     }
 
     public Side side() {
@@ -155,6 +172,7 @@ public final class LaunchContext {
         private final Path gameDir;
         private final List<Path> modDirs = new ArrayList<>();
         private final List<Path> gameJars = new ArrayList<>();
+        private final List<Path> libraryJars = new ArrayList<>();
         private final List<String> launchArguments = new ArrayList<>();
         private Path configDir;
         private Side side = Side.CLIENT;
@@ -179,6 +197,11 @@ public final class LaunchContext {
 
         public Builder gameJar(Path value) {
             this.gameJars.add(value);
+            return this;
+        }
+
+        public Builder libraryJar(Path value) {
+            this.libraryJars.add(value);
             return this;
         }
 

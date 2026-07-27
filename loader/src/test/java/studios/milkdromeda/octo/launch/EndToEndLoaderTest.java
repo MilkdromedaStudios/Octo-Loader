@@ -313,6 +313,40 @@ class EndToEndLoaderTest {
     }
 
     @Test
+    @DisplayName("libraries are loaded by the loader, not around it, so mods can reach them")
+    void librariesBelongToTheLoader() throws Exception {
+        Path gameJar = buildGameJar();
+        Path libraryJar = new JarBuilder()
+                .classes(SourceCompiler.compile(Map.of("com.example.lib.Widget", """
+                        package com.example.lib;
+                        public class Widget {
+                            public static String describe() { return "widget"; }
+                        }
+                        """)))
+                .writeTo(gameDir.resolve("libraries/widget.jar"));
+
+        LaunchResult result = new OctoLauncher(context(gameJar).libraryJar(libraryJar).build()).load();
+
+        Class<?> widget = Class.forName("com.example.lib.Widget", false, result.classLoader());
+
+        // The whole point: one copy, owned by the loader. A library left on the
+        // system class path is a second class of the same name that no mixin can
+        // touch and that will not cast to anything a mod added to the first.
+        assertEquals("octo", widget.getClassLoader().getName(),
+                "the library should be loaded by the loader, not its parent");
+        assertEquals("widget", widget.getMethod("describe").invoke(null));
+    }
+
+    @Test
+    @DisplayName("a library that is not on the launch class path is simply absent")
+    void librariesAreNotInventedFromNowhere() throws Exception {
+        LaunchResult result = launch(buildGameJar());
+
+        assertThrows(ClassNotFoundException.class,
+                () -> Class.forName("com.example.lib.Widget", false, result.classLoader()));
+    }
+
+    @Test
     @DisplayName("an empty mods folder is not a failure")
     void anEmptyModsFolderStartsCleanly() throws Exception {
         LaunchResult result = launch(buildGameJar());

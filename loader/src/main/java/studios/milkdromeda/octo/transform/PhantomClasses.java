@@ -33,7 +33,10 @@ import studios.milkdromeda.octo.util.OctoLog;
 public final class PhantomClasses {
     private static final OctoLog LOG = OctoLog.of(PhantomClasses.class);
 
-    private final Map<String, Spec> specs = new LinkedHashMap<>();
+    // Concurrent because stand-ins are now also declared on demand, from inside
+    // a class load, and the loader is parallel-capable. Planning still happens
+    // once up front on one thread; this is for what arrives after it.
+    private final Map<String, Spec> specs = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** What a mod expects a class it references to look like. */
     public static final class Spec {
@@ -194,6 +197,27 @@ public final class PhantomClasses {
         }
 
         return generate(spec, specs.keySet());
+    }
+
+    /**
+     * Records a stand-in for a loader interface nobody planned for.
+     *
+     * <p>Planned stand-ins come from reading an old mod's bytecode, which tells
+     * us exactly what shape the missing class has to be. That scan only runs for
+     * mods older than the runtime, so a current mod naming a corner of an API
+     * Octo does not implement — Flywheel asking a {@code ModContainer} for its
+     * {@code IModInfo} — falls straight through to a {@code NoClassDefFoundError}
+     * and the mod does not load.
+     *
+     * <p>These are declared empty interfaces, which is what almost everything in
+     * those packages is, and they are only ever reached through a call that has
+     * already been rewritten to return null. The value is never used; it just has
+     * to have a type.
+     */
+    public Spec declareInterface(String internalName) {
+        Spec spec = specFor(internalName);
+        spec.isInterface = true;
+        return spec;
     }
 
     /** Builds the class file for a recorded specification. */

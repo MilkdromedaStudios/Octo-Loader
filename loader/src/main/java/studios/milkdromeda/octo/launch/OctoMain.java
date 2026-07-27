@@ -167,6 +167,7 @@ public final class OctoMain {
 
         modDirs.forEach(builder::modDir);
         gameJars.forEach(builder::gameJar);
+        libraryJarsOnClassPath(gameJars).forEach(builder::libraryJar);
 
         LOG.info("Octo Loader starting from {}", gameDir);
         LOG.info("mods will be loaded from {}", modDirs);
@@ -306,6 +307,61 @@ public final class OctoMain {
      * hundred libraries on it. The game jars are the ones carrying either the
      * modern {@code version.json} or a recognisable entrypoint class.
      */
+    /**
+     * Everything on the class path that is not the game and not Octo itself.
+     *
+     * <p>DataFixerUpper, LWJGL, netty, log4j, Brigadier, authlib. Mods mix into
+     * these — Fabric API's dimension module adds an interface to DataFixerUpper's
+     * {@code TaggedChoice} — so they have to be inside the loader's class loader
+     * with the game rather than outside it with the loader. A class that exists
+     * on both sides is two classes as far as the JVM is concerned, and the cast
+     * between them is what crashed the game before its first frame.
+     *
+     * <p>Octo's own jar is excluded. It carries mixin, ASM and the four
+     * ecosystems' APIs, and every one of those has to stay the single copy the
+     * loader booted with; the parent-first list in {@link OctoClassLoader} says
+     * the same thing from the other end.
+     */
+    public static List<Path> libraryJarsOnClassPath(List<Path> gameJars) {
+        List<Path> out = new ArrayList<>();
+        Path own = ownJar();
+
+        for (String entry : System.getProperty("java.class.path", "").split(java.io.File.pathSeparator)) {
+            if (entry.isBlank()) {
+                continue;
+            }
+
+            Path path;
+
+            try {
+                path = Path.of(entry).toAbsolutePath().normalize();
+            } catch (RuntimeException ignored) {
+                continue;
+            }
+
+            if (!Files.exists(path) || path.equals(own) || gameJars.stream()
+                    .anyMatch(jar -> jar.toAbsolutePath().normalize().equals(path))) {
+                continue;
+            }
+
+            out.add(path);
+        }
+
+        LOG.info("{} librarie(s) will be loaded alongside the game so mods can reach them", out.size());
+        return out;
+    }
+
+    /** Where this class was loaded from, so the loader does not own a second copy of itself. */
+    private static Path ownJar() {
+        try {
+            var source = OctoMain.class.getProtectionDomain().getCodeSource();
+            return source == null ? null : Path.of(source.getLocation().toURI()).toAbsolutePath().normalize();
+        } catch (Exception e) {
+            LOG.debug("could not locate the loader's own jar: {}", e.toString());
+            return null;
+        }
+    }
+
     static List<Path> gameJarsOnClassPath() {
         List<Path> out = new ArrayList<>();
         String classPath = System.getProperty("java.class.path", "");
