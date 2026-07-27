@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -224,6 +225,84 @@ class EndToEndLoaderTest {
 
         assertTrue(refusal.getMessage().contains("corrupt.jar"),
                 "the refusal should name the file: " + refusal.getMessage());
+    }
+
+    @Test
+    @DisplayName("a mod calling loader API Octo never implemented loads instead of killing the launch")
+    void aCallIntoUnimplementedLoaderApiIsCovered() throws Exception {
+        Path gameJar = buildGameJar();
+        buildApiGapMod();
+
+        LaunchResult result = launch(gameJar);
+
+        assertNotNull(result.mod("gapmod"), "the mod should have loaded: " + result.failed());
+        assertTrue(result.failed().isEmpty(), "nothing should have failed: " + result.failed());
+
+        Class<?> type = Class.forName("com.example.gap.GapMod", false, result.classLoader());
+        assertTrue(type.getField("ran").getBoolean(null), "its initialiser should have run to the end");
+        assertNull(type.getField("answer").get(null), "the unimplemented call should have produced null");
+
+        assertTrue(result.mod("gapmod").appliedFixes().stream()
+                        .anyMatch(fix -> fix.contains("neverImplementedByOcto")),
+                "the gap should be recorded on the mod: " + result.mod("gapmod").appliedFixes());
+    }
+
+    /**
+     * A mod whose initialiser calls a method Octo does not have.
+     *
+     * <p>Assembled rather than compiled, because javac will not emit a call to a
+     * method that does not exist — which is the entire situation being tested.
+     * This is what Create does from a mixin plugin, and before the loader
+     * covered it, the {@code NoSuchMethodError} ended the launch.
+     */
+    private void buildApiGapMod() throws IOException {
+        String internalName = "com/example/gap/GapMod";
+        String modList = "net/neoforged/fml/ModList";
+        org.objectweb.asm.ClassWriter writer =
+                new org.objectweb.asm.ClassWriter(org.objectweb.asm.ClassWriter.COMPUTE_MAXS);
+
+        writer.visit(org.objectweb.asm.Opcodes.V17, org.objectweb.asm.Opcodes.ACC_PUBLIC, internalName, null,
+                "java/lang/Object", new String[] { "net/fabricmc/api/ModInitializer" });
+        writer.visitField(org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC,
+                "ran", "Z", null, null).visitEnd();
+        writer.visitField(org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC,
+                "answer", "Ljava/lang/Object;", null, null).visitEnd();
+
+        org.objectweb.asm.MethodVisitor constructor =
+                writer.visitMethod(org.objectweb.asm.Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        constructor.visitInsn(org.objectweb.asm.Opcodes.RETURN);
+        constructor.visitMaxs(0, 0);
+        constructor.visitEnd();
+
+        org.objectweb.asm.MethodVisitor initialize =
+                writer.visitMethod(org.objectweb.asm.Opcodes.ACC_PUBLIC, "onInitialize", "()V", null, null);
+        initialize.visitCode();
+        initialize.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESTATIC, modList, "get", "()L" + modList + ";", false);
+        initialize.visitLdcInsn("somemod");
+        initialize.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKEVIRTUAL, modList, "neverImplementedByOcto",
+                "(Ljava/lang/String;)Ljava/lang/Object;", false);
+        initialize.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC, internalName, "answer", "Ljava/lang/Object;");
+        initialize.visitInsn(org.objectweb.asm.Opcodes.ICONST_1);
+        initialize.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC, internalName, "ran", "Z");
+        initialize.visitInsn(org.objectweb.asm.Opcodes.RETURN);
+        initialize.visitMaxs(0, 0);
+        initialize.visitEnd();
+        writer.visitEnd();
+
+        new JarBuilder()
+                .classes(Map.of("com.example.gap.GapMod", writer.toByteArray()))
+                .file("fabric.mod.json", """
+                        {
+                          "schemaVersion": 1,
+                          "id": "gapmod",
+                          "version": "1.0.0",
+                          "entrypoints": { "main": ["com.example.gap.GapMod"] }
+                        }
+                        """)
+                .writeTo(modsDir.resolve("gap-sample.jar"));
     }
 
     @Test

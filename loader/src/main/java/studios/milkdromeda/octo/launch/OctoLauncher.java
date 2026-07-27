@@ -29,6 +29,7 @@ import studios.milkdromeda.octo.resolve.Resolution;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformPipeline;
 import studios.milkdromeda.octo.util.Failures;
@@ -155,8 +156,11 @@ public final class OctoLauncher {
             classLoader.addMod(mod, timeCapsule.pipelineFor(mod));
         }
 
-        // All three of these rewrite the game itself on behalf of the mods, so they
-        // are installed before a single class is loaded and apply to every jar.
+        // All of these rewrite the game itself on behalf of the mods, so they are
+        // installed before a single class is loaded and apply to every jar —
+        // including the mixin configuration plugins mixin loads during its own
+        // bootstrap, which is where a mod first calls into the loader's API.
+        installApiGapCover(classLoader);
         installAccessRules(mods, classLoader);
         installMixins(mods, classLoader);
 
@@ -208,6 +212,13 @@ public final class OctoLauncher {
         // the log answers rather than one the player has to infer from the game.
         if (!loaded.isEmpty()) {
             LOG.info("running: {}", loaded.stream().map(LoadedMod::id).sorted().collect(Collectors.joining(", ")));
+        }
+
+        // Not a failure, but the most useful thing in the log for anyone working
+        // on Octo: the exact list of API this mod folder wanted and did not find.
+        if (apiGaps != null && !apiGaps.gaps().isEmpty()) {
+            LOG.warn("{} loader API member(s) are not implemented and returned defaults:", apiGaps.gaps().size());
+            apiGaps.gaps().forEach(gap -> LOG.warn("  {}", gap));
         }
 
         if (!failed.isEmpty()) {
@@ -340,6 +351,24 @@ public final class OctoLauncher {
      * {@code IllegalAccessError} at the first call and one that subclasses a
      * final game class failed to link at all.
      */
+    /**
+     * Makes a call into a corner of the four APIs that Octo has not implemented
+     * return a default instead of killing the launch.
+     *
+     * <p>Octo implements the mod-facing half of four loaders, and "the mod-facing
+     * half" has no edge — every large mod reaches somewhere nobody anticipated.
+     * Before this, one such call was a {@code NoSuchMethodError} at class-load
+     * time, which is fatal wherever it happens and happens most often inside a
+     * mixin plugin, before any mod has run.
+     */
+    private void installApiGapCover(OctoClassLoader classLoader) {
+        apiGaps = new MissingMemberTransformer(getClass().getClassLoader());
+        classLoader.addGlobalTransformer(apiGaps);
+    }
+
+    /** What the mods asked Octo for and did not get, collected over the launch. */
+    private MissingMemberTransformer apiGaps;
+
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
         AccessRules rules = AccessRuleLoader.collect(mods);
 

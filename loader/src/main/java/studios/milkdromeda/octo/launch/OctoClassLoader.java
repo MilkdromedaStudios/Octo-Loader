@@ -382,7 +382,7 @@ public final class OctoClassLoader extends URLClassLoader {
             // full of: the mod that owns the mixin is running, the change it
             // exists to make is not, and what breaks is some other mod, later.
             if (compat.strict()) {
-                throw new ModLoadingException("a mod's mixins could not be applied to " + className,
+                throw new ModLoadingException(describeCulprit(e) + " mixins could not be applied to " + className,
                         List.of(Failures.describe(e)), e);
             }
 
@@ -390,6 +390,20 @@ public final class OctoClassLoader extends URLClassLoader {
         } finally {
             weaving.set(Boolean.FALSE);
         }
+    }
+
+    /**
+     * Names the mod whose mixin config mixin was complaining about.
+     *
+     * <p>"mixins could not be applied to net.minecraft.SharedConstants" names
+     * the victim, and the victim is never the thing to go and fix. Mixin's own
+     * message usually contains the offending config's file name, which is
+     * enough to get from there to a mod id.
+     */
+    private static String describeCulprit(Throwable error) {
+        String owner = studios.milkdromeda.octo.mixin.MixinSupport
+                .ownerOfConfigIn(Failures.describe(error));
+        return owner == null ? "a mod's" : owner + "'s";
     }
 
     /** Whether this loader has already defined a class, without trying to load it. */
