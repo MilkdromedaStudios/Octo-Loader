@@ -60,11 +60,17 @@ public final class MissingMemberTransformer implements Transformer {
             "net/neoforged/fml/",
             "net/neoforged/bus/",
             "net/neoforged/api/",
+            "net/neoforged/neoforgespi/",
             "net/minecraftforge/fml/",
             "net/minecraftforge/eventbus/",
             "net/minecraftforge/api/",
+            "net/minecraftforge/forgespi/",
             "cpw/mods/fml/",
-            "com/mumfrey/liteloader/");
+            "com/mumfrey/liteloader/",
+            // Maven's, not a loader's, but Forge chose it for the return type of
+            // IModInfo.getVersion(), so a gap in it lands in a mod exactly like a
+            // gap in FML does.
+            "org/apache/maven/artifact/versioning/");
 
     /** Where Octo's own copy of those APIs lives. */
     private final ClassLoader apiLoader;
@@ -117,7 +123,7 @@ public final class MissingMemberTransformer implements Transformer {
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
         // A class that never names one of these packages cannot call into it, and
         // this runs over every class the game loads, so the cheap answer first.
-        if (!mentionsLoaderApi(bytes)) {
+        if (!MENTIONS_LOADER_API.matches(bytes)) {
             return bytes;
         }
 
@@ -129,62 +135,18 @@ public final class MissingMemberTransformer implements Transformer {
     }
 
     /**
-     * The distinctive middle of each guarded package, as raw bytes.
+     * The distinctive middle of each guarded package.
      *
      * <p>Every reference to a class in one of those packages puts its internal
      * name in the constant pool as UTF-8, so finding one of these in the class
      * file answers "could this possibly call into Octo's API" without parsing
      * anything. They are the shortest fragments that still discriminate:
-     * {@code neoforged/} covers all three NeoForge packages, {@code fml/} covers
+     * {@code neoforged/} covers all four NeoForge packages, {@code fml/} covers
      * both Forge spellings and Octo's own FML surface.
      */
-    private static final byte[][] MARKERS = {
-            "fabricmc/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-            "fml/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-            "quiltmc/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-            "neoforged/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-            "minecraftforge/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-            "liteloader/".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-    };
-
-    /** Which markers can start at a given byte, so the scan is one pass with an index. */
-    private static final boolean[] MARKER_STARTS = new boolean[256];
-
-    static {
-        for (byte[] marker : MARKERS) {
-            MARKER_STARTS[marker[0] & 0xFF] = true;
-        }
-    }
-
-    private static boolean mentionsLoaderApi(byte[] bytes) {
-        for (int i = 0; i < bytes.length; i++) {
-            if (!MARKER_STARTS[bytes[i] & 0xFF]) {
-                continue;
-            }
-
-            for (byte[] marker : MARKERS) {
-                if (matchesAt(bytes, i, marker)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static boolean matchesAt(byte[] haystack, int offset, byte[] needle) {
-        if (offset + needle.length > haystack.length) {
-            return false;
-        }
-
-        for (int i = 0; i < needle.length; i++) {
-            if (haystack[offset + i] != needle[i]) {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    private static final ByteScan MENTIONS_LOADER_API = new ByteScan(List.of(
+            "fabricmc/", "fml/", "quiltmc/", "neoforged/", "minecraftforge/", "liteloader/",
+            "artifact/versioning/"));
 
     private static boolean isLoaderApi(String internalName) {
         for (String prefix : LOADER_API_PACKAGES) {

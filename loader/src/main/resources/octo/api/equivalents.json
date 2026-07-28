@@ -1,0 +1,116 @@
+{
+  "_comment": [
+    "What this version of the game has instead. Every entry is inert on a runtime",
+    "that still has the original: Octo only consults this table after the class or",
+    "member has been looked up and genuinely not found, which is what lets one file",
+    "be correct on every Minecraft version at once.",
+    "",
+    "'alternatives' are tried in order against the running game. 'stub' says what",
+    "may be fabricated when none of them exists either - 'interface' for a type a",
+    "mod only implements, 'class' for one it extends or constructs, and nothing at",
+    "all when the entry does not say. A stand-in is shaped from the mod's own",
+    "bytecode, so the methods it calls are there and return a default.",
+    "",
+    "Drop your own copy of this file in <gameDir>/.octo/api/ to add entries; yours",
+    "wins over these one entry at a time."
+  ],
+
+  "classes": [
+    {
+      "name": "net/minecraft/client/gui/LayeredDraw$Layer",
+      "alternatives": ["net/minecraft/client/gui/LayeredDrawer$Layer"],
+      "stub": "interface",
+      "note": "the HUD is drawn in named layers from 1.20.5; before that there is no such type, so a mod's layer links and is simply never asked to draw"
+    },
+    {
+      "name": "net/minecraft/client/gui/LayeredDraw",
+      "alternatives": ["net/minecraft/client/gui/LayeredDrawer"],
+      "stub": "class",
+      "note": "the container the layers above are registered on"
+    },
+    {
+      "name": "net/minecraft/client/renderer/entity/ItemRenderer",
+      "alternatives": [
+        "net/minecraft/client/renderer/item/ItemRenderer",
+        "net/minecraft/client/render/item/ItemRenderer"
+      ],
+      "stub": "class",
+      "note": "item rendering left the entity renderer package; the Yarn spelling is listed too, for a mod built against Fabric's names"
+    },
+    {
+      "name": "net/minecraft/world/entity/vehicle/MinecartFurnace",
+      "alternatives": [
+        "net/minecraft/world/entity/vehicle/FurnaceMinecart",
+        "net/minecraft/entity/vehicle/FurnaceMinecartEntity"
+      ],
+      "stub": "class",
+      "note": "the powered minecart; Mojang and Yarn disagree on the noun order, and it has moved between the two"
+    },
+    {
+      "name": "net/minecraft/client/renderer/entity/ItemEntityRenderer",
+      "alternatives": ["net/minecraft/client/render/entity/ItemEntityRenderer"],
+      "stub": "class",
+      "note": "listed because a mod that renders items in the world reaches for both this and ItemRenderer"
+    },
+
+    {
+      "name": "net/neoforged/neoforge/items/ItemStackHandler",
+      "alternatives": ["net/minecraftforge/items/ItemStackHandler"],
+      "stub": "class",
+      "note": "NeoForge's inventory helper lives in the NeoForge mod, not the loader; the Forge spelling is the same class under its old name"
+    },
+    {
+      "name": "net/neoforged/neoforge/items/IItemHandler",
+      "alternatives": ["net/minecraftforge/items/IItemHandler"],
+      "stub": "interface",
+      "note": "what the handler above implements, and what mods pass around"
+    },
+    {
+      "name": "net/neoforged/neoforge/fluids/FluidInteractionRegistry",
+      "alternatives": ["net/minecraftforge/fluids/FluidInteractionRegistry"],
+      "stub": "class",
+      "note": "registering an interaction with nothing listening is harmless; failing to link stops the mod"
+    },
+    {
+      "name": "net/neoforged/neoforge/fluids/FluidStack",
+      "alternatives": ["net/minecraftforge/fluids/FluidStack"],
+      "stub": "class",
+      "note": "the value type the registry above deals in"
+    },
+
+    {
+      "name": "com/tterrag/registrate/AbstractRegistrate",
+      "stub": "class",
+      "note": "Registrate is a library Create ships inside its own jar. Octo now keeps a jar-in-jar payload that is not a mod on the class path, so the real one is normally found; this entry is the answer for a build that does not bundle it"
+    },
+    {
+      "name": "com/tterrag/registrate/util/entry/RegistryEntry",
+      "stub": "class",
+      "note": "what every Registrate builder hands back"
+    }
+  ],
+
+  "methods": [
+    {
+      "owner": "net/minecraft/world/entity/LivingEntity",
+      "name": "shouldTriggerItemUseEffects",
+      "alternatives": ["shouldTriggerItemUseEffects", "isUsingItem", "triggerItemUseEffects"],
+      "note": "the eating/drinking particle tick; renamed more than once, and mixed into by every animation mod"
+    },
+    {
+      "owner": "net/minecraft/client/Minecraft",
+      "name": "reloadResourcePacks",
+      "alternatives": ["reloadResourcePacks", "reloadResources"],
+      "note": "a mixin naming a lambda inside this method is matched by name rather than by the compiler's index; see MixinTargets"
+    }
+  ],
+
+  "fields": [
+    {
+      "owner": "net/minecraft/SystemReport",
+      "name": "entries",
+      "alternatives": ["entries", "details"],
+      "note": "the crash report's detail map; mixins reach it through an accessor, and a field of that exact type is unique on the class, so it is found even under a name nobody listed here"
+    }
+  ]
+}

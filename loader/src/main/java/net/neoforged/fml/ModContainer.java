@@ -48,6 +48,17 @@ public class ModContainer {
         return ForgeBuses.neoBusFor(modId);
     }
 
+    /**
+     * What this mod says about itself.
+     *
+     * <p>Reached through {@code ModList.get().getModContainerById(id)} and used
+     * for exactly one thing in practice: reading another mod's version. Absent,
+     * it is a {@code NoSuchMethodError} in the caller's static initialiser.
+     */
+    public net.neoforged.neoforgespi.language.IModInfo getModInfo() {
+        return studios.milkdromeda.octo.bridge.forge.ModInfos.neo(modId);
+    }
+
     public void registerConfig(ModConfig.Type type, IConfigSpec spec) {
         registerConfig(type, spec, modId + "-" + type.extension() + ".toml");
     }

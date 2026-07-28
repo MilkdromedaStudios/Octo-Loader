@@ -178,6 +178,53 @@ not that a decade-old mod becomes a working modern mod. Mods that only touch API
 that still exists in some form fare best; deep world-generation and rendering
 mods fare worst.
 
+### Mods on any version of the game they did not expect
+
+The time capsule above answers "this mod is from another era". This answers the
+much more common and much smaller problem: a current mod, on a current game, one
+version away from the one its author built against. Minecraft moves a class every
+few releases, and Forge and NeoForge ship the same mod against several of them,
+so the same Create build is missing `LayeredDraw$Layer` on one version and finds
+it on the next.
+
+Three things happen, and **none of them happens unless the original has been
+looked for and genuinely not found.** That is what makes one set of rules correct
+on every version at once: on a game that has everything, all three are inert.
+
+1. **A class that survives under another name is redirected to it.** The
+   candidates are listed in
+   [`equivalents.json`](loader/src/main/resources/octo/api/equivalents.json) and
+   tried in order against the running game.
+2. **A class that is gone outright may be stood in for**, if the table says it is
+   safe to — and the stand-in is shaped from the mod's own bytecode, so
+   `new ItemStackHandler(9)` gets a class with that constructor rather than an
+   empty interface. Standing in for part of a loader API is Octo's own decision,
+   because that gap is Octo's; standing in for part of *Minecraft* only happens
+   where someone wrote it down first.
+3. **A mixin aimed at a member that moved is re-aimed**, and one aimed at a
+   member that is genuinely gone is made optional rather than fatal. Mixin's own
+   answer to an unmatched injector is `Critical injection failure` and a dead
+   launch, on behalf of a mod that may only have wanted to change a tooltip.
+
+Most of the mixin half needs no table at all, because the answers are in the
+target class:
+
+- `lambda$reloadResourcePacks$21` is not a name Mojang chose — it is a counter,
+  and it moves when anything earlier in the file does. The enclosing method name
+  is the stable part, so that is what is matched on.
+- An accessor for `entries:Ljava/util/Map;` finds the field by its type when
+  exactly one field on the class has that type, whatever this version calls it.
+- A target whose name is right and whose descriptor drifted is matched on the
+  name alone when only one method carries it.
+
+Mods also ship their libraries inside themselves, and Octo keeps them: a
+jar-in-jar payload with no mod metadata goes on the class path as a library
+rather than being discarded, which is what Create's bundled Registrate needs.
+
+Everything substituted, re-aimed or skipped is named in the log and on the mod's
+compatibility report, so a mod running against something other than what its
+author tested is a fact you can read rather than one you have to infer.
+
 ### Version checks are advisory
 
 Nearly every mod ever published declares a narrow game version, and enforcing
@@ -270,8 +317,8 @@ itself.
 |---|---|---|
 | Fabric | `net.fabricmc.api.*`, `net.fabricmc.loader.api.*`, the version parser — the whole mod-facing API, verbatim | `FabricLoaderImpl`, `ModContainer`, `ModMetadata`, `ObjectShare`, `MappingResolver`, the language adapter |
 | Quilt | `LanguageAdapterException`, `VersionFormatException` | `QuiltLoader`, `ModContainer`, `ModMetadata`, the QSL entrypoint interfaces |
-| NeoForge | `net.neoforged.fml.common.Mod`, verbatim | `Dist`, the event bus, the lifecycle events, `ModList`, `ModLoadingContext` |
-| Forge | *(reference only)* | `@Mod` covering both the 1.7 and 1.13 shapes, the event bus, both generations of lifecycle event, `ModList`, `FMLJavaModLoadingContext` |
+| NeoForge | `net.neoforged.fml.common.Mod`, `IModBusEvent`, `IExtensionPoint`, verbatim | `Dist`, the event bus, the lifecycle events over one `ParallelDispatchEvent`, `ModList`, `LoadingModList`, `ModContainer`, `ModLoadingContext`, `neoforgespi`'s `IModInfo` and `IModFileInfo` |
+| Forge | *(reference only)* | `@Mod` covering both the 1.7 and 1.13 shapes, the event bus, both generations of lifecycle event, `ModList`, `LoadingModList`, `ModContainer`, `FMLJavaModLoadingContext`, `forgespi`'s `IModInfo` and `IModFileInfo` |
 
 What is deliberately *not* merged is each loader's bootstrap half — Knot,
 ModLauncher, SecureJarHandler, Quilt's plugin system. Those are mutually
@@ -285,8 +332,18 @@ possible rather than being a compromise against it.
 Quilt's and Forge's API surfaces are reimplementations rather than copies for a
 practical reason: Quilt's API is entangled with its plugin and virtual-filesystem
 layers, and current Forge's `@Mod` reaches into `BusGroup` and `Bindings`.
-Pulling either in would drag in the bootstrap half that has just been replaced.
-The signatures mods compile against are unchanged.
+Most of NeoForge's goes the same way — its `IModInfo` reaches `FMLLoader` and the
+locator SPI — so what comes across verbatim is the leaf types, which are most of
+what a mod links against by identity, and the rest is implemented against Octo's
+own runtime. Pulling in the others would drag in the bootstrap half that has just
+been replaced. The signatures mods compile against are unchanged.
+
+One consequence is worth stating plainly: because there is a single mod list,
+`ModList.get().getModContainerById("sodium").get().getModInfo().getVersion()`
+returns Sodium's real version to a NeoForge mod, out of Sodium's own
+`fabric.mod.json`. Forge's copy of that machinery — `org.apache.maven`'s
+`ArtifactVersion` included, since Forge chose it as the return type — answers
+from the same place.
 
 ## Development
 
@@ -390,10 +447,13 @@ loader/                     the loader runtime
   mod/                      the canonical mod model and the six metadata parsers
   discovery/                finding mods, and reading entrypoints out of bytecode
   resolve/                  dependency resolution and load order
-  compat/                   eras, mappings, API rules — the time capsule
-  transform/                remapping, API migration, generated stand-in classes
+  compat/                   eras, mappings, API rules, the version-equivalents
+                            table — the time capsule
+  transform/                remapping, API migration, class substitution,
+                            generated stand-in classes
   access/                   access wideners and access transformers, merged
-  mixin/                    the mixin service and the one mixin environment
+  mixin/                    the mixin service, the one mixin environment, and the
+                            version-adaptive target resolver
   bridge/                   per-ecosystem construction and lifecycle
   launch/                   the class loader and the launcher
   compat/<ecosystem>/       the implementation behind each upstream API

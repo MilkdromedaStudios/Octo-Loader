@@ -33,6 +33,11 @@ public class ModContainer {
         return ForgeBuses.forgeBusFor(modId);
     }
 
+    /** What this mod says about itself; see {@link net.neoforged.fml.ModContainer#getModInfo()}. */
+    public net.minecraftforge.forgespi.language.IModInfo getModInfo() {
+        return studios.milkdromeda.octo.bridge.forge.ModInfos.forge(modId);
+    }
+
     public void registerConfig(ModConfig.Type type, Object spec) {
         registerConfig(type, spec, modId + "-" + type.extension() + ".toml");
     }

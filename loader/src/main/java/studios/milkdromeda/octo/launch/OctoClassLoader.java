@@ -53,7 +53,12 @@ public final class OctoClassLoader extends URLClassLoader {
             "net.fabricmc.api.", "net.fabricmc.loader.",
             "org.quiltmc.loader.", "org.quiltmc.qsl.base.api.entrypoint.",
             "net.minecraftforge.fml.", "net.minecraftforge.eventbus.", "net.minecraftforge.api.distmarker.",
+            "net.minecraftforge.forgespi.",
             "net.neoforged.fml.", "net.neoforged.bus.", "net.neoforged.api.distmarker.",
+            "net.neoforged.neoforgespi.",
+            // Maven's version types, because Forge returns them from IModInfo and
+            // mods cast between them: two copies is worse than none.
+            "org.apache.maven.artifact.versioning.",
             // Mixin has to be the loader's single copy: the transformer that
             // applies a mod's mixins and the annotations that mod was compiled
             // against must be the same classes, or nothing matches.
@@ -100,6 +105,26 @@ public final class OctoClassLoader extends URLClassLoader {
 
         if (!pipeline.isEmpty()) {
             pipelinesByJar.put(key, pipeline);
+        }
+    }
+
+    /**
+     * Attaches a jar that is not a mod but that a mod needs.
+     *
+     * <p>Jar-in-jar payloads with no metadata are libraries — Create ships
+     * Registrate this way, Fabric API ships a dozen — and they belong on the
+     * class path without going anywhere near the mod machinery: there is no
+     * metadata to resolve, no entrypoint to construct and no lifecycle to
+     * dispatch. They pass through the game pipeline like any other class.
+     */
+    public void addLibrary(Path jar) {
+        Path path = jar.toAbsolutePath().normalize();
+
+        try {
+            addURL(path.toUri().toURL());
+            LOG.debug("added the bundled library {} to the class path", path.getFileName());
+        } catch (IOException e) {
+            LOG.error("could not add the library {} to the class path: {}", path, e.toString());
         }
     }
 
@@ -324,11 +349,22 @@ public final class OctoClassLoader extends URLClassLoader {
      * referencing part of a loader API that Octo simply never implemented has
      * nowhere else to be answered, and refusing it costs the whole mod.
      */
-    private static final List<String> STAND_IN_PACKAGES = List.of(
+    static final List<String> STAND_IN_PACKAGES = List.of(
             "net/neoforged/", "net/minecraftforge/", "net/fabricmc/", "org/quiltmc/",
             "cpw/mods/fml/", "com/mumfrey/liteloader/");
 
     private PhantomClasses.Spec declareLoaderApiStandIn(String internalName) {
+        // The compatibility table first: it knows whether the class is one mods
+        // implement or one they construct, and it is the only thing that may
+        // authorise standing in for a class outside the loader packages.
+        PhantomClasses.Spec declared = phantoms.declareFromTable(internalName);
+
+        if (declared != null) {
+            LOG.warn("this Minecraft has no {} and no equivalent of it; standing in for it "
+                    + "so the mod can still load", internalName.replace('/', '.'));
+            return declared;
+        }
+
         for (String prefix : STAND_IN_PACKAGES) {
             if (internalName.startsWith(prefix)) {
                 LOG.warn("Octo does not implement {}; standing in for it so the mod can still load",

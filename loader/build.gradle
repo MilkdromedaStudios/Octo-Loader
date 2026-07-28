@@ -72,7 +72,17 @@ tasks.register('importUpstreamApi', Sync) {
         include 'org/quiltmc/loader/api/LanguageAdapterException.java'
         include 'org/quiltmc/loader/api/VersionFormatException.java'
 
+        // Forge and NeoForge come across only where the upstream file stands on
+        // its own. Most of theirs does not: NeoForge's IModInfo reaches FMLLoader
+        // and its locator SPI, Forge's Mod annotation reaches the new event bus
+        // groups, and pulling either in means pulling in the bootstrap half this
+        // build deliberately replaces. So the mod-facing shape of those types is
+        // implemented in loader/src/main/java/net/{minecraftforge,neoforged}
+        // instead, against Octo's runtime — and the leaf types, which are most of
+        // what a mod actually links against by identity, are the real thing.
         include 'net/neoforged/fml/common/Mod.java'
+        include 'net/neoforged/fml/event/IModBusEvent.java'
+        include 'net/neoforged/fml/IExtensionPoint.java'
     }
 }
 

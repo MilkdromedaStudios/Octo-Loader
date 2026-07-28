@@ -124,6 +124,33 @@ class DiscoveryReportTest {
     }
 
     @Test
+    @DisplayName("a library a mod ships inside itself is kept, not thrown away")
+    void bundledLibrariesSurviveDiscovery() throws IOException {
+        Path library = gameDir.resolve("registrate.jar");
+        new JarBuilder().file("com/tterrag/registrate/marker.txt", "a library, not a mod").writeTo(library);
+
+        new JarBuilder()
+                .file("META-INF/neoforge.mods.toml", """
+                        modLoader="javafml"
+                        loaderVersion="[21,)"
+                        license="MIT"
+                        [[mods]]
+                        modId="create"
+                        version="1.0.0"
+                        """)
+                .file("META-INF/jarjar/registrate.jar", Files.readAllBytes(library))
+                .writeTo(modsDir.resolve("create.jar"));
+
+        Discovery discovery = discover();
+
+        assertEquals(1, discovery.candidates().size(), "only the mod itself is a mod: " + discovery.describe());
+        assertEquals(1, discovery.libraries().size(),
+                "the bundled library should be on the class path, not discarded: " + discovery.describe());
+        assertTrue(discovery.libraries().get(0).getFileName().toString().contains("registrate"));
+        assertTrue(discovery.failures().isEmpty(), "a mod shipping a library is not a failure");
+    }
+
+    @Test
     @DisplayName("the report names the folders that were scanned even when they hold nothing")
     void theReportAlwaysNamesTheFolders() {
         Discovery discovery = discover();
