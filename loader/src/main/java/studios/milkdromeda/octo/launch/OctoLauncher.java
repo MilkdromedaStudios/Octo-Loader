@@ -29,6 +29,7 @@ import studios.milkdromeda.octo.mixin.MixinTargets;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
+import studios.milkdromeda.octo.report.GameWatch;
 import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.report.ReportWindow;
 import studios.milkdromeda.octo.resolve.ModResolver;
@@ -261,7 +262,7 @@ public final class OctoLauncher {
             // Before any mod runs, not after: a mod's initialiser is entitled to
             // register a block or read a tag, and both need the game's registries
             // to exist.
-            GameBootstrap.run(classLoader);
+            reportBootstrap(GameBootstrap.run(classLoader));
 
             construct(mods, classLoader);
 
@@ -334,6 +335,31 @@ public final class OctoLauncher {
     }
 
     /**
+     * Says so when the game's own start-up did not finish.
+     *
+     * <p>Worth a line of its own in the report because of what it looks like
+     * when it is not reported: the launch carries on, the registries are short of
+     * whatever the failed step would have added, and the game dies later with a
+     * null default entry that names nothing and nobody. Here the cause is on
+     * screen before the game gets that far.
+     */
+    private void reportBootstrap(GameBootstrap.Outcome outcome) {
+        if (outcome.failure() == null) {
+            return;
+        }
+
+        String next = outcome.retried()
+                ? "Minecraft will try the same start-up again itself, so it may still start."
+                : "Minecraft skips its own attempt once this one has been made, so parts of the game may "
+                        + "be missing.";
+
+        record(LoadingReport.Severity.ERROR, "Minecraft",
+                "the game's own start-up did not finish before the mods ran",
+                Failures.describe(outcome.failure()) + System.lineSeparator() + next + System.lineSeparator()
+                        + "The full stack trace is in " + logFile() + ".");
+    }
+
+    /**
      * Notes something that went wrong, without stopping.
      *
      * <p>Every path that could end a launch comes through here, so "what does
@@ -378,11 +404,25 @@ public final class OctoLauncher {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(result.classLoader());
 
+        // From here on the game owns the process, and the process is how the
+        // report is shown. If Minecraft dies it takes the JVM — and the window —
+        // with it, so the watcher has to be in place before that can happen.
+        if (context.side() == Side.CLIENT && !Boolean.getBoolean("octo.noReportWindow")) {
+            GameWatch.arm(report, context.gameDir(), logFile());
+        }
+
         try {
             Class<?> type = Class.forName(mainClass, false, result.classLoader());
             Method main = type.getMethod("main", String[].class);
             LOG.info("handing over to {}", mainClass);
             main.invoke(null, (Object) context.launchArguments().toArray(new String[0]));
+        } catch (Throwable e) {
+            // Minecraft normally catches its own crashes and exits before this
+            // ever runs; when it does not, this is the only place the failure
+            // exists. Either way it belongs in the window, not only in a
+            // launcher dialog reading "Exit code: -1".
+            GameWatch.crashed(e);
+            throw e;
         } finally {
             // If the game came and went without the hook firing, the mods that
             // were waiting on it should still get their turn — a server run, or a
