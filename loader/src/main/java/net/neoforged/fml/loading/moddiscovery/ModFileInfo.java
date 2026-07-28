@@ -1,9 +1,11 @@
 package net.neoforged.fml.loading.moddiscovery;
 
 import java.util.List;
-import java.util.Optional;
 
-import studios.milkdromeda.octo.runtime.LoadedMod;
+import net.neoforged.neoforgespi.language.IModFileInfo;
+import net.neoforged.neoforgespi.language.IModInfo;
+
+import studios.milkdromeda.octo.bridge.forge.ModInfos;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 
 /**
@@ -20,7 +22,7 @@ import studios.milkdromeda.octo.runtime.OctoRuntime;
  * not pretended at; what a mod actually asks — the id, the version, the file it
  * came from — is real.
  */
-public final class ModFileInfo {
+public final class ModFileInfo implements IModFileInfo {
     private final String modId;
 
     public ModFileInfo(String modId) {
@@ -29,23 +31,31 @@ public final class ModFileInfo {
 
     /** @return the info for a loaded mod, or {@code null} when it is not present */
     public static ModFileInfo of(String modId) {
-        if (!OctoRuntime.isRunning() || !OctoRuntime.get().isModLoaded(modId)) {
-            return null;
-        }
-
-        return new ModFileInfo(modId);
+        return ModInfos.isPresent(modId) ? new ModFileInfo(modId) : null;
     }
 
+    @Override
     public String moduleName() {
         return modId;
     }
 
+    @Override
     public String versionString() {
-        return mod().map(loaded -> loaded.metadata().version().raw()).orElse("0.0.0");
+        return ModInfos.versionOf(modId);
     }
 
-    public List<String> getMods() {
-        return List.of(modId);
+    /**
+     * The mods declared in this file.
+     *
+     * <p>These are {@code IModInfo}, not ids: mods read the version straight off
+     * the first element — {@code getMods().get(0).getVersion()} is Create's
+     * idiom — and a list of strings there is exactly the
+     * {@code NoSuchMethodError} on {@code IModInfo.getVersion()} that took
+     * Create's compatibility layer down with it.
+     */
+    @Override
+    public List<IModInfo> getMods() {
+        return List.of(ModInfos.neo(modId));
     }
 
     public String getModId() {
@@ -53,28 +63,39 @@ public final class ModFileInfo {
     }
 
     /** The archive this mod was read from. */
+    @Override
     public String getFileName() {
-        return mod().map(loaded -> loaded.effectivePath().getFileName().toString()).orElse(modId);
+        return ModInfos.fileNameOf(modId);
     }
 
+    @Override
     public String getLicense() {
-        return mod().map(loaded -> loaded.metadata().license()).orElse("");
+        return ModInfos.licenseOf(modId);
     }
 
+    @Override
     public List<String> usesServices() {
         return List.of();
     }
 
+    @Override
+    public String getModLoader() {
+        return ModInfos.modLoaderOf(modId);
+    }
+
+    @Override
+    public String getModLoaderVersion() {
+        return OctoRuntime.VERSION;
+    }
+
+    @Override
     public boolean showAsResourcePack() {
         return false;
     }
 
+    @Override
     public boolean showAsDataPack() {
         return false;
-    }
-
-    private Optional<LoadedMod> mod() {
-        return OctoRuntime.isRunning() ? OctoRuntime.get().mod(modId) : Optional.empty();
     }
 
     @Override

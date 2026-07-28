@@ -16,13 +16,16 @@ import studios.milkdromeda.octo.access.AccessRuleTransformer;
 import studios.milkdromeda.octo.access.AccessRules;
 import studios.milkdromeda.octo.bridge.BridgeRegistry;
 import studios.milkdromeda.octo.bridge.LoaderBridge;
+import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.TimeCapsule;
+import studios.milkdromeda.octo.compat.api.Equivalents;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.discovery.Discovery;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
 import studios.milkdromeda.octo.hook.GameHooks;
 import studios.milkdromeda.octo.mixin.MixinSupport;
+import studios.milkdromeda.octo.mixin.MixinTargets;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
@@ -33,6 +36,8 @@ import studios.milkdromeda.octo.resolve.Resolution;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
+import studios.milkdromeda.octo.transform.ByteScan;
+import studios.milkdromeda.octo.transform.MissingClassTransformer;
 import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformPipeline;
@@ -222,17 +227,32 @@ public final class OctoLauncher {
             classLoader.addMod(mod, timeCapsule.pipelineFor(mod));
         }
 
+        // The libraries the mods brought with them. Before this they were
+        // unpacked, found to contain no mod, and thrown away — which is why
+        // Create loaded and then died on the Registrate it ships itself.
+        List<Path> libraries = discovery.libraries();
+
+        if (!libraries.isEmpty()) {
+            LOG.info("{} bundled librarie(s) came with the mods and are on the class path", libraries.size());
+            libraries.forEach(classLoader::addLibrary);
+        }
+
         // All of these rewrite the game itself on behalf of the mods, so they are
         // installed before a single class is loaded and apply to every jar —
         // including the mixin configuration plugins mixin loads during its own
         // bootstrap, which is where a mod first calls into the loader's API.
         installApiGapCover(classLoader);
+        installVersionAdapters(phantoms, classLoader);
         installAccessRules(mods, classLoader);
-        installMixins(mods, classLoader);
 
+        // Planned before mixin starts: mixin reads its targets through the class
+        // loader, and a mixin config plugin is the first thing in a launch to
+        // touch a class that may not be there.
         if (context.compat().stubMissingApi()) {
             planPhantoms(mods, phantoms, classLoader, timeCapsule);
         }
+
+        installMixins(mods, classLoader);
 
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(classLoader);
@@ -288,6 +308,21 @@ public final class OctoLauncher {
             record(LoadingReport.Severity.WARNING, "Octo",
                     apiGaps.gaps().size() + " loader API member(s) are not implemented yet and returned defaults",
                     String.join(System.lineSeparator(), apiGaps.gaps()));
+        }
+
+        // Not a failure either, and worth saying out loud: a mod that is running
+        // against a differently-named class is running, but it is not running
+        // against what its author tested.
+        if (substitutions != null && !substitutions.substitutions().isEmpty()) {
+            LOG.info("{} class(es) this Minecraft does not have were answered by an equivalent:",
+                    substitutions.substitutions().size());
+            substitutions.substitutions().forEach(entry -> LOG.info("  {}", entry));
+        }
+
+        if (mixinTargets != null && !mixinTargets.adjustments().isEmpty()) {
+            LOG.info("{} mixin target(s) did not match this version and were re-aimed or skipped:",
+                    mixinTargets.adjustments().size());
+            mixinTargets.adjustments().forEach(entry -> LOG.info("  {}", entry));
         }
 
         for (LoadedMod mod : failed) {
@@ -438,6 +473,49 @@ public final class OctoLauncher {
     /** What the mods asked Octo for and did not get, collected over the launch. */
     private MissingMemberTransformer apiGaps;
 
+    /**
+     * Teaches the launch what this Minecraft has instead of what the mods expect.
+     *
+     * <p>Three things, all versions of one problem — a mod naming something the
+     * running game spells differently or does not have at all:
+     *
+     * <ul>
+     *   <li>a class that survives under another name is redirected to it;</li>
+     *   <li>a class that is gone outright may be stood in for, if the table says
+     *       so;</li>
+     *   <li>a mixin aimed at a member that moved is re-aimed, and one aimed at a
+     *       member that is genuinely gone is made optional instead of fatal.</li>
+     * </ul>
+     *
+     * <p>None of it happens until the original has actually been looked for and
+     * not found, which is what lets the same rules be right on every Minecraft
+     * version: on one that has everything, all three are inert.
+     */
+    private void installVersionAdapters(PhantomClasses phantoms, OctoClassLoader classLoader) {
+        equivalents = Equivalents.load(context.octoDir().resolve("api"));
+
+        if (!equivalents.isEmpty()) {
+            LOG.debug("{} version-equivalence entrie(s) available", equivalents.size());
+            phantoms.useEquivalents(equivalents);
+            substitutions = new MissingClassTransformer(equivalents);
+            classLoader.addGlobalTransformer(substitutions);
+        }
+
+        // Installed whether or not the table has anything in it: most of what
+        // re-aims a mixin is read off the target class, not out of a table.
+        mixinTargets = new MixinTargets(equivalents, classLoader::rawClassBytes);
+        classLoader.addGlobalTransformer(mixinTargets);
+    }
+
+    /** What this Minecraft has instead of what the mods expect; read once per launch. */
+    private Equivalents equivalents = Equivalents.EMPTY;
+
+    /** Which absent classes were answered by a different one, collected over the launch. */
+    private MissingClassTransformer substitutions;
+
+    /** Which mixins had to be re-aimed or given up on, collected over the launch. */
+    private MixinTargets mixinTargets;
+
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
         AccessRules rules = AccessRuleLoader.collect(mods);
 
@@ -533,18 +611,39 @@ public final class OctoLauncher {
     }
 
     /**
-     * Reads the classes of every mod older than the runtime, so the loader knows
-     * in advance which of the classes they reference no longer exist and what
-     * shape a stand-in would have to be.
+     * Reads every mod's classes, so the loader knows in advance which of the
+     * classes they reference are not there and what shape a stand-in has to be.
+     *
+     * <p>Knowing the shape is the whole value of doing this in advance. A
+     * stand-in invented at the moment a class fails to load can only be an empty
+     * interface, because nothing at that point knows what the mod wanted from it;
+     * one planned from the mod's own bytecode has the constructors the mod calls
+     * and the methods it invokes, with the right descriptors. That is the
+     * difference between {@code new ItemStackHandler(9)} working and failing.
+     *
+     * <p>What each mod is answered for differs. A mod older than the runtime is
+     * answered for everything, because the game moved out from under it and that
+     * is what the time capsule is for. A mod built for this version is answered
+     * only where Octo is responsible: the four loaders' APIs, and the classes the
+     * compatibility table names. Standing in for anything else there would turn a
+     * mod with a genuine problem into a mod that loads and silently does nothing.
      */
     private void planPhantoms(List<LoadedMod> mods, PhantomClasses phantoms, OctoClassLoader classLoader,
             TimeCapsule timeCapsule) {
-        for (LoadedMod mod : mods) {
-            if (!mod.era().isKnown() || !mod.era().isOlderThan(timeCapsule.runtimeEra())) {
-                continue;
-            }
+        Equivalents table = equivalents;
 
-            TransformPipeline pipeline = timeCapsule.pipelineFor(mod);
+        // A current mod's classes are only worth parsing if they mention one of
+        // the packages Octo answers for. That is a byte scan rather than an ASM
+        // parse, which is the difference between this being free on a folder of
+        // two hundred mods and it being a second of startup nobody asked for.
+        ByteScan worthReading = new ByteScan(answerablePrefixes(table));
+
+        for (LoadedMod mod : mods) {
+            boolean fromAnotherEra = mod.era().isKnown() && mod.era().isOlderThan(timeCapsule.runtimeEra());
+            java.util.function.Predicate<String> answerable = fromAnotherEra
+                    ? name -> true
+                    : name -> isOctosToAnswerFor(name, table);
+            TransformPipeline pipeline = fromAnotherEra ? timeCapsule.pipelineFor(mod) : TransformPipeline.empty();
 
             try (ModSource source = ModSource.open(mod.effectivePath())) {
                 for (String entry : source.entries()) {
@@ -554,7 +653,7 @@ public final class OctoLauncher {
 
                     byte[] bytes = source.read(entry).orElse(null);
 
-                    if (bytes == null) {
+                    if (bytes == null || (!fromAnotherEra && !worthReading.matches(bytes))) {
                         continue;
                     }
 
@@ -562,7 +661,7 @@ public final class OctoLauncher {
                     // it is on disk: remapping resolves most missing references.
                     byte[] translated = pipeline.apply(entry.substring(0, entry.length() - 6), bytes,
                             studios.milkdromeda.octo.transform.TransformContext.of(null, classLoader::classExists));
-                    phantoms.observe(translated, classLoader::classExists);
+                    phantoms.observe(translated, classLoader::classExists, answerable);
                 }
             } catch (Throwable e) {
                 Failures.rethrowIfFatal(e);
@@ -571,9 +670,36 @@ public final class OctoLauncher {
         }
 
         if (!phantoms.specs().isEmpty()) {
-            LOG.info("{} class(es) referenced by old mods no longer exist; stand-ins are ready",
+            LOG.info("{} referenced class(es) are not in this runtime; stand-ins are ready",
                     phantoms.specs().size());
+            phantoms.specs().values().forEach(spec -> LOG.debug("  stand-in ready for {}", spec));
         }
+    }
+
+    /**
+     * Whether a class a current mod is missing is Octo's to manufacture.
+     *
+     * <p>The loader packages are, unconditionally: Octo implements the mod-facing
+     * half of four loaders and every gap in that is Octo's own. Anything else has
+     * to be named in the compatibility table, which is where the judgement about
+     * a particular class belongs.
+     */
+    private static boolean isOctosToAnswerFor(String internalName, Equivalents table) {
+        for (String prefix : OctoClassLoader.STAND_IN_PACKAGES) {
+            if (internalName.startsWith(prefix)) {
+                return true;
+            }
+        }
+
+        Equivalents.ClassEntry entry = table.classEntry(internalName);
+        return entry != null && entry.stub() != Equivalents.Stub.NONE;
+    }
+
+    /** The names whose presence in a class file makes it worth parsing at all. */
+    private static List<String> answerablePrefixes(Equivalents table) {
+        List<String> out = new ArrayList<>(OctoClassLoader.STAND_IN_PACKAGES);
+        out.addAll(table.mentionedClasses());
+        return out;
     }
 
     private void construct(List<LoadedMod> mods, OctoClassLoader classLoader) {
@@ -585,6 +711,8 @@ public final class OctoLauncher {
                 continue;
             }
 
+            ForgeBuses.setActive(mod.id());
+
             try {
                 bridge.construct(mod, classLoader);
             } catch (Throwable e) {
@@ -592,6 +720,8 @@ public final class OctoLauncher {
                 LOG.error("{}: construction failed, skipping this mod: {}", mod.id(), Failures.describe(e));
                 OctoLog.detail(e);
                 mod.fail(e);
+            } finally {
+                ForgeBuses.setActive(null);
             }
         }
     }
@@ -610,6 +740,13 @@ public final class OctoLauncher {
                 continue;
             }
 
+            // Which mod is running right now, for the whole of its turn rather
+            // than only while it is being constructed. A Forge mod registering a
+            // config from inside FMLCommonSetupEvent — which is where the
+            // documentation tells it to — was until now registering it against
+            // "minecraft", because the marker had already been cleared.
+            ForgeBuses.setActive(mod.id());
+
             try {
                 bridge.dispatch(phase, mod);
             } catch (Throwable e) {
@@ -617,6 +754,8 @@ public final class OctoLauncher {
                 LOG.error("{}: {} failed, skipping this mod: {}", mod.id(), phase, Failures.describe(e));
                 OctoLog.detail(e);
                 mod.fail(e);
+            } finally {
+                ForgeBuses.setActive(null);
             }
         }
     }

@@ -23,6 +23,11 @@ public final class Discovery {
         ACCEPTED,
         /** Readable, but nothing in it says it is a mod. Usually a library jar. */
         NOT_A_MOD,
+        /**
+         * Not a mod, and shipped inside one, so it is that mod's library and is
+         * put on the class path rather than discarded.
+         */
+        LIBRARY,
         /** A metadata file is present and could not be parsed. Always an error. */
         BROKEN_METADATA,
         /** The archive itself could not be opened. Truncated download, or not a zip. */
@@ -47,6 +52,7 @@ public final class Discovery {
             // look like a second thing that went wrong.
             return file.getFileName() + ": " + switch (verdict) {
                 case ACCEPTED -> "loaded " + String.join(", ", modIds);
+                case LIBRARY -> "library for " + detail;
                 case NOT_A_MOD -> "not a mod (" + detail + ")";
                 case BROKEN_METADATA -> "broken metadata - " + detail;
                 case UNREADABLE -> "could not be read - " + detail;
@@ -57,6 +63,7 @@ public final class Discovery {
     private final List<Path> directories;
     private final List<ModCandidate> candidates = new ArrayList<>();
     private final List<Inspection> inspections = new ArrayList<>();
+    private final List<Path> libraries = new ArrayList<>();
 
     Discovery(List<Path> directories) {
         this.directories = List.copyOf(directories);
@@ -100,8 +107,26 @@ public final class Discovery {
         return (int) inspections.stream().filter(inspection -> !inspection.nested()).count();
     }
 
+    /**
+     * The jars a mod shipped inside itself that are not mods.
+     *
+     * <p>Jar-in-jar exists for exactly this: a mod bundles the libraries it needs
+     * so the player does not have to install them. Discarding one because it has
+     * no mod metadata is why Create, which ships Registrate that way, failed at
+     * {@code NoClassDefFoundError: com/tterrag/registrate/AbstractRegistrate}
+     * after loading perfectly.
+     */
+    public List<Path> libraries() {
+        return List.copyOf(libraries);
+    }
+
     void accept(Path file, boolean nested, List<String> modIds) {
         inspections.add(new Inspection(file, Verdict.ACCEPTED, nested, "", modIds));
+    }
+
+    void library(Path file, String owner) {
+        libraries.add(file);
+        inspections.add(new Inspection(file, Verdict.LIBRARY, true, owner, List.of()));
     }
 
     void reject(Path file, Verdict verdict, boolean nested, String detail) {

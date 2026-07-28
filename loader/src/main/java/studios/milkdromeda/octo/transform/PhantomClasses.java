@@ -38,6 +38,14 @@ public final class PhantomClasses {
     // once up front on one thread; this is for what arrives after it.
     private final Map<String, Spec> specs = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** What the compatibility table says may be fabricated, and as what. */
+    private volatile studios.milkdromeda.octo.compat.api.Equivalents equivalents =
+            studios.milkdromeda.octo.compat.api.Equivalents.EMPTY;
+
+    public void useEquivalents(studios.milkdromeda.octo.compat.api.Equivalents table) {
+        this.equivalents = table;
+    }
+
     /** What a mod expects a class it references to look like. */
     public static final class Spec {
         private final String internalName;
@@ -82,17 +90,38 @@ public final class PhantomClasses {
      * says are absent.
      */
     public void observe(byte[] bytes, Predicate<String> exists) {
+        observe(bytes, exists, name -> true);
+    }
+
+    /**
+     * Records everything {@code bytes} needs from absent classes that Octo is
+     * willing to answer for.
+     *
+     * <p>The second predicate is what makes this safe to run over a mod built
+     * for the version that is running. For a mod from an older era, every
+     * missing reference is fair game — the whole point of the time capsule is
+     * that the game moved out from under it. For a current mod, a missing
+     * reference is usually a real bug in the mod or a library that failed to
+     * load, and manufacturing a silent stand-in for it would turn a clear
+     * failure into a mod that runs and quietly does nothing. So a current mod is
+     * only answered for the packages Octo is responsible for: the four loaders'
+     * APIs, and whatever the compatibility table explicitly declares.
+     *
+     * @param answerable whether a missing class is Octo's to stand in for
+     */
+    public void observe(byte[] bytes, Predicate<String> exists, Predicate<String> answerable) {
+        Predicate<String> missing = name -> isMissing(name, exists) && answerable.test(name);
         new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
             public void visit(int version, int access, String name, String signature, String superName,
                     String[] interfaces) {
-                if (superName != null && isMissing(superName, exists)) {
+                if (superName != null && missing.test(superName)) {
                     specFor(superName).extended = true;
                 }
 
                 if (interfaces != null) {
                     for (String candidate : interfaces) {
-                        if (isMissing(candidate, exists)) {
+                        if (missing.test(candidate)) {
                             specFor(candidate).isInterface = true;
                         }
                     }
@@ -106,7 +135,7 @@ public final class PhantomClasses {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String name, String descriptor,
                             boolean isInterface) {
-                        if (!isMissing(owner, exists)) {
+                        if (!missing.test(owner)) {
                             return;
                         }
 
@@ -125,7 +154,7 @@ public final class PhantomClasses {
 
                     @Override
                     public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
-                        if (!isMissing(owner, exists)) {
+                        if (!missing.test(owner)) {
                             return;
                         }
 
@@ -135,7 +164,7 @@ public final class PhantomClasses {
 
                     @Override
                     public void visitTypeInsn(int opcode, String type) {
-                        if (isMissing(type, exists)) {
+                        if (missing.test(type)) {
                             Spec spec = specFor(type);
 
                             if (opcode == Opcodes.NEW) {
@@ -218,6 +247,50 @@ public final class PhantomClasses {
         Spec spec = specFor(internalName);
         spec.isInterface = true;
         return spec;
+    }
+
+    /**
+     * Records a stand-in that mods construct or extend rather than implement.
+     *
+     * <p>The difference is not cosmetic. An empty interface is the right shape
+     * for most of what a loader API contains, and the wrong shape for anything a
+     * mod says {@code new} about: {@code new ItemStackHandler(9)} against an
+     * interface is an {@code InstantiationError}, and extending one is an
+     * {@code IncompatibleClassChangeError}. Both are worse than the
+     * {@code NoClassDefFoundError} they replaced, because they arrive later.
+     */
+    public Spec declareClass(String internalName) {
+        Spec spec = specFor(internalName);
+        spec.isInterface = false;
+        spec.instantiated = true;
+        return spec;
+    }
+
+    /**
+     * Declares whatever the compatibility table says this class should be.
+     *
+     * <p>This is the only route by which a {@code net.minecraft.*} class is ever
+     * fabricated. Octo will invent a missing corner of a loader API on its own
+     * initiative, because that gap is Octo's own; inventing a piece of Minecraft
+     * is a judgement about the game, so it has to be one somebody wrote down in
+     * the table first.
+     *
+     * @return the recorded specification, or {@code null} when the table has
+     *         nothing to say about this class or says not to stand in for it
+     */
+    public Spec declareFromTable(String internalName) {
+        studios.milkdromeda.octo.compat.api.Equivalents.ClassEntry entry =
+                equivalents.classEntry(internalName);
+
+        if (entry == null) {
+            return null;
+        }
+
+        return switch (entry.stub()) {
+            case INTERFACE -> declareInterface(internalName);
+            case CLASS -> declareClass(internalName);
+            case NONE -> null;
+        };
     }
 
     /** Builds the class file for a recorded specification. */

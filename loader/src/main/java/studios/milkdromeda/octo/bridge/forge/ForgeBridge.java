@@ -57,9 +57,10 @@ public final class ForgeBridge implements LoaderBridge {
             return;
         }
 
+        // Which mod is being constructed is marked by the launcher, around this
+        // call and around every lifecycle dispatch, so a mod reaching for its own
+        // bus from a setup handler finds the same one it found in its constructor.
         for (EntrypointSpec spec : specs) {
-            ForgeBuses.setActive(mod.id());
-
             try {
                 Class<?> type = Class.forName(spec.className(), false, classLoader);
                 Object instance = instantiate(type, mod);
@@ -71,8 +72,6 @@ public final class ForgeBridge implements LoaderBridge {
                 LOG.error("{}: could not construct {}: {}", mod.id(), spec.className(), Failures.describe(cause));
                 OctoLog.detail(cause);
                 mod.fail(cause);
-            } finally {
-                ForgeBuses.setActive(null);
             }
         }
     }

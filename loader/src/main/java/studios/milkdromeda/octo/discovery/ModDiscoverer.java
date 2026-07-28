@@ -135,6 +135,18 @@ public final class ModDiscoverer {
                 ModMetadata recovered = recoverFromBytecode(file, scan);
 
                 if (recovered == null) {
+                    if (nested) {
+                        // A jar a mod shipped inside itself and that is not a mod
+                        // is the mod's own library. Dropping it is what made
+                        // Create load and then die on Registrate, which it
+                        // bundles exactly this way. It goes on the class path
+                        // rather than through the mod machinery: it has no
+                        // metadata, no entrypoint and nothing to dispatch to.
+                        LOG.info("{}: keeping bundled library {}", parent.id(), file.getFileName());
+                        discovery.library(file, parent.id());
+                        return out;
+                    }
+
                     LOG.debug("{} contains no mod metadata and no recognisable entrypoint, ignoring",
                             file.getFileName());
                     discovery.reject(file, Discovery.Verdict.NOT_A_MOD, nested,
