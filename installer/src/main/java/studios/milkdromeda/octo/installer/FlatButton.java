@@ -55,7 +55,9 @@ final class FlatButton extends JButton {
         canvas.setColor(background());
         canvas.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.RADIUS, Theme.RADIUS);
 
-        if (kind != Kind.PRIMARY) {
+        // A disabled button keeps its outline. Without one it is not a button
+        // that cannot be pressed, it is a button that is not there.
+        if (kind != Kind.PRIMARY || !isEnabled()) {
             canvas.setColor(kind == Kind.DANGER && isEnabled() ? Theme.DANGER.darker() : Theme.BORDER);
             canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Theme.RADIUS, Theme.RADIUS);
         }
@@ -72,7 +74,7 @@ final class FlatButton extends JButton {
 
     private Color background() {
         if (!isEnabled()) {
-            return Theme.SURFACE;
+            return Theme.SURFACE_RAISED;
         }
 
         boolean pressed = getModel().isArmed() && getModel().isPressed();

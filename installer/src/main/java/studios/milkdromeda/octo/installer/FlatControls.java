@@ -36,7 +36,7 @@ final class FlatControls {
 
     static JLabel title(String text) {
         JLabel label = new JLabel(text);
-        label.setFont(Theme.ui(Font.BOLD, 20f));
+        label.setFont(Theme.ui(Font.BOLD, 19f));
         label.setForeground(Theme.TEXT);
         return label;
     }
@@ -51,15 +51,44 @@ final class FlatControls {
     static JLabel fieldLabel(String text) {
         JLabel label = new JLabel(text.toUpperCase(java.util.Locale.ROOT));
         label.setFont(Theme.ui(Font.BOLD, 10.5f));
-        label.setForeground(Theme.TEXT_MUTED);
+        label.setForeground(Theme.TEXT_FAINT);
         return label;
+    }
+
+    /**
+     * A count or a state with a coloured dot in front of it.
+     *
+     * <p>Colour alone would be the whole message for anyone who cannot tell the
+     * green from the red, so the text carries it too.
+     */
+    static JLabel chip(String text, Color colour) {
+        JLabel chip = new JLabel(text) {
+            @Override
+            protected void paintComponent(Graphics graphics) {
+                Graphics2D canvas = Theme.smooth(graphics);
+                canvas.setColor(mix(colour, Theme.SURFACE, 0.82f));
+                canvas.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+                canvas.setColor(mix(colour, Theme.SURFACE, 0.55f));
+                canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, getHeight(), getHeight());
+                canvas.setColor(colour);
+                canvas.fillOval(11, getHeight() / 2 - 3, 6, 6);
+                canvas.dispose();
+                super.paintComponent(graphics);
+            }
+        };
+
+        chip.setFont(Theme.ui(Font.BOLD, 11.5f));
+        chip.setForeground(colour);
+        chip.setBorder(BorderFactory.createEmptyBorder(6, 26, 6, 13));
+        chip.setOpaque(false);
+        return chip;
     }
 
     static JTextField field(String value) {
         JTextField field = new JTextField(value);
         field.setFont(Theme.ui(Font.PLAIN, 13f));
         field.setForeground(Theme.TEXT);
-        field.setBackground(Theme.SURFACE);
+        field.setBackground(Theme.SURFACE_RAISED);
         field.setCaretColor(Theme.ACCENT);
         field.setBorder(inputBorder());
         field.setOpaque(true);
@@ -70,7 +99,7 @@ final class FlatControls {
         JComboBox<T> box = new JComboBox<>();
         box.setFont(Theme.ui(Font.PLAIN, 13f));
         box.setForeground(Theme.TEXT);
-        box.setBackground(Theme.SURFACE);
+        box.setBackground(Theme.SURFACE_RAISED);
         box.setBorder(inputBorder());
         box.setFocusable(true);
         box.setUI(new FlatComboUi());
@@ -83,10 +112,10 @@ final class FlatControls {
             Component cell = fallback.getListCellRendererComponent(list, value, index, selected, focused);
 
             if (cell instanceof JLabel label) {
-                label.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+                label.setBorder(BorderFactory.createEmptyBorder(7, 11, 7, 11));
                 label.setFont(Theme.ui(Font.PLAIN, 13f));
                 label.setForeground(selected ? Theme.ON_ACCENT : Theme.TEXT);
-                label.setBackground(selected ? Theme.ACCENT : Theme.SURFACE);
+                label.setBackground(selected ? Theme.ACCENT : Theme.SURFACE_RAISED);
                 label.setOpaque(true);
             }
 
@@ -105,18 +134,26 @@ final class FlatControls {
         JPanel panel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics graphics) {
-                Graphics2D canvas = (Graphics2D) graphics.create();
-                canvas.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Graphics2D canvas = Theme.smooth(graphics);
                 canvas.setColor(Theme.SURFACE);
-                canvas.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.RADIUS + 4, Theme.RADIUS + 4);
+                canvas.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.RADIUS, Theme.RADIUS);
                 canvas.setColor(Theme.BORDER);
-                canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Theme.RADIUS + 4, Theme.RADIUS + 4);
+                canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Theme.RADIUS, Theme.RADIUS);
                 canvas.dispose();
             }
         };
 
         panel.setOpaque(false);
         return panel;
+    }
+
+    /** A one-pixel rule, for separating the header and the log from the page. */
+    static Component divider() {
+        JPanel rule = new JPanel();
+        rule.setBackground(Theme.BORDER);
+        rule.setPreferredSize(new Dimension(1, 1));
+        rule.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+        return rule;
     }
 
     static JPanel column() {
@@ -135,9 +172,12 @@ final class FlatControls {
     /** Styles a scroll pane to match, including the bars. */
     static JScrollPane scroller(Component view) {
         JScrollPane pane = new JScrollPane(view);
-        pane.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1, true));
-        pane.getViewport().setBackground(Theme.BACKGROUND);
-        pane.setBackground(Theme.BACKGROUND);
+        pane.setBorder(BorderFactory.createEmptyBorder());
+        pane.setViewportBorder(BorderFactory.createEmptyBorder());
+        pane.getViewport().setBackground(Theme.SURFACE);
+        pane.setBackground(Theme.SURFACE);
+        pane.setOpaque(false);
+        pane.getViewport().setOpaque(false);
         style(pane.getVerticalScrollBar());
         style(pane.getHorizontalScrollBar());
         return pane;
@@ -148,7 +188,7 @@ final class FlatControls {
             @Override
             protected void configureScrollBarColors() {
                 thumbColor = Theme.BORDER;
-                trackColor = Theme.BACKGROUND;
+                trackColor = Theme.SURFACE;
             }
 
             @Override
@@ -161,6 +201,26 @@ final class FlatControls {
                 return invisibleButton();
             }
 
+            @Override
+            protected void paintTrack(Graphics graphics, javax.swing.JComponent component,
+                    java.awt.Rectangle bounds) {
+                graphics.setColor(trackColor);
+                graphics.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            }
+
+            @Override
+            protected void paintThumb(Graphics graphics, javax.swing.JComponent component,
+                    java.awt.Rectangle bounds) {
+                if (bounds.isEmpty() || !scrollbar.isEnabled()) {
+                    return;
+                }
+
+                Graphics2D canvas = Theme.smooth(graphics);
+                canvas.setColor(isThumbRollover() ? Theme.SURFACE_HOVER.brighter() : Theme.BORDER);
+                canvas.fillRoundRect(bounds.x + 3, bounds.y + 3, bounds.width - 6, bounds.height - 6, 8, 8);
+                canvas.dispose();
+            }
+
             private javax.swing.JButton invisibleButton() {
                 javax.swing.JButton button = new javax.swing.JButton();
                 button.setPreferredSize(new Dimension(0, 0));
@@ -169,8 +229,9 @@ final class FlatControls {
             }
         });
 
-        bar.setUnitIncrement(16);
-        bar.setBackground(Theme.BACKGROUND);
+        bar.setUnitIncrement(18);
+        bar.setPreferredSize(new Dimension(11, 11));
+        bar.setOpaque(false);
     }
 
     /**
@@ -253,7 +314,7 @@ final class FlatControls {
 
         @Override
         public void paintCurrentValueBackground(Graphics graphics, java.awt.Rectangle bounds, boolean hasFocus) {
-            graphics.setColor(Theme.SURFACE);
+            graphics.setColor(Theme.SURFACE_RAISED);
             graphics.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
         }
 
@@ -262,7 +323,7 @@ final class FlatControls {
             javax.swing.plaf.basic.BasicComboPopup popup =
                     (javax.swing.plaf.basic.BasicComboPopup) super.createPopup();
             popup.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-            popup.getList().setBackground(Theme.SURFACE);
+            popup.getList().setBackground(Theme.SURFACE_RAISED);
             popup.getList().setSelectionBackground(Theme.ACCENT);
             return popup;
         }
@@ -272,7 +333,7 @@ final class FlatControls {
     static void styleList(JList<?> list) {
         DefaultListCellRenderer renderer = new DefaultListCellRenderer();
         renderer.setHorizontalAlignment(SwingConstants.LEFT);
-        list.setBackground(Theme.SURFACE);
+        list.setBackground(Theme.SURFACE_RAISED);
         list.setForeground(Theme.TEXT);
         list.setSelectionBackground(Theme.ACCENT);
         list.setSelectionForeground(Theme.ON_ACCENT);

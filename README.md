@@ -269,11 +269,35 @@ while initialising, and every loader API call Octo has not implemented.
 The panel is a window of Octo's own rather than a Minecraft screen, because Octo
 is compiled without Minecraft on the class path and has to work on versions
 released after it: there is no `Screen` class it can safely extend. It is not
-modal and does not hold the launch up.
+modal and does not hold the launch up. One problem per row, the evidence beside
+it, and a filter for when there are forty of them.
+
+### And when Minecraft itself stops
+
+A crash used to take the window with it. Minecraft writes its crash report and
+calls `System.exit(-1)`, that ends the JVM the window is drawn from, and the
+moment you most need to read it is the moment it disappears — leaving a launcher
+dialog that says `Exit code: -1` and nothing else.
+
+So Octo watches the exit. If the game fell over, the crash goes into the same
+window as everything else and the window holds the process open until you close
+it:
+
+- what Minecraft was doing, in its own words — "Initializing game";
+- what the failure means in plain language, because `Cannot invoke
+  "net.minecraft.core.Holder$Reference.value()" because "this.defaultValue" is
+  null` is precise, correct, and tells nobody anything;
+- what to try next, and where Minecraft's own crash report is.
+
+A thread dying quietly in the background is recorded but is not treated as a
+crash: mods lose worker threads and the game plays on, and quitting on purpose
+should not leave a window pinning the process open.
 
 - `-Docto.strict=true` stops on the first error instead — for builds, servers
   and anything with nobody there to read a window.
 - `-Docto.noReportWindow=true` keeps the report to the log and the file.
+- `-Docto.reportHoldMinutes=<n>` changes how long a window may hold a dead JVM
+  open (30 by default; `0` never holds).
 - `-Docto.safeMode=true` starts with no mods at all.
 - `octo scan` reports the same verdicts without starting anything.
 

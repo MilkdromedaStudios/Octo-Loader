@@ -1,7 +1,9 @@
 package studios.milkdromeda.octo.report;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Everything that went wrong during a launch, kept so it can be shown.
@@ -38,10 +40,47 @@ public final class LoadingReport {
         }
     }
 
+    /**
+     * The game itself stopping, which is a different thing from a mod failing.
+     *
+     * @param phase  what Minecraft was doing, in its own words — the crash
+     *               report's {@code Description}, usually "Initializing game"
+     * @param detail the exception and as much of the stack as is worth reading
+     * @param file   Minecraft's own crash report, when it managed to write one
+     */
+    public record Crash(String phase, String detail, Path file) {
+        public String title() {
+            // Plain ASCII, because this line is the first one in the report file
+            // and in the log, and a console on a legacy code page renders
+            // anything else as a question mark.
+            return phase == null || phase.isBlank() ? "Minecraft stopped" : "Minecraft stopped - " + phase;
+        }
+    }
+
     private final List<Problem> problems = new ArrayList<>();
+    private Crash crash;
 
     public synchronized void add(Severity severity, String source, String summary, String detail) {
         problems.add(new Problem(severity, source, summary, detail == null ? "" : detail));
+    }
+
+    /**
+     * Records that the game stopped, replacing any earlier crash.
+     *
+     * <p>Later is better here: the first throwable a dying game produces is often
+     * a consequence of the one before it, and the crash report Minecraft writes
+     * last is the one with the description in it.
+     */
+    public synchronized void crashed(String phase, String detail, Path file) {
+        crash = new Crash(phase == null ? "" : phase.strip(), detail == null ? "" : detail, file);
+    }
+
+    public synchronized Optional<Crash> crash() {
+        return Optional.ofNullable(crash);
+    }
+
+    public synchronized boolean hasCrash() {
+        return crash != null;
     }
 
     public synchronized void error(String source, String summary, String detail) {
@@ -61,15 +100,19 @@ public final class LoadingReport {
     }
 
     public synchronized boolean isEmpty() {
-        return problems.isEmpty();
+        return problems.isEmpty() && crash == null;
     }
 
     public synchronized boolean hasErrors() {
-        return problems.stream().anyMatch(problem -> problem.severity() == Severity.ERROR);
+        return crash != null || problems.stream().anyMatch(problem -> problem.severity() == Severity.ERROR);
     }
 
     /** One line, for the title of whatever is showing this. */
     public synchronized String headline() {
+        if (crash != null) {
+            return crash.title();
+        }
+
         int errors = of(Severity.ERROR).size();
         int warnings = of(Severity.WARNING).size();
 
@@ -89,6 +132,33 @@ public final class LoadingReport {
     public synchronized String render() {
         StringBuilder out = new StringBuilder();
         out.append(headline()).append(System.lineSeparator());
+
+        if (crash != null) {
+            out.append(System.lineSeparator()).append("What Minecraft was doing").append(System.lineSeparator())
+                    .append(System.lineSeparator())
+                    .append("  ").append(crash.phase().isBlank() ? "(not stated)" : crash.phase())
+                    .append(System.lineSeparator());
+
+            if (crash.file() != null) {
+                out.append("  Minecraft's own crash report: ").append(crash.file()).append(System.lineSeparator());
+            }
+
+            CrashReading reading = CrashReading.of(crash.detail());
+            out.append(System.lineSeparator()).append("What that usually means").append(System.lineSeparator())
+                    .append(System.lineSeparator())
+                    .append("  ").append(reading.meaning()).append(System.lineSeparator());
+
+            for (String step : reading.steps()) {
+                out.append("    - ").append(step).append(System.lineSeparator());
+            }
+
+            if (!crash.detail().isBlank()) {
+                out.append(System.lineSeparator()).append("The failure itself").append(System.lineSeparator())
+                        .append(System.lineSeparator());
+                crash.detail().lines().forEach(line ->
+                        out.append("      ").append(line).append(System.lineSeparator()));
+            }
+        }
 
         for (Severity severity : Severity.values()) {
             List<Problem> selected = of(severity);

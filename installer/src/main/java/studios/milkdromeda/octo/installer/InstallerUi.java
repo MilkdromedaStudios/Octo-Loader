@@ -10,7 +10,6 @@ import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.nio.file.Files;
@@ -42,11 +41,32 @@ import javax.swing.UIManager;
  * that quietly edits a launcher profile should be able to show its work.
  */
 final class InstallerUi {
-    private static final Dimension MINIMUM = new Dimension(760, 620);
+    private static final Dimension MINIMUM = new Dimension(780, 640);
 
     private final JFrame frame = new JFrame("Octo Loader " + Installer.VERSION);
     private final JTextArea output = new JTextArea();
-    private final JLabel status = new JLabel(" ");
+
+    /** The one line that says how the last thing went, drawn as a chip. */
+    private Color statusColour = Theme.TEXT_MUTED;
+    private final JLabel status = new JLabel(" ") {
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            if (getText().isBlank()) {
+                super.paintComponent(graphics);
+                return;
+            }
+
+            Graphics2D canvas = Theme.smooth(graphics);
+            canvas.setColor(FlatControls.mix(statusColour, Theme.BACKGROUND, 0.84f));
+            canvas.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+            canvas.setColor(FlatControls.mix(statusColour, Theme.BACKGROUND, 0.58f));
+            canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, getHeight(), getHeight());
+            canvas.setColor(statusColour);
+            canvas.fillOval(11, getHeight() / 2 - 3, 6, 6);
+            canvas.dispose();
+            super.paintComponent(graphics);
+        }
+    };
     private final CardLayout pages = new CardLayout();
     private final JPanel pageHolder = new JPanel(pages);
 
@@ -72,7 +92,7 @@ final class InstallerUi {
     }
 
     private void open() {
-        JPanel root = new JPanel(new BorderLayout(0, 16));
+        JPanel root = new JPanel(new BorderLayout(0, 18));
         root.setBackground(Theme.BACKGROUND);
         root.setBorder(BorderFactory.createEmptyBorder(24, 28, 22, 28));
 
@@ -82,6 +102,7 @@ final class InstallerUi {
 
         frame.setContentPane(root);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setIconImages(Mark.icons());
         frame.setMinimumSize(MINIMUM);
         frame.setSize(MINIMUM);
         frame.setLocationRelativeTo(null);
@@ -103,51 +124,37 @@ final class InstallerUi {
         text.add(javax.swing.Box.createVerticalStrut(4));
         text.add(FlatControls.caption("Fabric, Quilt, Forge, NeoForge and LiteLoader mods, side by side."));
 
-        header.add(mark(), BorderLayout.WEST);
+        header.add(new Mark(44), BorderLayout.WEST);
         header.add(text, BorderLayout.CENTER);
         header.add(versionBadge(), BorderLayout.EAST);
         return header;
     }
 
-    /** A small drawn mark, so the window has an identity without shipping an image. */
-    private JComponent mark() {
-        JComponent mark = new JComponent() {
+    private JComponent versionBadge() {
+        JLabel badge = new JLabel(Installer.VERSION) {
             @Override
             protected void paintComponent(Graphics graphics) {
-                Graphics2D canvas = (Graphics2D) graphics.create();
-                canvas.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                canvas.setColor(Theme.ACCENT);
-                canvas.fillRoundRect(0, 0, 44, 44, 14, 14);
-
-                // Eight arms, because the loader is called Octo.
-                canvas.setColor(Theme.ON_ACCENT);
-                canvas.setStroke(new java.awt.BasicStroke(2f, java.awt.BasicStroke.CAP_ROUND,
-                        java.awt.BasicStroke.JOIN_ROUND));
-
-                for (int arm = 0; arm < 8; arm++) {
-                    double angle = Math.PI * 2 * arm / 8;
-                    canvas.drawLine(22 + (int) (Math.cos(angle) * 7), 22 + (int) (Math.sin(angle) * 7),
-                            22 + (int) (Math.cos(angle) * 15), 22 + (int) (Math.sin(angle) * 15));
-                }
-
-                canvas.fillOval(17, 17, 10, 10);
+                Graphics2D canvas = Theme.smooth(graphics);
+                canvas.setColor(Theme.SURFACE);
+                canvas.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+                canvas.setColor(Theme.BORDER);
+                canvas.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, getHeight(), getHeight());
                 canvas.dispose();
+                super.paintComponent(graphics);
             }
         };
 
-        mark.setPreferredSize(new Dimension(44, 44));
-        return mark;
-    }
-
-    private JComponent versionBadge() {
-        JLabel badge = new JLabel(Installer.VERSION);
         badge.setFont(Theme.ui(Font.BOLD, 11f));
         badge.setForeground(Theme.TEXT_MUTED);
-        badge.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.BORDER, 1, true),
-                BorderFactory.createEmptyBorder(5, 10, 5, 10)));
-        return badge;
+        badge.setBorder(BorderFactory.createEmptyBorder(6, 14, 6, 14));
+
+        // Pinned to the top of the header rather than centred against a two-line
+        // title, which is where a version number belongs on every other window
+        // the player has open.
+        JPanel holder = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 0, 0));
+        holder.setOpaque(false);
+        holder.add(badge);
+        return holder;
     }
 
     private JPanel body() {
@@ -262,7 +269,7 @@ final class InstallerUi {
     }
 
     private JPanel logPanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setOpaque(false);
 
         output.setEditable(false);
@@ -270,20 +277,37 @@ final class InstallerUi {
         output.setWrapStyleWord(true);
         output.setFont(Theme.mono(12f));
         output.setForeground(Theme.TEXT_MUTED);
-        output.setBackground(Theme.BACKGROUND);
+        output.setBackground(Theme.SURFACE);
+        output.setOpaque(false);
         output.setCaretColor(Theme.ACCENT);
-        output.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        output.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
         output.setText("Pick the Minecraft version you already have installed, then press Install.\n");
 
-        status.setFont(Theme.ui(Font.BOLD, 12f));
+        status.setFont(Theme.ui(Font.BOLD, 11.5f));
         status.setForeground(Theme.TEXT_MUTED);
+        status.setBorder(BorderFactory.createEmptyBorder(6, 26, 6, 13));
 
-        javax.swing.JScrollPane scroller = FlatControls.scroller(output);
-        scroller.setPreferredSize(new Dimension(0, 190));
+        // The log sits in a card of its own, so what the installer did to the
+        // disk reads as a record rather than as the bottom of the window.
+        JPanel card = FlatControls.card();
+        card.add(FlatControls.scroller(output), BorderLayout.CENTER);
+        card.setPreferredSize(new Dimension(0, 200));
 
-        panel.add(status, BorderLayout.NORTH);
-        panel.add(scroller, BorderLayout.CENTER);
+        JPanel heading = new JPanel(new BorderLayout(12, 0));
+        heading.setOpaque(false);
+        heading.add(FlatControls.fieldLabel("What the installer did"), BorderLayout.WEST);
+        heading.add(statusRow(), BorderLayout.EAST);
+
+        panel.add(heading, BorderLayout.NORTH);
+        panel.add(card, BorderLayout.CENTER);
         return panel;
+    }
+
+    private JComponent statusRow() {
+        JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 0, 0));
+        row.setOpaque(false);
+        row.add(status);
+        return row;
     }
 
     private void closeOnEscape(JComponent root) {
@@ -421,6 +445,8 @@ final class InstallerUi {
         SwingUtilities.invokeLater(() -> {
             status.setText(message);
             status.setForeground(colour);
+            statusColour = colour;
+            status.repaint();
         });
     }
 
