@@ -92,6 +92,27 @@ class MixinLoadingTest {
     }
 
     @Test
+    @DisplayName("a mixin's inner class survives being moved into the class it was mixed into")
+    void definesTheInnerClassesMixinInvents() throws Exception {
+        Path gameJar = buildGameJar();
+        buildMixinMod();
+
+        LaunchResult result = launch(gameJar);
+
+        Class<?> mod = Class.forName("com.example.mod.MixinMod", false, result.classLoader());
+
+        // The mixin's anonymous class cannot stay in the mod's package, because
+        // the method using it is copied into a game class in another one. Mixin
+        // renames it, hands the game class the new name, and keeps the bytes;
+        // nothing on the class path has them. Answering "no such class" here is
+        // what left Fabric API's mixin applied and its target unloadable — and
+        // because that target was one the game loads while filling a registry,
+        // the crash arrived much later with none of this in it.
+        assertEquals("modded tooltip", mod.getField("tooltipViaInnerClass").get(null),
+                "the class mixin invented for its inner class should have been defined");
+    }
+
+    @Test
     @DisplayName("mixin's Java ceiling is raised to what the running JVM can actually do")
     void raisesTheCompatibilityCeiling() throws Exception {
         Path gameJar = buildGameJar();
@@ -157,6 +178,7 @@ class MixinLoadingTest {
                             private static final Minecraft INSTANCE = new Minecraft();
                             public static Minecraft getInstance() { return INSTANCE; }
                             public String greeting() { return "vanilla"; }
+                            public String tooltip() { return "vanilla tooltip"; }
                             %s String secret() { return "hidden"; }
                         }
                         """.formatted(widened ? "public" : "private"),
@@ -194,6 +216,36 @@ class MixinLoadingTest {
                             }
                         }
                         """,
+                "com.example.mixin.MinecraftTooltipMixin", """
+                        package com.example.mixin;
+
+                        import java.util.function.Supplier;
+
+                        import net.minecraft.client.Minecraft;
+                        import org.spongepowered.asm.mixin.Mixin;
+                        import org.spongepowered.asm.mixin.injection.At;
+                        import org.spongepowered.asm.mixin.injection.Inject;
+                        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+                        @Mixin(Minecraft.class)
+                        public class MinecraftTooltipMixin {
+                            @Inject(method = "tooltip", at = @At("HEAD"), cancellable = true)
+                            private void octo$tooltip(CallbackInfoReturnable<String> callback) {
+                                // An anonymous class declared inside a mixin. This
+                                // method is about to be copied into Minecraft, so
+                                // mixin renames the anonymous class into Minecraft's
+                                // package and generates it only when asked for.
+                                Supplier<String> tooltip = new Supplier<>() {
+                                    @Override
+                                    public String get() {
+                                        return "modded tooltip";
+                                    }
+                                };
+
+                                callback.setReturnValue(tooltip.get());
+                            }
+                        }
+                        """,
                 "com.example.mixin.MinecraftAccessor", """
                         package com.example.mixin;
 
@@ -224,6 +276,7 @@ class MixinLoadingTest {
 
                         public class MixinMod implements ModInitializer {
                             public static String greeting;
+                            public static String tooltipViaInnerClass;
                             public static String secretViaInvoker;
                             public static String secretViaWidener;
                             public static Boolean extendedFinalClass;
@@ -232,6 +285,7 @@ class MixinLoadingTest {
                             public void onInitialize() {
                                 Minecraft game = Minecraft.getInstance();
                                 greeting = game.greeting();
+                                tooltipViaInnerClass = game.tooltip();
                                 secretViaInvoker = ((MinecraftAccessor) (Object) game).octo$callSecret();
                                 secretViaWidener = game.secret();
                                 extendedFinalClass = "screen".equals(new WidenedScreen().title());
@@ -259,7 +313,7 @@ class MixinLoadingTest {
                           "minVersion": "0.8",
                           "package": "com.example.mixin",
                           "compatibilityLevel": "JAVA_17",
-                          "mixins": ["MinecraftMixin", "MinecraftAccessor"],
+                          "mixins": ["MinecraftMixin", "MinecraftTooltipMixin", "MinecraftAccessor"],
                           "injectors": { "defaultRequire": 1 }
                         }
                         """)

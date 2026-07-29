@@ -132,6 +132,52 @@ class ForgeApiSurfaceTest {
     }
 
     @Nested
+    @DisplayName("registering a listener")
+    class Listeners {
+        /** Cancellable, because that is the only kind the flag means anything for. */
+        static final class Cancellable extends net.neoforged.bus.api.Event {
+            @Override
+            public boolean isCancelable() {
+                return true;
+            }
+        }
+
+        @Test
+        @DisplayName("the overloads that also say whether cancelled events are wanted exist")
+        void acceptsTheReceiveCancelledOverloads() {
+            var bus = ForgeBuses.neoBusFor("jei");
+            AtomicBoolean called = new AtomicBoolean();
+
+            // A mod compiled against the real NeoForge calls these, and an overload
+            // the bus does not declare is not a compile error for the mod — its
+            // call is quietly turned into a no-op and its listener never fires.
+            bus.addListener(true, Cancellable.class, event -> called.set(true));
+            bus.post(new Cancellable());
+
+            assertTrue(called.get(), "the listener registered through the overload should have been called");
+        }
+
+        @Test
+        @DisplayName("a listener that said it does not want cancelled events is not given one")
+        void respectsWhatTheModAskedFor() {
+            var bus = ForgeBuses.neoBusFor("jei");
+            AtomicBoolean wants = new AtomicBoolean();
+            AtomicBoolean declines = new AtomicBoolean();
+
+            bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST, true, Cancellable.class,
+                    event -> event.setCanceled(true));
+            bus.addListener(true, Cancellable.class, event -> wants.set(true));
+            bus.addListener(false, Cancellable.class, event -> declines.set(true));
+
+            Cancellable event = bus.post(new Cancellable());
+
+            assertTrue(event.isCanceled(), "the first listener should have cancelled it");
+            assertTrue(wants.get(), "a listener that asked for cancelled events should still get them");
+            assertFalse(declines.get(), "a listener that declined cancelled events should have been skipped");
+        }
+    }
+
+    @Nested
     @DisplayName("the version type Forge returns")
     class Versions {
         @Test

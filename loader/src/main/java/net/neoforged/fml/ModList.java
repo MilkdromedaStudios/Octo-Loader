@@ -9,9 +9,11 @@ import java.util.stream.Stream;
 
 import net.neoforged.fml.loading.moddiscovery.ModFileInfo;
 import net.neoforged.neoforgespi.language.IModInfo;
+import net.neoforged.neoforgespi.language.ModFileScanData;
 
 import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
 import studios.milkdromeda.octo.bridge.forge.ModInfos;
+import studios.milkdromeda.octo.bridge.forge.ScanData;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 
@@ -90,6 +92,19 @@ public final class ModList {
     /** @return the file a mod was read from, or {@code null} when it is absent */
     public ModFileInfo getModFileById(String modId) {
         return ModFileInfo.of(modId);
+    }
+
+    /**
+     * What every loaded mod's classes said about themselves.
+     *
+     * <p>This is how a NeoForge mod finds the classes it is meant to construct.
+     * JEI's entire content comes through here — it looks for {@code @JeiPlugin}
+     * and instantiates whatever carries it — so an empty or missing answer is not
+     * a degraded JEI, it is a {@code NullPointerException} in JEI's constructor
+     * and no JEI at all.
+     */
+    public List<ModFileScanData> getAllScanData() {
+        return ScanData.all();
     }
 
     public void forEachModContainer(BiConsumer<String, ModContainer> action) {

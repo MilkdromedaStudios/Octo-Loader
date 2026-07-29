@@ -23,6 +23,7 @@ import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformContext;
 import studios.milkdromeda.octo.transform.TransformPipeline;
 import studios.milkdromeda.octo.transform.Transformer;
+import studios.milkdromeda.octo.transform.Weaver;
 import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
@@ -78,7 +79,7 @@ public final class OctoClassLoader extends URLClassLoader {
     /** Rewrites that apply to everything — the game included — after each mod's own. */
     private volatile TransformPipeline globalPipeline = TransformPipeline.empty();
     /** Mixin, which runs last and is deliberately not part of what mixin itself reads. */
-    private volatile Transformer weaver;
+    private volatile Weaver weaver;
 
     public OctoClassLoader(List<URL> urls, ClassLoader parent, TransformPipeline gamePipeline,
             PhantomClasses phantoms, LaunchContext.CompatOptions compat, LoadingReport report) {
@@ -148,10 +149,11 @@ public final class OctoClassLoader extends URLClassLoader {
      * able to read a class as it stands <em>before</em> mixins are applied — that
      * is what {@link #rawClassBytes} returns — and folding it into the same
      * pipeline would mean asking mixin to weave the class it is in the middle of
-     * weaving.
+     * weaving. It is also the one rewrite that can be asked for a class nothing
+     * has, because some of the classes mixin produces exist nowhere else.
      */
-    public void installWeaver(Transformer transformer) {
-        this.weaver = transformer;
+    public void installWeaver(Weaver weaver) {
+        this.weaver = weaver;
     }
 
     @Override
@@ -258,6 +260,16 @@ public final class OctoClassLoader extends URLClassLoader {
         URL resource = findResource(path);
 
         if (resource == null) {
+            // A name nothing on the path has can still be a class that really
+            // exists: mixin invents one for every inner class it moves into a
+            // target, and the only copy of it is inside mixin. Asked for first,
+            // because a class mixin actually made beats standing in for it.
+            Class<?> generated = defineWoven(name);
+
+            if (generated != null) {
+                return generated;
+            }
+
             // Planned stand-ins only. Anything invented on demand waits until
             // loadClass has given the parent its turn.
             Class<?> phantom = definePhantom(name, false);
@@ -434,6 +446,56 @@ public final class OctoClassLoader extends URLClassLoader {
      * that looks unrelated.
      */
     private final ThreadLocal<Boolean> weaving = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /**
+     * Defines a class that exists only because mixin made it.
+     *
+     * <p>When a mixin uses an inner class, the code that refers to it is copied
+     * into a game class in a different package, so mixin renames the inner class
+     * into the target's package — {@code ChiseledBookShelfBlockEntityMixin$1}
+     * becomes {@code ChiseledBookShelfBlockEntity$Anonymous$<hash>} — and holds
+     * its bytes until the new name is asked for. It is asked for by the JVM, the
+     * first time the woven method runs, and until this existed the answer was
+     * {@code ClassNotFoundException}: Fabric API's mixin applied cleanly, and
+     * then the game class it applied to could not be initialised at all.
+     *
+     * @return the class, or {@code null} when the name is not one of mixin's
+     */
+    private Class<?> defineWoven(String name) {
+        Weaver current = weaver;
+
+        if (current == null) {
+            return null;
+        }
+
+        String internalName = name.replace('.', '/');
+        byte[] bytes;
+
+        try {
+            bytes = current.generate(internalName);
+        } catch (Throwable e) {
+            // Nothing else can answer for this name, so the load is lost either
+            // way; what is worth keeping is which class it was, because the
+            // failure surfaces inside whichever game class the mixin touched.
+            Failures.rethrowIfFatal(e);
+            LOG.error("mixin could not produce the class it invented for {}: {}", name, Failures.describe(e));
+            OctoLog.detail(e);
+            return null;
+        }
+
+        if (bytes == null) {
+            return null;
+        }
+
+        LOG.debug("{} is a class mixin invented; defining it from mixin's own bytes", name);
+        definePackageFor(name, null);
+
+        // No code source: this class came from no jar. It shares a package and a
+        // class loader with its target, which is what the JVM's access checks
+        // between the two are actually based on.
+        return defineClass(name, bytes, 0, bytes.length,
+                new ProtectionDomain(new CodeSource(null, (Certificate[]) null), null, this, null));
+    }
 
     /** Applies mixins, if any mod uses them, and never lets one failing class stop a load. */
     private byte[] weave(byte[] bytes, String internalName, TransformContext context) {

@@ -26,7 +26,7 @@ import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.transform.TransformContext;
-import studios.milkdromeda.octo.transform.Transformer;
+import studios.milkdromeda.octo.transform.Weaver;
 import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
@@ -103,7 +103,7 @@ public final class MixinSupport {
      *         mod was present and quietly inert.
      */
 
-    public static synchronized Transformer bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
+    public static synchronized Weaver bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
         raiseCompatibilityCeiling();
         List<Config> configs = new ArrayList<>(discover(mods));
 
@@ -147,7 +147,7 @@ public final class MixinSupport {
             LOG.info("mixin {} ready with {} config(s) from {} mod(s), up to {}", MixinBootstrap.VERSION,
                     configs.size(), configs.stream().map(Config::modId).distinct().count(),
                     MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED);
-            return new MixinTransformer(transformer);
+            return new MixinWeaver(transformer);
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             throw new IllegalStateException("mixin could not start: " + Failures.describe(e), e);
@@ -351,10 +351,10 @@ public final class MixinSupport {
     }
 
     /** Runs the mixins that target a class, as that class is loaded. */
-    private static final class MixinTransformer implements Transformer {
+    private static final class MixinWeaver implements Weaver {
         private final IMixinTransformer transformer;
 
-        MixinTransformer(IMixinTransformer transformer) {
+        MixinWeaver(IMixinTransformer transformer) {
             this.transformer = transformer;
         }
 
@@ -373,6 +373,21 @@ public final class MixinSupport {
             }
 
             return result == null ? bytes : result;
+        }
+
+        /**
+         * {@inheritDoc}
+         *
+         * <p>Mixin answers this from the register of names it has handed out, so a
+         * name that is not one of its own costs a map lookup and comes back null.
+         * Note that this is not the same code path as applying a mixin: it copies
+         * bytes mixin already decided on, and runs none of the mixin processor, so
+         * it is safe to ask even while a class is being woven.
+         */
+        @Override
+        public byte[] generate(String className) {
+            String binaryName = className.replace('/', '.');
+            return transformer.generateClass(MixinEnvironment.getCurrentEnvironment(), binaryName);
         }
     }
 }
