@@ -75,15 +75,20 @@ final class GameBootstrap {
     /**
      * What the prologue managed.
      *
-     * @param bootstrapped whether the registries were built
-     * @param failure      what stopped it, or null
-     * @param retried      whether the game will now do the bootstrap itself
+     * @param bootstrapped     whether the registries were built
+     * @param failure          what stopped it, or null
+     * @param retried          whether the game will now do the bootstrap itself
+     * @param registryProblems registries that came out of it unusable, by name
      */
-    record Outcome(boolean bootstrapped, Throwable failure, boolean retried) {
-        static final Outcome NOT_FOUND = new Outcome(false, null, false);
+    record Outcome(boolean bootstrapped, Throwable failure, boolean retried, List<String> registryProblems) {
+        static final Outcome NOT_FOUND = new Outcome(false, null, false, List.of());
 
         static Outcome done() {
-            return new Outcome(true, null, false);
+            return new Outcome(true, null, false, List.of());
+        }
+
+        Outcome with(RegistryProbe.Findings findings) {
+            return new Outcome(bootstrapped, failure, retried, findings.describe());
         }
     }
 
@@ -97,6 +102,15 @@ final class GameBootstrap {
      *         into an unrelated-looking crash later
      */
     static Outcome run(ClassLoader classLoader) {
+        if (Boolean.getBoolean("octo.noEarlyBootstrap")) {
+            // The escape hatch for the launch where doing this early is itself
+            // the problem: the game does its own bootstrap either way, and mods
+            // that touch a registry before it will say so loudly.
+            LOG.warn("octo.noEarlyBootstrap is set: the game's registries will not be built until Minecraft "
+                    + "builds them, and mods that use one before then will fail");
+            return Outcome.NOT_FOUND;
+        }
+
         invokeFirst(VERSION, classLoader);
         Outcome outcome = invokeFirst(REGISTRIES, classLoader);
 
@@ -115,7 +129,17 @@ final class GameBootstrap {
         if (registries != null) {
             LOG.warn("the game's bootstrap returned but its registries are not usable: {}",
                     Failures.describe(registries));
-            return new Outcome(false, registries, false);
+            return new Outcome(false, registries, false, List.of());
+        }
+
+        // The bootstrap can return without having filled anything, and that is
+        // the version of this failure nobody can diagnose from the crash it
+        // eventually causes. So the registries are asked directly.
+        RegistryProbe.Findings findings = RegistryProbe.inspect(classLoader);
+
+        if (!findings.isEmpty()) {
+            findings.describe().forEach(problem -> LOG.error("registry {}", problem));
+            return Outcome.done().with(findings);
         }
 
         LOG.info("game registries bootstrapped; mods can use them from their initialiser");
@@ -150,7 +174,7 @@ final class GameBootstrap {
                 Throwable cause = Failures.unwrap(e);
                 LOG.warn("{}.{}() failed: {}", step.className(), step.methodName(), Failures.describe(cause));
                 OctoLog.detail(cause);
-                return new Outcome(false, cause, clearDoneFlag(type));
+                return new Outcome(false, cause, clearDoneFlag(type), List.of());
             }
         }
 

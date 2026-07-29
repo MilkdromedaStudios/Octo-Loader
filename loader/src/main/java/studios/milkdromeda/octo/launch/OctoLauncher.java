@@ -344,6 +344,23 @@ public final class OctoLauncher {
      * screen before the game gets that far.
      */
     private void reportBootstrap(GameBootstrap.Outcome outcome) {
+        // A bootstrap that returned without filling the registries is the failure
+        // that reaches the player as a null default entry minutes later, naming
+        // nothing. Named here, while there is still something to name.
+        if (!outcome.registryProblems().isEmpty()) {
+            record(LoadingReport.Severity.ERROR, "Minecraft",
+                    outcome.registryProblems().size()
+                            + " of the game's registries did not finish building, so the game will very "
+                            + "likely stop while it starts",
+                    String.join(System.lineSeparator(), outcome.registryProblems())
+                            + System.lineSeparator()
+                            + "A mod ran during the game's own start-up and stopped part of it. Start once "
+                            + "with -Docto.safeMode=true to confirm it is a mod, and once with "
+                            + "-Docto.noEarlyBootstrap=true to rule out Octo's own early start-up."
+                            + System.lineSeparator()
+                            + "The full launch log is in " + logFile() + ".");
+        }
+
         if (outcome.failure() == null) {
             return;
         }

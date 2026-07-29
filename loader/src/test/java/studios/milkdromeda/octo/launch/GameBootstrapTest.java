@@ -120,6 +120,26 @@ class GameBootstrapTest {
     }
 
     @Test
+    @DisplayName("-Docto.noEarlyBootstrap leaves the game's start-up entirely to the game")
+    void theEscapeHatch() throws Exception {
+        ClassLoader game = load(Map.of("net.minecraft.server.Bootstrap", BOOTSTRAP));
+        System.setProperty("octo.noEarlyBootstrap", "true");
+
+        try {
+            GameBootstrap.Outcome outcome = GameBootstrap.run(game);
+
+            assertFalse(outcome.bootstrapped());
+            assertNull(outcome.failure(), "declining to do it is not a failure to do it");
+
+            Class<?> bootstrap = Class.forName("net.minecraft.server.Bootstrap", true, game);
+            assertEquals(0, bootstrap.getField("calls").getInt(null),
+                    "Octo must not have touched the game's bootstrap at all");
+        } finally {
+            System.clearProperty("octo.noEarlyBootstrap");
+        }
+    }
+
+    @Test
     @DisplayName("a game with no bootstrap at all is not a failure")
     void nothingToBootstrap() {
         GameBootstrap.Outcome outcome = GameBootstrap.run(new ByteClassLoader(getClass().getClassLoader()));

@@ -31,6 +31,17 @@ public record CrashReading(String meaning, List<String> steps) {
             "Start once with -Docto.safeMode=true. If the game starts, a mod is the cause; if it crashes the "
                     + "same way, it is not.";
 
+    private static final String EMPTY_REGISTRY_MEANING =
+            "One of Minecraft's registries was never filled in. The game logs a line about it and then dies "
+                    + "somewhere else entirely, usually asking that registry for its default entry, so the "
+                    + "crash and the cause look unrelated. The registry named in this message is the cause.";
+
+    private static final List<String> EMPTY_REGISTRY_STEPS = List.of(
+            "Octo's own report names every registry that came out of the game's start-up empty — start there.",
+            SAFE_MODE,
+            "If safe mode starts, try -Docto.noEarlyBootstrap=true as well: it tells Octo to leave the "
+                    + "game's start-up entirely to Minecraft.");
+
     private static final String MIXIN_MEANING =
             "A mod rewrites part of Minecraft with a mixin, and that mixin does not fit the version you are "
                     + "running: the method or field it aims at has moved, changed shape, or is gone.";
@@ -49,6 +60,10 @@ public record CrashReading(String meaning, List<String> steps) {
                                     + "with the mod it came from.",
                             SAFE_MODE,
                             "If safe mode starts, halve the mods folder until the crash follows one jar.")),
+
+            new Rule(List.of("was empty after loading"), EMPTY_REGISTRY_MEANING, EMPTY_REGISTRY_STEPS),
+            new Rule(List.of("missing default of"), EMPTY_REGISTRY_MEANING, EMPTY_REGISTRY_STEPS),
+            new Rule(List.of("unable to bootstrap registry"), EMPTY_REGISTRY_MEANING, EMPTY_REGISTRY_STEPS),
 
             new Rule(List.of("not bootstrapped"),
                     "Something reached one of Minecraft's registries before the game had built them. Usually a "
