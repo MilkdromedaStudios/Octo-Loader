@@ -299,7 +299,26 @@ should not leave a window pinning the process open.
 - `-Docto.reportHoldMinutes=<n>` changes how long a window may hold a dead JVM
   open (30 by default; `0` never holds).
 - `-Docto.safeMode=true` starts with no mods at all.
+- `-Docto.noEarlyBootstrap=true` leaves the game's own start-up entirely to
+  Minecraft. Mods that touch a registry from their initialiser will fail, but it
+  rules Octo's early start-up in or out in one launch.
 - `octo scan` reports the same verdicts without starting anything.
+
+### Registries that never got filled
+
+`Registry 'minecraft:chunk_status' was empty after loading` is one line in the
+game's log, followed a few seconds later by a crash somewhere else entirely:
+
+```
+Cannot invoke "net.minecraft.core.Holder$Reference.value()" because "this.defaultValue" is null
+```
+
+They are the same failure. A registry whose contents were never registered has
+no default entry either, and the crash belongs to whatever asked for that
+default first — which is never the thing that broke. So Octo reads the
+registries back as soon as the game's start-up claims to have filled them, and
+names every one that came out empty or without its default while the cause is
+still in reach.
 
 ## Command line
 
