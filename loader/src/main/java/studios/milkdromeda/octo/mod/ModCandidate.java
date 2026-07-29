@@ -13,6 +13,7 @@ public final class ModCandidate {
     private final ModCandidate parent;
     private ModMetadata metadata;
     private Era era = Era.UNKNOWN;
+    private BytecodeIndex bytecode = BytecodeIndex.EMPTY;
     private final List<String> notes = new ArrayList<>();
 
     public ModCandidate(Path path, ModMetadata metadata, ModCandidate parent) {
@@ -57,6 +58,20 @@ public final class ModCandidate {
 
     public void era(Era value) {
         this.era = value;
+    }
+
+    /**
+     * What this mod's own classes said about themselves when the jar was scanned.
+     *
+     * <p>Empty for a mod discovered without a bytecode pass, which in practice
+     * means only the fixtures: discovery always scans.
+     */
+    public BytecodeIndex bytecode() {
+        return bytecode;
+    }
+
+    public void bytecode(BytecodeIndex index) {
+        this.bytecode = index == null ? BytecodeIndex.EMPTY : index;
     }
 
     /** Human-readable record of everything Octo had to do to make this mod loadable. */

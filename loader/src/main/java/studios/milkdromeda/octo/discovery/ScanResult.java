@@ -1,11 +1,16 @@
 package studios.milkdromeda.octo.discovery;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import studios.milkdromeda.octo.compat.Era.MappingNamespace;
+import studios.milkdromeda.octo.mod.BytecodeIndex;
+import studios.milkdromeda.octo.mod.BytecodeIndex.ScannedAnnotation;
+import studios.milkdromeda.octo.mod.BytecodeIndex.ScannedClass;
 
 /** What a pass over a mod's bytecode revealed. */
 public final class ScanResult {
@@ -18,6 +23,8 @@ public final class ScanResult {
     private final Set<String> liteMods = new LinkedHashSet<>();
     private final Set<String> modLoaderClasses = new LinkedHashSet<>();
     private final Set<String> referencedGameClasses = new LinkedHashSet<>();
+    private final List<ScannedClass> classes = new ArrayList<>();
+    private final List<ScannedAnnotation> annotations = new ArrayList<>();
     private final Map<MappingNamespace, Integer> namespaceHits = new LinkedHashMap<>();
 
     private int maxClassFileVersion;
@@ -54,6 +61,21 @@ public final class ScanResult {
 
     public Set<String> referencedGameClasses() {
         return referencedGameClasses;
+    }
+
+    /** Every annotation written anywhere in the jar. */
+    public List<ScannedAnnotation> annotations() {
+        return annotations;
+    }
+
+    /** Every class in the jar, with its parent and interfaces. */
+    public List<ScannedClass> classes() {
+        return classes;
+    }
+
+    /** What the mods are eventually shown, once one of them asks. */
+    public BytecodeIndex index() {
+        return new BytecodeIndex(List.copyOf(classes), List.copyOf(annotations));
     }
 
     public int maxClassFileVersion() {

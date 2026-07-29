@@ -83,6 +83,12 @@ tasks.register('importUpstreamApi', Sync) {
         include 'net/neoforged/fml/common/Mod.java'
         include 'net/neoforged/fml/event/IModBusEvent.java'
         include 'net/neoforged/fml/IExtensionPoint.java'
+
+        // What a mod's bytecode said about itself. This is how a NeoForge mod
+        // finds the classes it is meant to instantiate — JEI's plugins, and
+        // everything else built the same way — so mods both read it and compare
+        // its ASM types against their own. The real class, by identity.
+        include 'net/neoforged/neoforgespi/language/ModFileScanData.java'
     }
 }
 

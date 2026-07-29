@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
+import studios.milkdromeda.octo.bridge.forge.ScanData;
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.mod.ModFormat;
@@ -55,6 +56,7 @@ class EndToEndLoaderTest {
     void tearDown() {
         OctoRuntime.reset();
         ForgeBuses.reset();
+        ScanData.reset();
         MappingRegistry.reset();
     }
 
@@ -108,6 +110,29 @@ class EndToEndLoaderTest {
         assertFalse(ancient.appliedFixes().isEmpty(), "the translation should be recorded on the mod");
         assertTrue(ancient.appliedFixes().stream().anyMatch(fix -> fix.contains("getMinecraft")),
                 "the applied fixes should name the rewritten call: " + ancient.appliedFixes());
+    }
+
+    @Test
+    @DisplayName("a NeoForge mod finds and constructs the classes it only ever annotated")
+    void findsPluginClassesThroughScanData() throws Exception {
+        Path gameJar = buildGameJar();
+        buildNeoForgeMod();
+
+        LaunchResult result = launch(gameJar);
+
+        assertTrue(result.failed().isEmpty(), "the mod should not have failed: " + result.failed());
+
+        Class<?> mod = Class.forName("com.example.neo.NeoMod", false, result.classLoader());
+
+        // This is JEI's shape exactly: nothing names the plugin class, so a loader
+        // with no answer here does not give JEI a smaller JEI, it gives it a null
+        // list and a NullPointerException inside its own constructor.
+        assertEquals("com.example.neo.SamplePlugin", mod.getField("pluginClassFound").get(null),
+                "the annotated class should have been found through ModList.getAllScanData()");
+
+        Class<?> plugin = Class.forName("com.example.neo.SamplePlugin", false, result.classLoader());
+        assertTrue(plugin.getField("constructed").getBoolean(null),
+                "the mod should have been able to construct what it found");
     }
 
     @Test
@@ -580,8 +605,38 @@ class EndToEndLoaderTest {
                 """).writeTo(modsDir.resolve("forge-sample.jar"));
     }
 
+    /**
+     * A NeoForge mod that finds its own plugin the way JEI finds its plugins:
+     * by asking the loader which classes carry an annotation, and constructing
+     * whatever it is told. Nothing writes the plugin class down anywhere.
+     */
     private void buildNeoForgeMod() throws IOException {
         Map<String, byte[]> classes = SourceCompiler.compile(Map.of(
+                "com.example.neo.NeoPluginPoint", """
+                        package com.example.neo;
+
+                        import java.lang.annotation.ElementType;
+                        import java.lang.annotation.Retention;
+                        import java.lang.annotation.RetentionPolicy;
+                        import java.lang.annotation.Target;
+
+                        @Retention(RetentionPolicy.RUNTIME)
+                        @Target(ElementType.TYPE)
+                        public @interface NeoPluginPoint {
+                        }
+                        """,
+                "com.example.neo.SamplePlugin", """
+                        package com.example.neo;
+
+                        @NeoPluginPoint
+                        public class SamplePlugin {
+                            public static boolean constructed;
+
+                            public SamplePlugin() {
+                                constructed = true;
+                            }
+                        }
+                        """,
                 "com.example.neo.NeoMod", """
                         package com.example.neo;
 
@@ -589,13 +644,40 @@ class EndToEndLoaderTest {
                         import net.neoforged.bus.api.SubscribeEvent;
                         import net.neoforged.fml.common.Mod;
                         import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+                        import net.neoforged.fml.ModList;
+                        import net.neoforged.neoforgespi.language.ModFileScanData;
+
+                        import org.objectweb.asm.Type;
 
                         @Mod("neomod")
                         public class NeoMod {
                             public static boolean ran;
+                            public static String pluginClassFound;
 
                             public NeoMod(IEventBus modBus) {
                                 modBus.register(this);
+                                findAndConstructPlugins();
+                            }
+
+                            private static void findAndConstructPlugins() {
+                                Type wanted = Type.getType(NeoPluginPoint.class);
+
+                                for (ModFileScanData data : ModList.get().getAllScanData()) {
+                                    for (ModFileScanData.AnnotationData found : data.getAnnotations()) {
+                                        if (!wanted.equals(found.annotationType())) {
+                                            continue;
+                                        }
+
+                                        pluginClassFound = found.memberName();
+
+                                        try {
+                                            Class.forName(found.memberName())
+                                                    .getDeclaredConstructor().newInstance();
+                                        } catch (ReflectiveOperationException e) {
+                                            throw new IllegalStateException(e);
+                                        }
+                                    }
+                                }
                             }
 
                             @SubscribeEvent

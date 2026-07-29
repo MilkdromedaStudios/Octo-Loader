@@ -14,5 +14,19 @@ public interface IEventBus {
 
     <T extends Event> void addListener(Class<T> eventType, Consumer<T> consumer);
 
+    // The rest of the family, where the mod also says whether it wants events
+    // another listener has already cancelled. An overload the bus does not
+    // declare costs the mod its listener silently: it was compiled against the
+    // real Forge, so the call is there, and it becomes a no-op.
+
+    <T extends Event> void addListener(boolean receiveCancelled, Consumer<T> consumer);
+
+    <T extends Event> void addListener(boolean receiveCancelled, Class<T> eventType, Consumer<T> consumer);
+
+    <T extends Event> void addListener(EventPriority priority, boolean receiveCancelled, Consumer<T> consumer);
+
+    <T extends Event> void addListener(EventPriority priority, boolean receiveCancelled, Class<T> eventType,
+            Consumer<T> consumer);
+
     boolean post(Event event);
 }

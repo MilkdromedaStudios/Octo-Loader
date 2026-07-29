@@ -1,6 +1,9 @@
 package studios.milkdromeda.octo.discovery;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -13,14 +16,18 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
+import net.neoforged.fml.loading.modscan.ModAnnotation;
+
 import studios.milkdromeda.octo.compat.Era.MappingNamespace;
+import studios.milkdromeda.octo.mod.BytecodeIndex.ScannedAnnotation;
+import studios.milkdromeda.octo.mod.BytecodeIndex.ScannedClass;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.util.OctoLog;
 
 /**
  * Reads a mod's bytecode to find what its metadata did not say.
  *
- * <p>Three jobs:
+ * <p>Four jobs:
  * <ul>
  *   <li>Recover entrypoints. Forge and NeoForge never write them down — the
  *       {@code @Mod} annotation is the entrypoint. Mods from before {@code mcmod.info}
@@ -28,6 +35,9 @@ import studios.milkdromeda.octo.util.OctoLog;
  *   <li>Work out which naming scheme the mod calls the game by, which decides
  *       what has to be remapped.</li>
  *   <li>Note the class file version, which bounds how old the mod can be.</li>
+ *   <li>Index every class and annotation, which is how a Forge or NeoForge mod
+ *       finds the classes it is meant to construct: they are never named
+ *       anywhere, only annotated, and the loader is expected to know.</li>
  * </ul>
  */
 public final class ModClassScanner {
@@ -96,6 +106,8 @@ public final class ModClassScanner {
         public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
             this.className = name;
             result.countClass(version & 0xFFFF);
+            result.classes().add(new ScannedClass(name, superName,
+                    interfaces == null ? List.of() : List.of(interfaces)));
 
             if (interfaces != null) {
                 for (String candidate : interfaces) {
@@ -134,30 +146,63 @@ public final class ModClassScanner {
 
         @Override
         public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
-            if (!MOD_ANNOTATIONS.contains(descriptor)) {
-                return null;
+            return collect(descriptor, ScannedAnnotation.Target.TYPE, binary(className));
+        }
+
+        /**
+         * Records an annotation, and notices when it is the one that declares a mod.
+         *
+         * <p>Everything a mod's own bytecode is annotated with is kept, not just
+         * {@code @Mod}: this is the register a Forge or NeoForge mod reads to find
+         * the classes it should instantiate, and it has to be complete before the
+         * first mod is constructed, because that is when they ask.
+         *
+         * <p>Including the annotations the compiler marked invisible, which is what
+         * Forge and NeoForge do. It looks like waste — nothing can reflect on an
+         * annotation that is not retained at run time — but scanning reads bytecode,
+         * not reflection, so a mod can perfectly well mark its plugins with a
+         * class-retained annotation and find them here. Dropping those would work
+         * for every mod that happens to have chosen {@code RUNTIME} and fail
+         * silently, with an empty list, for any that did not.
+         */
+        private AnnotationVisitor collect(String descriptor, ScannedAnnotation.Target target, String member) {
+            Map<String, Object> values = new LinkedHashMap<>(4);
+            boolean declaresMod = MOD_ANNOTATIONS.contains(descriptor);
+            String owner = binary(className);
+
+            if (declaresMod) {
+                result.modAnnotations().putIfAbsent(owner, "");
             }
 
-            String owner = binary(className);
-            result.modAnnotations().putIfAbsent(owner, "");
+            // Filed when the annotation ends rather than when it starts, so that a
+            // marker annotation — which most of them are, over tens of thousands of
+            // classes — does not each keep an empty map alive for the whole launch.
+            return new Values(values, () -> {
+                result.annotations().add(new ScannedAnnotation(descriptor, target, className, member,
+                        values.isEmpty() ? Map.of() : values));
 
-            return new AnnotationVisitor(Opcodes.ASM9) {
-                @Override
-                public void visit(String name, Object value) {
-                    // Forge used value(), then modid(); NeoForge went back to value().
-                    if (value instanceof String text && !text.isBlank()
-                            && (name.equals("value") || name.equals("modid"))) {
+                // Forge used value(), then modid(); NeoForge went back to value().
+                if (declaresMod) {
+                    Object id = values.getOrDefault("value", values.get("modid"));
+
+                    if (id instanceof String text && !text.isBlank()) {
                         result.modAnnotations().put(owner, text);
                     }
                 }
-            };
+            });
         }
 
         @Override
         public FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
             noteMember(name);
             noteType(descriptor);
-            return null;
+
+            return new FieldVisitor(Opcodes.ASM9) {
+                @Override
+                public AnnotationVisitor visitAnnotation(String annotation, boolean visible) {
+                    return collect(annotation, ScannedAnnotation.Target.FIELD, name);
+                }
+            };
         }
 
         @Override
@@ -166,6 +211,13 @@ public final class ModClassScanner {
             noteType(descriptor);
 
             return new MethodVisitor(Opcodes.ASM9) {
+                @Override
+                public AnnotationVisitor visitAnnotation(String annotation, boolean visible) {
+                    // Mods expect a method's member name to carry its descriptor:
+                    // an annotation on one overload is not on the others.
+                    return collect(annotation, ScannedAnnotation.Target.METHOD, name + descriptor);
+                }
+
                 @Override
                 public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
                     noteReference(owner);
@@ -257,6 +309,74 @@ public final class ModClassScanner {
 
         private static String binary(String internalName) {
             return internalName.replace('/', '.');
+        }
+    }
+
+    /**
+     * Reads an annotation's members into the shape mods expect to find them in.
+     *
+     * <p>Strings, numbers, classes and booleans arrive as themselves; an array
+     * becomes a list, a nested annotation becomes a map of its own members, and an
+     * enum constant becomes an {@link ModAnnotation.EnumHolder}, which is the type
+     * NeoForge puts in this position and therefore the type a mod casts to.
+     */
+    private static final class Values extends AnnotationVisitor {
+        private final Map<String, Object> members;
+        private final List<Object> items;
+        private final Runnable onEnd;
+
+        Values(Map<String, Object> members, Runnable onEnd) {
+            super(Opcodes.ASM9);
+            this.members = members;
+            this.items = null;
+            this.onEnd = onEnd;
+        }
+
+        private Values(List<Object> items) {
+            super(Opcodes.ASM9);
+            this.members = null;
+            this.items = items;
+            this.onEnd = null;
+        }
+
+        /** Inside an array every value arrives with a null name, in order. */
+        private void put(String name, Object value) {
+            if (items != null) {
+                items.add(value);
+            } else {
+                members.put(name, value);
+            }
+        }
+
+        @Override
+        public void visit(String name, Object value) {
+            put(name, value);
+        }
+
+        @Override
+        public void visitEnum(String name, String descriptor, String value) {
+            put(name, new ModAnnotation.EnumHolder(descriptor, value));
+        }
+
+        @Override
+        public AnnotationVisitor visitAnnotation(String name, String descriptor) {
+            Map<String, Object> nested = new LinkedHashMap<>();
+            put(name, nested);
+            return new Values(nested, null);
+        }
+
+        @Override
+        public AnnotationVisitor visitArray(String name) {
+            List<Object> values = new ArrayList<>();
+            put(name, values);
+            return new Values(values);
+        }
+
+        @Override
+        public void visitEnd() {
+            if (onEnd != null) {
+                onEnd.run();
+            }
         }
     }
 

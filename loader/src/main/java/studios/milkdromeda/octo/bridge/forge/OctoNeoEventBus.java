@@ -46,6 +46,35 @@ public final class OctoNeoEventBus implements IEventBus {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public <T extends Event> void addListener(boolean receiveCancelled, Consumer<T> consumer) {
+        dispatcher.addListener(null, event -> ((Consumer<Object>) (Consumer<?>) consumer).accept(event),
+                EventPriority.NORMAL.ordinal(), receiveCancelled);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T extends Event> void addListener(boolean receiveCancelled, Class<T> eventType, Consumer<T> consumer) {
+        dispatcher.addListener(eventType, event -> ((Consumer<Object>) (Consumer<?>) consumer).accept(event),
+                EventPriority.NORMAL.ordinal(), receiveCancelled);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T extends Event> void addListener(EventPriority priority, boolean receiveCancelled, Consumer<T> consumer) {
+        dispatcher.addListener(null, event -> ((Consumer<Object>) (Consumer<?>) consumer).accept(event),
+                priority.ordinal(), receiveCancelled);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T extends Event> void addListener(EventPriority priority, boolean receiveCancelled, Class<T> eventType,
+            Consumer<T> consumer) {
+        dispatcher.addListener(eventType, event -> ((Consumer<Object>) (Consumer<?>) consumer).accept(event),
+                priority.ordinal(), receiveCancelled);
+    }
+
+    @Override
     public <T extends Event> T post(T event) {
         dispatcher.post(event);
         return event;

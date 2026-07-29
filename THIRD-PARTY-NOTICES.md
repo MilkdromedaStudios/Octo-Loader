@@ -49,6 +49,10 @@ the list that matters for the released `octo-loader.jar` and `installer.jar`.
 **From FancyModLoader (LGPL-2.1), compiled in verbatim:**
 
 - `net/neoforged/fml/common/Mod.java`
+- `net/neoforged/fml/event/IModBusEvent.java`
+- `net/neoforged/fml/IExtensionPoint.java`
+- `net/neoforged/neoforgespi/language/ModFileScanData.java` — the table of what a
+  mod's own bytecode said about itself, which mods read and compare types against
 
 **From Quilt Loader (Apache-2.0), compiled in verbatim:**
 

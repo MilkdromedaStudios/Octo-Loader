@@ -164,6 +164,7 @@ public final class ModDiscoverer {
                 ModMetadata completed = completeEntrypoints(metadata, scan);
                 ModCandidate candidate = new ModCandidate(file, completed, parent);
                 candidate.era(eraDetector.detect(completed, scan));
+                candidate.bytecode(scan.index());
 
                 if (candidate.era() == Era.UNKNOWN) {
                     candidate.note("era could not be determined; loading without translation");
