@@ -165,6 +165,11 @@ and Octo applies them in order:
    from them — which methods, with which signatures, used how — and generates a
    class of exactly that shape at load time. The mod links and runs; calls into
    the dead API return a default rather than killing the mod at class-load time.
+   The default is nothing said in the shape the caller expects: an empty list for
+   a call that promised a list, an empty `Optional`, an empty array. Null is kept
+   for everything else, but not where the return type says the caller is about to
+   iterate — a mod that asks a loader for a list of something is about to walk
+   it, and a null there is a second crash a jar away from the first.
 
 Every change is recorded. `octo scan` prints what would be done to each mod
 before you launch, and the same notes are attached to each mod at runtime, so
@@ -279,9 +284,13 @@ calls `System.exit(-1)`, that ends the JVM the window is drawn from, and the
 moment you most need to read it is the moment it disappears — leaving a launcher
 dialog that says `Exit code: -1` and nothing else.
 
-So Octo watches the exit. If the game fell over, the crash goes into the same
-window as everything else and the window holds the process open until you close
-it:
+So Octo takes the exit call itself, a few instructions before the JVM acts on
+it. That order matters more than it looks: a shutdown hook can hold the process
+open, but it cannot hold the windowing toolkit open — on Windows, AWT shuts down
+on the same signal — which is how a window can be held for half an hour in the
+log and be on screen for one second on the monitor. Nothing has started shutting
+down when the crash is shown now, so the window stays until it is closed. If the
+game fell over, the crash goes into the same window as everything else:
 
 - what Minecraft was doing, in its own words — "Initializing game";
 - what the failure means in plain language, because `Cannot invoke

@@ -27,11 +27,19 @@ import studios.milkdromeda.octo.util.OctoLog;
  * it vanishes — leaving a launcher dialog saying "Exit code: -1" and nothing
  * else.
  *
- * <p>So the exit is where this attaches. A shutdown hook is the last code to run
- * in a dying JVM, and a shutdown hook that blocks holds the process open while
- * it does. This one works out whether the game fell over or was closed on
- * purpose, puts the failure in the window with the rest of the launch's
- * problems, and then holds the JVM until the player closes it.
+ * <p>So the exit is where this attaches, and it attaches on both sides of it.
+ * The game's own exit calls are rewritten to arrive here first, while the JVM is
+ * still whole; a shutdown hook covers the exits nobody rewrote. Either way the
+ * work is the same: decide whether the game fell over or was closed on purpose,
+ * put the failure in the window with the rest of the launch's problems, and hold
+ * until the player closes it.
+ *
+ * <p>The difference between the two is what a player sees. A shutdown hook can
+ * hold the process; it cannot hold the toolkit that draws the window, because
+ * AWT shuts down on the same signal and does not wait to be asked. That is how
+ * a window can be reported open for half an hour in this log and be on screen
+ * for one second on the player's monitor. The rewritten call has no such
+ * problem: nothing is shutting down yet.
  *
  * <p>Three things say the game fell over, and the last of them is the one that
  * actually happens, because Minecraft catches its own crashes before anything
@@ -59,6 +67,16 @@ public final class GameWatch {
     private static final long WARM_UP_TIMEOUT_MILLIS = 5_000;
 
     private static final AtomicBoolean ARMED = new AtomicBoolean();
+
+    /**
+     * Whether the game's ending has already been dealt with.
+     *
+     * <p>Two things call for it — the rewritten exit and the shutdown hook — and
+     * on a normal crash both of them fire, one straight after the other. The
+     * first wins, which is always the rewritten one, because it runs before the
+     * exit that starts the hook.
+     */
+    private static final AtomicBoolean HANDLED = new AtomicBoolean();
 
     private static LoadingReport report;
     private static Path gameDir;
@@ -209,13 +227,55 @@ public final class GameWatch {
     }
 
     /**
+     * The game is on its way out, and has not gone yet.
+     *
+     * <p>Called from {@code studios.milkdromeda.octo.hook.GameExit}, which the
+     * game's own {@code System.exit} calls are rewritten to go through. This is
+     * the same work the shutdown hook does, done at the one point where the
+     * window it may open can also stay open: nothing has begun shutting down, so
+     * the toolkit is whole and stays that way until this returns.
+     *
+     * @param status the status the game is leaving with, which is not used to
+     *               decide anything — Minecraft exits with -1 on a crash, but a
+     *               crash report on disk is the proof, not the number
+     */
+    public static void gameExiting(int status) {
+        if (!ARMED.get() || report == null) {
+            return;
+        }
+
+        if (!HANDLED.compareAndSet(false, true)) {
+            return;
+        }
+
+        LOG.debug("Minecraft is exiting with status {}", status);
+        settle();
+    }
+
+    /**
      * The last thing this JVM does.
      *
      * <p>Runs on every exit, including the ordinary one where the player quit the
      * game. In that case there is nothing to hold open and the window goes with
      * the process, which is what anyone would expect.
+     *
+     * <p>Second choice, not first: by the time this runs, AWT may already be
+     * shutting down alongside it and a window opened here can be taken off the
+     * screen while the process it is holding open carries on. It still has to
+     * exist, because an exit Octo did not rewrite — a mod's, or the JVM simply
+     * running out of threads — arrives nowhere else.
      */
     private static void atExit() {
+        if (!HANDLED.compareAndSet(false, true)) {
+            LOG.debug("the game's exit was already dealt with before the JVM started shutting down");
+            return;
+        }
+
+        settle();
+    }
+
+    /** Works out what happened, says it, and holds the window if there is one. */
+    private static void settle() {
         try {
             // Minecraft's own report is preferred over anything Octo caught: it
             // is the one that names the phase the game died in, and by the time
@@ -383,6 +443,7 @@ public final class GameWatch {
     /** Test seam: forgets everything, so a second launch in one JVM can arm again. */
     static synchronized void reset() {
         ARMED.set(false);
+        HANDLED.set(false);
         report = null;
         gameDir = null;
         logFile = null;
@@ -391,6 +452,8 @@ public final class GameWatch {
 
     /** Test seam: arms without a shutdown hook or a window. */
     static synchronized void armForTest(LoadingReport report, Path gameDir, long armedAt) {
+        ARMED.set(true);
+        HANDLED.set(false);
         GameWatch.report = report;
         GameWatch.gameDir = gameDir;
         GameWatch.armedAt = armedAt;
