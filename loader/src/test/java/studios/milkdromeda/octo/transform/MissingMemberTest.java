@@ -174,6 +174,77 @@ class MissingMemberTest {
                 "a mod calling into its own missing class must still fail");
     }
 
+    /** A class whose only method calls something on the loader API that is not there. */
+    private byte[] callReturning(String className, String returnDescriptor) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, className, null, "java/lang/Object", null);
+
+        MethodVisitor probe = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "probe",
+                "()Ljava/lang/Object;", null, null);
+        probe.visitCode();
+        probe.visitMethodInsn(Opcodes.INVOKESTATIC, OWNER, "get", "()L" + OWNER + ";", false);
+        probe.visitMethodInsn(Opcodes.INVOKEVIRTUAL, OWNER, "neverWritten", "()" + returnDescriptor, false);
+        probe.visitInsn(Opcodes.ARETURN);
+        probe.visitMaxs(0, 0);
+        probe.visitEnd();
+        writer.visitEnd();
+
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a missing call that should have returned a collection returns an empty one, not null")
+    void aMissingCollectionIsEmptyRatherThanNull() throws Exception {
+        // jei's shape exactly: ModList.getAllScanData() was a gap, the default
+        // was null, and jei went straight to .iterator() on it and did not
+        // construct. Nothing is an answer; null is a second crash.
+        Object list = run("com/example/gapmod/ListCaller", callReturning("com/example/gapmod/ListCaller",
+                "Ljava/util/List;"), "probe");
+
+        assertNotNull(list, "a list-returning gap must not hand back null");
+        assertTrue(((java.util.List<?>) list).isEmpty());
+
+        @SuppressWarnings("unchecked")
+        java.util.List<Object> mutable = (java.util.List<Object>) list;
+        mutable.add("something");
+        assertEquals(1, mutable.size(),
+                "a caller that adds to what it was given should not meet an UnsupportedOperationException");
+
+        assertTrue(((java.util.Set<?>) run("com/example/gapmod/SetCaller",
+                callReturning("com/example/gapmod/SetCaller", "Ljava/util/Set;"), "probe")).isEmpty());
+        assertTrue(((java.util.Map<?, ?>) run("com/example/gapmod/MapCaller",
+                callReturning("com/example/gapmod/MapCaller", "Ljava/util/Map;"), "probe")).isEmpty());
+        assertFalse(((java.util.Optional<?>) run("com/example/gapmod/OptionalCaller",
+                callReturning("com/example/gapmod/OptionalCaller", "Ljava/util/Optional;"), "probe")).isPresent());
+    }
+
+    @Test
+    @DisplayName("a missing call that should have returned an array returns an empty one")
+    void aMissingArrayIsEmptyRatherThanNull() throws Exception {
+        Object strings = run("com/example/gapmod/ArrayCaller",
+                callReturning("com/example/gapmod/ArrayCaller", "[Ljava/lang/String;"), "probe");
+
+        assertEquals(0, ((String[]) strings).length);
+
+        Object nested = run("com/example/gapmod/NestedArrayCaller",
+                callReturning("com/example/gapmod/NestedArrayCaller", "[[I"), "probe");
+
+        assertEquals(0, ((int[][]) nested).length);
+
+        Object bytes = run("com/example/gapmod/ByteArrayCaller",
+                callReturning("com/example/gapmod/ByteArrayCaller", "[B"), "probe");
+
+        assertEquals(0, ((byte[]) bytes).length);
+    }
+
+    @Test
+    @DisplayName("a missing call to something Octo has no empty value for still returns null")
+    void anythingElseIsStillNull() throws Exception {
+        assertNull(run("com/example/gapmod/PlainCaller",
+                callReturning("com/example/gapmod/PlainCaller", "Ljava/lang/String;"), "probe"),
+                "an empty string is not the same claim as no string, so null stands");
+    }
+
     @Test
     @DisplayName("getModFileById answers presence, which is what mods use it for")
     void modFileLookupAnswersPresence() {

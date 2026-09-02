@@ -371,28 +371,13 @@ public final class PhantomClasses {
             return;
         }
 
-        switch (returnType.getSort()) {
-            case Type.VOID -> visitor.visitInsn(Opcodes.RETURN);
-            case Type.BOOLEAN, Type.CHAR, Type.BYTE, Type.SHORT, Type.INT -> {
-                visitor.visitInsn(Opcodes.ICONST_0);
-                visitor.visitInsn(Opcodes.IRETURN);
-            }
-            case Type.LONG -> {
-                visitor.visitInsn(Opcodes.LCONST_0);
-                visitor.visitInsn(Opcodes.LRETURN);
-            }
-            case Type.FLOAT -> {
-                visitor.visitInsn(Opcodes.FCONST_0);
-                visitor.visitInsn(Opcodes.FRETURN);
-            }
-            case Type.DOUBLE -> {
-                visitor.visitInsn(Opcodes.DCONST_0);
-                visitor.visitInsn(Opcodes.DRETURN);
-            }
-            default -> {
-                visitor.visitInsn(Opcodes.ACONST_NULL);
-                visitor.visitInsn(Opcodes.ARETURN);
-            }
+        if (returnType.getSort() == Type.VOID) {
+            visitor.visitInsn(Opcodes.RETURN);
+        } else {
+            // The same answer a missing member gives, for the same reason: a mod
+            // that asks a stand-in for a list of something is about to walk it.
+            Nothing.push(visitor, returnType);
+            visitor.visitInsn(returnType.getOpcode(Opcodes.IRETURN));
         }
 
         visitor.visitMaxs(0, 0);

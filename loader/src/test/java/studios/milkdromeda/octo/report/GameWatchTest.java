@@ -91,6 +91,42 @@ class GameWatchTest {
     }
 
     @Test
+    @DisplayName("the exit is reported once, by whichever of the two gets there first")
+    void theExitIsReportedWhileTheJvmIsStillWhole() throws IOException {
+        Path reports = Files.createDirectories(gameDir.resolve("crash-reports"));
+        Files.writeString(reports.resolve("crash-2026-07-28_21.14.02-client.txt"), CRASH_REPORT);
+
+        LoadingReport report = new LoadingReport();
+        GameWatch.armForTest(report, gameDir, System.currentTimeMillis());
+
+        GameWatch.gameExiting(-1);
+
+        assertTrue(report.hasCrash(), "the game's own exit should have folded in its crash report");
+        assertEquals("Initializing game", report.crash().orElseThrow().phase());
+
+        // The shutdown hook runs straight after the rewritten call on every
+        // crash, so the second account of the same ending has to be ignored.
+        Files.writeString(reports.resolve("crash-2026-07-28_21.20.00-client.txt"),
+                CRASH_REPORT.replace("Initializing game", "Rendering overlay"));
+
+        GameWatch.gameExiting(-1);
+
+        assertEquals("Initializing game", report.crash().orElseThrow().phase(),
+                "the first account of the exit is the one that stands");
+    }
+
+    @Test
+    @DisplayName("an exit before the launch armed is nobody's business")
+    void anExitWithNothingWatchingIt() {
+        GameWatch.reset();
+
+        // Nothing is armed: this must return rather than reach for a report that
+        // is not there, because the transformer rewrites the game's exits whether
+        // or not the watch is up.
+        GameWatch.gameExiting(0);
+    }
+
+    @Test
     @DisplayName("no crash-reports folder is not a crash")
     void nothingToFind() {
         GameWatch.armForTest(new LoadingReport(), gameDir, System.currentTimeMillis());

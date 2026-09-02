@@ -342,17 +342,15 @@ public final class MissingMemberTransformer implements Transformer {
                     super.visitInsn(type.getSize() == 2 ? Opcodes.POP2 : Opcodes.POP);
                 }
 
+                /**
+                 * What the call produces now that it is not being made.
+                 *
+                 * <p>Emitted on the delegate rather than on this visitor: what
+                 * {@link Nothing} writes is Octo's own, and has no business
+                 * being read back through the rewrite that asked for it.
+                 */
                 private void pushDefault(Type type) {
-                    switch (type.getSort()) {
-                        case Type.VOID -> {
-                        }
-                        case Type.BOOLEAN, Type.CHAR, Type.BYTE, Type.SHORT, Type.INT ->
-                                super.visitInsn(Opcodes.ICONST_0);
-                        case Type.LONG -> super.visitInsn(Opcodes.LCONST_0);
-                        case Type.FLOAT -> super.visitInsn(Opcodes.FCONST_0);
-                        case Type.DOUBLE -> super.visitInsn(Opcodes.DCONST_0);
-                        default -> super.visitInsn(Opcodes.ACONST_NULL);
-                    }
+                    Nothing.push(delegate, type);
                 }
             };
         }

@@ -38,6 +38,7 @@ import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
+import studios.milkdromeda.octo.transform.GameExitTransformer;
 import studios.milkdromeda.octo.transform.MissingClassTransformer;
 import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
@@ -245,6 +246,7 @@ public final class OctoLauncher {
         installApiGapCover(classLoader);
         installVersionAdapters(phantoms, classLoader);
         installAccessRules(mods, classLoader);
+        installExitCover(classLoader);
 
         // Planned before mixin starts: mixin reads its targets through the class
         // loader, and a mixin config plugin is the first thing in a launch to
@@ -572,6 +574,20 @@ public final class OctoLauncher {
 
     /** Which mixins had to be re-aimed or given up on, collected over the launch. */
     private MixinTargets mixinTargets;
+
+    /**
+     * Gives the crash window somewhere to open that is not a dying JVM.
+     *
+     * <p>Minecraft ends a crash with {@code System.exit(-1)}, and everything
+     * after that call happens in a JVM that is shutting down — where a window
+     * can be created and then taken off the screen by AWT's own shutdown,
+     * leaving a player with a launcher dialog and nothing to read. Routing the
+     * game's exits through the loader first moves the whole of that work back
+     * into a JVM that is still running.
+     */
+    private void installExitCover(OctoClassLoader classLoader) {
+        classLoader.addGlobalTransformer(new GameExitTransformer());
+    }
 
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
         AccessRules rules = AccessRuleLoader.collect(mods);
