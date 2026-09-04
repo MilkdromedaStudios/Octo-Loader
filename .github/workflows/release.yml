@@ -1,0 +1,155 @@
+# Named releases.
+#
+# build.yml publishes a build-<sha> release for every commit on main, which is
+# what you want while the loader is moving. This one publishes the versioned
+# releases people are actually pointed at: it refuses to run unless the tag and
+# gradle.properties agree, so "Octo Loader 1.0.0" always contains 1.0.0 jars.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish, e.g. v1.0.0'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          DECLARED="$(grep -E '^version=' gradle.properties | cut -d= -f2)"
+
+          if [ "$VERSION" != "$DECLARED" ]; then
+            echo "::error::tag $TAG asks for $VERSION but gradle.properties says $DECLARED"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        run: ./gradlew build --stacktrace
+
+      - name: Package the installer
+        run: ./gradlew :installer:installerJar
+
+      # Nothing goes out under a version number without the built jar having
+      # read a mods folder of every format it claims to support.
+      - name: Smoke-test the built loader
+        run: |
+          mkdir -p /tmp/smoke/mods
+          cd /tmp/smoke
+          python3 - <<'PY'
+          import json, zipfile
+          def jar(name, files):
+              with zipfile.ZipFile("mods/" + name, "w") as z:
+                  for path, content in files.items():
+                      z.writestr(path, content)
+
+          jar("fabric-sample.jar", {"fabric.mod.json": json.dumps({
+              "schemaVersion": 1, "id": "fabricsample", "version": "1.0.0",
+              "depends": {"minecraft": ">=1.20 <1.21"}})})
+          jar("quilt-sample.jar", {"quilt.mod.json": json.dumps({
+              "schema_version": 1, "quilt_loader": {"group": "x", "id": "quiltsample",
+              "version": "1.0.0", "metadata": {"name": "Quilt Sample"}}})})
+          jar("forge-sample.jar", {"META-INF/mods.toml":
+              'modLoader="javafml"\nloaderVersion="[47,)"\nlicense="MIT"\n'
+              '[[mods]]\nmodId="forgesample"\nversion="1.0.0"\n'})
+          jar("neoforge-sample.jar", {"META-INF/neoforge.mods.toml":
+              'modLoader="javafml"\nloaderVersion="[21,)"\nlicense="MIT"\n'
+              '[[mods]]\nmodId="neosample"\nversion="1.0.0"\n'})
+          jar("ancient-sample.jar", {"mcmod.info": json.dumps([{
+              "modid": "ancientsample", "version": "1.0.0", "mcversion": "1.7.10"}])})
+          jar("lite-sample.litemod", {"litemod.json": json.dumps({
+              "name": "litesample", "version": "1.0.0", "mcversion": "1.12.2"})})
+          PY
+          java -jar "$GITHUB_WORKSPACE"/loader/build/libs/octo-loader-*.jar \
+            scan --gameDir /tmp/smoke --modsDir /tmp/smoke/mods --mcVersion 1.20.1 | tee scan.txt
+          grep -q "6 of 6 mod(s) would load" scan.txt \
+            || { echo "::error::the loader did not accept all six sample mods"; exit 1; }
+
+      - name: Collect release files
+        run: |
+          mkdir release
+          cp installer/build/installer/installer.jar release/installer.jar
+          cp loader/build/libs/octo-loader-*.jar release/
+          cd release
+          sha256sum *.jar > checksums.txt
+          cat checksums.txt
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Octo Loader ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            release/installer.jar
+            release/octo-loader-*.jar
+            release/checksums.txt
+          body: |
+            One loader for Fabric, Quilt, Forge and NeoForge mods — and for mods
+            built for a Minecraft version other than the one you are running.
+
+            ## Install
+
+            Download `installer.jar` and double-click it, or:
+
+            ```bash
+            java -jar installer.jar client --mcVersion 1.20.1
+            java -jar installer.jar server --dir /srv/minecraft
+            ```
+
+            No network access is needed: the loader is inside the installer.
+            Requires Java 17 or newer.
+
+            ## What is in it
+
+            - Six mod formats read from one folder: `fabric.mod.json`,
+              `quilt.mod.json`, `META-INF/mods.toml`,
+              `META-INF/neoforge.mods.toml`, `mcmod.info` and `litemod.json`,
+              plus jars with no metadata at all, recovered by bytecode scan.
+            - One mod list, one lifecycle, one mixin environment and one set of
+              access rules across all of them, so a Forge mod can see a Fabric
+              mod and mix into the same class.
+            - Mods built for older Minecraft versions load: mapping routes are
+              composed across eras (SRG, TSRG, TSRG2, Tiny v2), documented API
+              changes are applied, and classes that no longer exist are stood in
+              for so the rest of the mod still links.
+            - `octo scan` reports what would be done to every mod before launch.
+
+            Translation is mechanical and reports what it could not carry across;
+            the README says what that does and does not buy you.
+
+            ## Files
+
+            | File | What it is |
+            |---|---|
+            | `installer.jar` | the installer — this is the one to download |
+            | `octo-loader-${{ steps.version.outputs.version }}.jar` | the loader alone, for manual or server setups |
+            | `checksums.txt` | SHA-256 of both |
