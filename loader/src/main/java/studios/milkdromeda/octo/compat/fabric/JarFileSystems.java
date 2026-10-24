@@ -5,6 +5,7 @@ import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystemAlreadyExistsException;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,13 +18,35 @@ import java.util.concurrent.ConcurrentHashMap;
  * one out from under a mod that kept the {@link Path} breaks it, so they are
  * opened once and kept for the life of the process.
  */
-final class JarFileSystems {
+public final class JarFileSystems {
     private static final Map<Path, FileSystem> OPEN = new ConcurrentHashMap<>();
 
     private JarFileSystems() {
     }
 
-    static FileSystem get(Path jar) throws IOException {
+    /**
+     * The root of a mod's files: the jar's own file system, or the directory
+     * itself for a mod that is not packed.
+     *
+     * <p>This is what Fabric means by a root path and what Quilt means by
+     * {@code rootPath()}. Handing back the jar's location on disk instead looks
+     * almost the same and resolves nothing: {@code mods/x.jar/assets/x/lang}
+     * does not exist, so every mod reading its own assets or data through the
+     * loader found none of them.
+     */
+    public static Path root(Path jar) {
+        if (Files.isDirectory(jar)) {
+            return jar;
+        }
+
+        try {
+            return get(jar).getPath("/");
+        } catch (IOException | RuntimeException e) {
+            return jar;
+        }
+    }
+
+    public static FileSystem get(Path jar) throws IOException {
         Path key = jar.toAbsolutePath().normalize();
         FileSystem existing = OPEN.get(key);
 

@@ -13,6 +13,7 @@ import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModDependency;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.mod.version.Version;
+import studios.milkdromeda.octo.runtime.BuiltinMods;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.util.OctoLog;
 
@@ -38,7 +39,7 @@ public final class ModResolver {
 
     public Resolution resolve(List<ModCandidate> candidates) {
         Resolution resolution = new Resolution();
-        Map<String, ModCandidate> selected = deduplicate(candidates, resolution);
+        Map<String, ModCandidate> selected = deduplicate(withoutBuiltins(candidates, resolution), resolution);
         Map<String, Version> provided = platformVersions();
 
         selected.values().removeIf(candidate -> {
@@ -97,6 +98,31 @@ public final class ModResolver {
         return resolution;
     }
 
+    /**
+     * Drops jars claiming to be the game, the JVM or the loader.
+     *
+     * <p>Mods ship MixinExtras inside themselves as a Fabric mod with the id
+     * {@code mixinextras}, often an old one. Its classes could never win anyway —
+     * the loader's copy is the one every mod links against — so letting its
+     * version stand in for the loader's only made a mod asking for
+     * {@code mixinextras >=0.5.5} fail against a 0.4 nobody is using.
+     */
+    private static List<ModCandidate> withoutBuiltins(List<ModCandidate> candidates, Resolution resolution) {
+        List<ModCandidate> out = new ArrayList<>(candidates.size());
+
+        for (ModCandidate candidate : candidates) {
+            if (BuiltinMods.IDS.contains(candidate.id())) {
+                LOG.debug("{} from {} is provided by the loader itself; using the loader's",
+                        candidate.id(), candidate.path().getFileName());
+                continue;
+            }
+
+            out.add(candidate);
+        }
+
+        return out;
+    }
+
     /** Keeps the highest version of each mod id. */
     private Map<String, ModCandidate> deduplicate(List<ModCandidate> candidates, Resolution resolution) {
         Map<String, ModCandidate> selected = new LinkedHashMap<>();
@@ -134,8 +160,8 @@ public final class ModResolver {
      * either way, but it should be advisory and right rather than advisory and
      * wrong.
      */
-    private static final String FABRIC_LOADER_VERSION = "0.18.4";
-    private static final String QUILT_LOADER_VERSION = "0.29.0";
+    private static final String FABRIC_LOADER_VERSION = BuiltinMods.FABRIC_LOADER_VERSION;
+    private static final String QUILT_LOADER_VERSION = "0.31.0";
 
     /** The pseudo-mods every ecosystem expects to exist. */
     private Map<String, Version> platformVersions() {
@@ -145,6 +171,7 @@ public final class ModResolver {
         provided.put("minecraft", minecraft);
         provided.put("java", Version.parse(String.valueOf(Runtime.version().feature())));
         provided.put("octoloader", Version.parse(OctoRuntime.VERSION));
+        provided.put("mixinextras", Version.parse(BuiltinMods.MIXINEXTRAS_VERSION));
 
         // Octo answers for all four loaders, so mods asking for any of them find
         // it. The versions reported are the ones each ecosystem shipped for this
@@ -160,23 +187,72 @@ public final class ModResolver {
         return provided;
     }
 
-    /** Forge's version is derived from the game version, e.g. 1.20.1 to 47.x. */
-    private static Version forgeVersionFor(Version minecraft) {
-        int major = switch (minecraft.part(1)) {
-            case 20 -> 47;
-            case 19 -> 43;
-            case 18 -> 40;
-            case 17 -> 37;
-            case 16 -> 36;
-            case 12 -> 14;
-            default -> 50;
-        };
+    /**
+     * Forge's major version for each Minecraft release it shipped for.
+     *
+     * <p>Read off Forge's own Maven metadata. The year-numbered releases from 26.1
+     * on keep counting up by one per game version, and a game newer than the
+     * table is assumed to do the same.
+     */
+    private static final Map<String, Integer> FORGE_MAJOR = Map.ofEntries(
+            Map.entry("1.7.10", 10), Map.entry("1.8", 11), Map.entry("1.8.9", 11), Map.entry("1.10", 12),
+            Map.entry("1.10.2", 12), Map.entry("1.11", 13), Map.entry("1.11.2", 13), Map.entry("1.12", 14),
+            Map.entry("1.12.1", 14), Map.entry("1.12.2", 14), Map.entry("1.13.2", 25), Map.entry("1.14.2", 26),
+            Map.entry("1.14.3", 27), Map.entry("1.14.4", 28), Map.entry("1.15", 29), Map.entry("1.15.1", 30),
+            Map.entry("1.15.2", 31), Map.entry("1.16.1", 32), Map.entry("1.16.2", 33), Map.entry("1.16.3", 34),
+            Map.entry("1.16.4", 35), Map.entry("1.16.5", 36), Map.entry("1.17.1", 37), Map.entry("1.18", 38),
+            Map.entry("1.18.1", 39), Map.entry("1.18.2", 40), Map.entry("1.19", 41), Map.entry("1.19.1", 42),
+            Map.entry("1.19.2", 43), Map.entry("1.19.3", 44), Map.entry("1.19.4", 45), Map.entry("1.20", 46),
+            Map.entry("1.20.1", 47), Map.entry("1.20.2", 48), Map.entry("1.20.4", 49), Map.entry("1.20.6", 50),
+            Map.entry("1.21", 51), Map.entry("1.21.1", 52), Map.entry("1.21.3", 53), Map.entry("1.21.4", 54),
+            Map.entry("1.21.5", 55), Map.entry("1.21.6", 56), Map.entry("1.21.7", 57), Map.entry("1.21.8", 58),
+            Map.entry("1.21.9", 59), Map.entry("1.21.10", 60), Map.entry("1.21.11", 61), Map.entry("26.1", 62),
+            Map.entry("26.1.1", 63), Map.entry("26.1.2", 64), Map.entry("26.2", 65), Map.entry("26.3", 66));
+
+    /** Forge's version for a game version, e.g. 1.20.1 to 47.x and 26.3 to 66.x. */
+    static Version forgeVersionFor(Version minecraft) {
+        String release = minecraft.raw().replaceAll("[-+].*$", "");
+        Integer major = FORGE_MAJOR.get(release);
+
+        if (major == null) {
+            // Not in the table: the nearest release below it, plus however many
+            // feature releases separate the two. Year-numbered versions count up
+            // by one per drop (26.3 -> 66, so 26.4 -> 67, 27.1 -> 68 or so).
+            Version best = null;
+
+            for (Map.Entry<String, Integer> entry : FORGE_MAJOR.entrySet()) {
+                Version candidate = Version.parse(entry.getKey());
+
+                if (candidate.compareTo(minecraft) <= 0 && (best == null || candidate.compareTo(best) > 0)) {
+                    best = candidate;
+                    major = entry.getValue();
+                }
+            }
+
+            if (best == null) {
+                major = 10;
+            } else if (minecraft.part(0) >= 26) {
+                int steps = (minecraft.part(0) - best.part(0)) * 4 + (minecraft.part(1) - best.part(1));
+                major += Math.max(0, steps);
+            }
+        }
 
         return Version.parse(major + ".0.0");
     }
 
-    /** NeoForge's version tracks the game's minor, e.g. 1.21.1 to 21.1.x. */
-    private static Version neoForgeVersionFor(Version minecraft) {
+    /**
+     * NeoForge's version for a game version.
+     *
+     * <p>Up to 1.21.x it dropped the leading {@code 1.}: 1.21.1 is 21.1.x. From
+     * 26.1 on it is the game version itself with a build number after it, so
+     * 26.3 is 26.3.0.x — and reporting 3.0.0 for that, as the old rule did,
+     * failed every NeoForge mod's {@code [26.3,)} range.
+     */
+    static Version neoForgeVersionFor(Version minecraft) {
+        if (minecraft.part(0) >= 26) {
+            return Version.parse(minecraft.part(0) + "." + minecraft.part(1) + "." + minecraft.part(2) + ".0");
+        }
+
         return Version.parse(minecraft.part(1) + "." + minecraft.part(2) + ".0");
     }
 

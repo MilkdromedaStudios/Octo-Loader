@@ -15,6 +15,8 @@ public final class LoadedMod {
     private final List<Object> instances = new ArrayList<>();
     private final List<String> appliedFixes = new ArrayList<>();
     private Path effectivePath;
+    private List<Path> extraRoots = List.of();
+    private boolean fromAnotherVersion;
     private Throwable failure;
 
     public LoadedMod(ModCandidate candidate) {
@@ -49,6 +51,45 @@ public final class LoadedMod {
 
     public void effectivePath(Path value) {
         this.effectivePath = value;
+    }
+
+    /**
+     * Every jar this mod's files are in, the effective one first.
+     *
+     * <p>One for an ordinary mod. The game itself can be several: a client jar
+     * and the jar of anything Mojang ships alongside it.
+     */
+    public List<Path> rootJars() {
+        if (extraRoots.isEmpty()) {
+            return List.of(effectivePath);
+        }
+
+        List<Path> out = new ArrayList<>(1 + extraRoots.size());
+        out.add(effectivePath);
+        out.addAll(extraRoots);
+        return out;
+    }
+
+    public void extraRoots(List<Path> value) {
+        this.extraRoots = List.copyOf(value);
+    }
+
+    /**
+     * Whether this mod was built for a Minecraft other than the one running and
+     * is being carried across: rebuilt into today's names, with whatever the
+     * game no longer has stood in for or bypassed.
+     */
+    public boolean isFromAnotherVersion() {
+        return fromAnotherVersion;
+    }
+
+    public void fromAnotherVersion(boolean value) {
+        this.fromAnotherVersion = value;
+    }
+
+    /** One of the mods the game, the JVM and the loader present themselves as. */
+    public boolean isBuiltin() {
+        return format() == ModFormat.BUILTIN;
     }
 
     /** Entrypoint objects the bridges created, in construction order. */

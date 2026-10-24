@@ -116,6 +116,25 @@ public final class ScanResult {
         return best;
     }
 
+    /**
+     * The scheme the mod's references to the game are written in.
+     *
+     * <p>Not simply the most frequent one: a Forge mod from 1.17–1.20.4 names
+     * classes the Mojang way and members the SRG way, and is SRG for every
+     * purpose that matters, however many class references it makes. The
+     * numbered schemes are decisive wherever they appear at all.
+     */
+    public MappingNamespace bytecodeNamespace() {
+        for (MappingNamespace numbered : new MappingNamespace[] {
+                MappingNamespace.INTERMEDIARY, MappingNamespace.SRG, MappingNamespace.SEARGE }) {
+            if (namespaceHits(numbered) > 0) {
+                return numbered;
+            }
+        }
+
+        return dominantNamespace();
+    }
+
     public int namespaceHits(MappingNamespace namespace) {
         return namespaceHits.getOrDefault(namespace, 0);
     }

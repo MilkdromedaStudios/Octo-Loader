@@ -18,6 +18,11 @@ public abstract class ModLifecycleEvent extends Event implements IModBusEvent {
         return modId;
     }
 
+    /** Forge 66's name for what this event is about. */
+    public final String description() {
+        return getClass().getSimpleName() + " for " + modId;
+    }
+
     /** The container of the mod this event was posted for. */
     public ModContainer getContainer() {
         return ForgeBuses.forgeContainerFor(modId);

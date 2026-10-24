@@ -174,11 +174,27 @@ public final class OctoClassLoader extends URLClassLoader {
                     return super.loadClass(name, resolve);
                 } catch (ClassNotFoundException e) {
                     // Octo implements the mod-facing half of four loaders, not the
-                    // whole of any of them. A mod reaching for a corner none of the
-                    // bridges covers — some FML internal, say — used to fail here
-                    // and take the mod with it, even though the reference was one
-                    // the mod would never have called. Falling through lets the
-                    // stand-in machinery answer instead.
+                    // whole of any of them. What it does not have may still be on
+                    // this loader's own path — a loader API library a mod bundles,
+                    // or the real NeoForge or Forge API jar — and the real class
+                    // beats any stand-in, so that is asked next.
+                    try {
+                        Class<?> found = findClass(name);
+
+                        if (resolve) {
+                            resolveClass(found);
+                        }
+
+                        return found;
+                    } catch (ClassNotFoundException notHereEither) {
+                        // Fall through to the stand-in machinery.
+                    }
+
+                    // A mod reaching for a corner none of the bridges covers —
+                    // some FML internal, say — used to fail here and take the mod
+                    // with it, even though the reference was one the mod would
+                    // never have called. Falling through lets the stand-in
+                    // machinery answer instead.
                     Class<?> phantom = definePhantom(name, true);
 
                     if (phantom == null) {
@@ -337,7 +353,7 @@ public final class OctoClassLoader extends URLClassLoader {
         }
 
         String internalName = name.replace('.', '/');
-        PhantomClasses.Spec spec = phantoms.spec(internalName);
+        PhantomClasses.Spec spec = phantoms.canGenerate(internalName) ? phantoms.spec(internalName) : null;
 
         if (spec == null && mayInvent) {
             spec = declareLoaderApiStandIn(internalName);

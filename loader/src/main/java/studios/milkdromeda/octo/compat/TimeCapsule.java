@@ -105,6 +105,45 @@ public final class TimeCapsule {
         return TransformPipeline.of(transformers);
     }
 
+    /**
+     * The API-rule half of the pipeline alone, for a mod whose names have
+     * already been brought up to date: the class moves and member migrations
+     * the rule packs describe between its era and this one.
+     */
+    public TransformPipeline rulesFor(LoadedMod mod) {
+        Era modEra = mod.era();
+
+        if (!context.compat().translateOldMods() || !modEra.isKnown() || !runtimeEra.isKnown()
+                || !modEra.isOlderThan(runtimeEra)) {
+            return TransformPipeline.empty();
+        }
+
+        ApiRuleSet rules = ApiRuleSet.forEras(modEra, runtimeEra, userRuleDirectory);
+
+        if (rules.isEmpty()) {
+            return TransformPipeline.empty();
+        }
+
+        List<Transformer> transformers = new ArrayList<>();
+        MappingSet classMoves = rules.classMappings();
+
+        if (!classMoves.isEmpty()) {
+            transformers.add(new RemapTransformer(classMoves));
+        }
+
+        transformers.add(new ApiMigrationTransformer(rules, context.compat().stubMissingApi()));
+        return TransformPipeline.of(transformers);
+    }
+
+    /**
+     * Changes whenever the rules a mod of {@code modEra} would get change, so a
+     * cached rebuild made under other rules is not reused.
+     */
+    public String rulesFingerprint(Era modEra) {
+        ApiRuleSet rules = ApiRuleSet.forEras(modEra, runtimeEra, userRuleDirectory);
+        return Integer.toHexString((rules.rules().toString() + rules.classMappings().classes()).hashCode());
+    }
+
     /** Human-readable summary of what would be done, for {@code octo scan}. */
     public String describe(LoadedMod mod) {
         Era modEra = mod.era();

@@ -87,7 +87,9 @@ public final class QuiltMetadataParser implements MetadataParser {
             String config = Json.valueOf(mixin, "config");
 
             if (config != null) {
-                builder.mixinConfig(config);
+                builder.mixinConfig(config, mixin.isJsonObject()
+                        ? Side.parse(Json.string(mixin.getAsJsonObject(), "environment", "*"), Side.BOTH)
+                        : Side.BOTH);
             }
         }
 

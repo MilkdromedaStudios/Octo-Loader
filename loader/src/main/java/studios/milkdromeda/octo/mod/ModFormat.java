@@ -33,7 +33,14 @@ public enum ModFormat {
      * an {@code @Mod} annotation, a {@code ModInitializer}, or a {@code mod_*} class
      * from the ModLoader era. Recovered by bytecode scan.
      */
-    BARE("Bare jar", Family.FORGE, null);
+    BARE("Bare jar", Family.FORGE, null),
+
+    /**
+     * Not a jar anyone installed: the game, the JVM and the loader itself, which
+     * every ecosystem lists as mods so that other mods can depend on them and
+     * read their files. Never constructed and never put on the class path twice.
+     */
+    BUILTIN("Built-in", Family.FABRIC, null);
 
     /**
      * Which loader lineage a format belongs to. Formats in the same family share

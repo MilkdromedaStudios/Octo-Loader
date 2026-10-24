@@ -6,7 +6,7 @@ Minecraft version other than the one you are running, including mods nothing has
 been able to load for a decade.
 
 ```
-$ java -jar octo-loader.jar scan --modsDir mods --mcVersion 1.20.1
+$ java -jar octo-loader.jar scan --modsDir mods --mcVersion 26.3
 
 MOD                          VERSION        FORMAT       ERA          PLAN
 --------------------------------------------------------------------------------
@@ -22,12 +22,17 @@ shiny                        1.4.2          Fabric       modern       matches th
 
 ### Requirements
 
-- Minecraft: Java Edition, installed and started at least once.
-- Java 17 or newer. The official launcher normally selects a suitable Java
-  runtime automatically; command-line and server installations must provide it.
-- A backup of important worlds before trying mods from another Minecraft
-  version. Octo can translate binary interfaces, but it cannot guarantee that
-  an old mod's gameplay or save-data behavior still works.
+- Minecraft: Java Edition, installed and started at least once. Octo runs
+  every version back to the Searge years; it is built and tested against
+  **Minecraft 26.3**.
+- Java 17 or newer to start the loader — and whatever the game itself needs:
+  Java 25 for 26.x, Java 21 for 1.20.5–1.21.x. The official launcher selects the
+  right runtime automatically; command-line and server installations must
+  provide it.
+- **A backup of your worlds before trying mods from another Minecraft
+  version.** Octo rebuilds those mods to run, but it cannot promise that what
+  they save is something this version can read back — see
+  [the warning](#a-warning-about-mods-from-other-versions).
 
 ### Install a client
 
@@ -47,8 +52,8 @@ The same operations are available from a terminal:
 
 ```bash
 java -jar installer.jar                                   # window
-java -jar installer.jar client --mcVersion 1.20.1         # client, no window
-java -jar installer.jar uninstall --mcVersion 1.20.1      # removes everything it wrote
+java -jar installer.jar client --mcVersion 26.3           # client, no window
+java -jar installer.jar uninstall --mcVersion 26.3        # removes everything it wrote
 ```
 
 The installer needs no network access — the loader is inside it. It adds one jar
@@ -95,7 +100,10 @@ written to `<gameDir>/.octo/logs/octo-loader.log`, including trace and debug
 messages hidden from the console and failures that happen before Minecraft's
 own logging system starts.
 
-The installer creates server start scripts and `/srv/minecraft/mods`. Put
+The installer creates server start scripts and `/srv/minecraft/mods`. Since
+1.18 Mojang's `server.jar` is a bundler with the real server inside it; Octo
+unpacks it into `versions/` and `libraries/` the way the bundler itself would,
+once, and loads the real server from there. Put
 server-compatible mod archives in that folder, then use `start-octo-server.sh`
 on Linux/macOS or `start-octo-server.bat` on Windows. Clients must also install
 any mods that the mod author marks as required on both sides.
@@ -183,6 +191,73 @@ not that a decade-old mod becomes a working modern mod. Mods that only touch API
 that still exists in some form fare best; deep world-generation and rendering
 mods fare worst.
 
+### Mods from other versions are rebuilt, not just tolerated
+
+Since 26.1 Minecraft ships without obfuscation, under Mojang's own names, and
+every mod built for an earlier release speaks a different language from the
+game it is running in: Fabric's intermediary (`class_310`, `method_1551`),
+Forge's SRG (`m_91087_`), or Mojang's names as they stood that year
+(`ResourceLocation`, which is `Identifier` now). Octo does not pretend those mods
+match and hope; it **translates them and loads the translation**:
+
+1. **Unzip.** The mod jar is opened. The original in your mods folder is never
+   modified.
+2. **Reprogram.** Every class is rewritten into the names this game uses, along
+   with everything that names game classes as text — mixin refmaps, access
+   wideners, access transformers, reflection strings. The tables come from the
+   people who published them: Mojang's deobfuscation maps, Fabric's
+   intermediary and Forge's MCPConfig, for the version the mod was built for and
+   for the newest version that still had intermediary. Intermediary's numbers
+   never change between versions, so they are the pivot: a 1.21.1 mod's
+   `class_2960` is found in 1.21.11's tables, under today's name. Then the API
+   rules for the eras crossed are applied.
+3. **Jar again.** The result is packed into a new jar in
+   `.octo/cache/rebuilt/`, and that jar is what loads.
+4. **Cache.** The rebuilt jar is kept, named after a hash of the original and of
+   everything that went into it — Octo's version, the game version, the tables
+   and the rules. The next launch with the same mod on the same game loads it
+   straight from the cache; change any of those and it is rebuilt.
+
+The published tables are downloaded once per Minecraft version and kept in
+`.octo/cache/mappings/`, so a translated mod needs the network on its first
+launch only. `-Docto.offline=true` uses only what is cached. Your own tables
+still work: drop them in `.octo/mappings/` as before and they answer whatever
+the published ones do not.
+
+What survives translation in no form at all is handled in two more steps:
+
+- **Missing classes are added back.** Octo reads what the mod needs from a class
+  this game no longer has — which methods, which constructors, which fields,
+  and which other missing classes it has to be a subtype of — and generates a
+  class of exactly that shape. Builder methods hand back the builder, factories
+  hand back a usable object, an event bus field holds a working bus.
+- **Missing members are bypassed.** A call to a method the game no longer has,
+  or a field it no longer has, is not made; a default stands in for its result
+  and the mod carries on. A member that moved between static and instance, or a
+  class that became an interface, is reached the new way instead. Members other
+  mods add through mixins count as present, so nothing a mod genuinely provides
+  is ever bypassed.
+
+Everything rebuilt, stood in for or bypassed is listed in the log and on the
+mod's report.
+
+### A warning about mods from other versions
+
+A translated mod is a mod running against a game its author never tested. Most
+of what can go wrong is a feature that quietly does nothing — but some of it
+can reach your save: a block that saves under one name and loads under another,
+an entity whose data no longer means what it meant, a world generator writing
+chunks the game cannot read back. **Back up your worlds before playing with
+mods from another version, and try them in a new world first.**
+
+Octo says so every time such a mod loads — in a banner in the log, at the top
+of the report window and `.octo/logs/mod-report.txt`, and in `octo scan`:
+
+```
+WARNING: 3 mod(s) were made for another Minecraft version and would run translated.
+         They may misbehave or damage a world. Back up your worlds before playing.
+```
+
 ### Mods on any version of the game they did not expect
 
 The time capsule above answers "this mod is from another era". This answers the
@@ -229,6 +304,21 @@ rather than being discarded, which is what Create's bundled Registrate needs.
 Everything substituted, re-aimed or skipped is named in the log and on the mod's
 compatibility report, so a mod running against something other than what its
 author tested is a fact you can read rather than one you have to infer.
+
+### NeoForge and Forge mods get the real API
+
+Fabric mods depend on Fabric API, which is a mod you install like any other.
+NeoForge and Forge mods depend on the equivalent half of their loader —
+`NeoForge.EVENT_BUS`, `ModConfigSpec`, the capability types, every game event —
+which ships inside the loader rather than as a mod. Octo implements the loader
+half itself (mod list, buses, lifecycle, `@EventBusSubscriber`, Forge 66's
+`BusGroup` and constructor injection, NeoForge's `FMLLoader`), and when your
+mods folder has NeoForge or Forge mods in it, fetches the other half: the
+project's own `universal` jar for the running game version, from its official
+Maven repository, cached in `.octo/cache/libraries/`. Those jars expect a game
+their installer patched; the calls they make into patched-in game methods are
+bypassed like a translated mod's. `-Docto.noApiLibraries=true` turns this off and
+leaves stand-ins in its place.
 
 ### Version checks are advisory
 
@@ -311,6 +401,11 @@ should not leave a window pinning the process open.
 - `-Docto.noEarlyBootstrap=true` leaves the game's own start-up entirely to
   Minecraft. Mods that touch a registry from their initialiser will fail, but it
   rules Octo's early start-up in or out in one launch.
+- `-Docto.offline=true` never touches the network: translation tables and the
+  NeoForge/Forge API come only from what is already cached.
+- `-Docto.noApiLibraries=true` does not fetch the NeoForge and Forge API jars.
+- `-Docto.mappingsTarget=<version>` changes the release whose names translated
+  mods are taken to (`1.21.11`, the last with intermediary, by default).
 - `octo scan` reports the same verdicts without starting anything.
 
 ### Registries that never got filled
@@ -508,6 +603,8 @@ loader/                     the loader runtime
                             version-adaptive target resolver
   bridge/                   per-ecosystem construction and lifecycle
   launch/                   the class loader and the launcher
+  rebuild/                  unzip, translate, re-jar and cache mods from other
+                            versions
   compat/<ecosystem>/       the implementation behind each upstream API
 installer/                  installer.jar: client, server, GUI and CLI
 upstream/octo/              Fabric, Quilt, Forge and NeoForge sources, merged

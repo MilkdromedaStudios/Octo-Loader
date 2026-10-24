@@ -334,6 +334,42 @@ public final class VersionPredicate implements Predicate<Version> {
         return best == null ? Version.zero() : best;
     }
 
+    /**
+     * Whether every alternative also caps the version from above.
+     *
+     * <p>The difference between {@code >=1.16.2} and {@code ~1.20.1} is the
+     * difference between "works from 1.16.2 on" and "built for 1.20.1", and only
+     * the second says which game a mod was compiled against. Fabric API's
+     * modules for 26.3 still declare the version each one first appeared in, and
+     * reading that floor as the target is what put current mods through a
+     * translation meant for 1.16.
+     */
+    public boolean isBoundedAbove() {
+        if (alternatives.isEmpty()) {
+            return false;
+        }
+
+        for (List<Clause> alternative : alternatives) {
+            boolean capped = false;
+
+            for (Clause clause : alternative) {
+                // Not caret: ^1.20 admits everything up to 2.0, which for a
+                // Minecraft version is no cap at all.
+                if (clause.op == Op.LE || clause.op == Op.LT || clause.op == Op.EQ || clause.op == Op.TILDE
+                        || clause.op == Op.PREFIX) {
+                    capped = true;
+                    break;
+                }
+            }
+
+            if (!capped) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public String raw() {
         return raw;
     }

@@ -28,6 +28,7 @@ public final class ModMetadata {
     private final Map<String, List<EntrypointSpec>> entrypoints;
     private final List<ModDependency> dependencies;
     private final List<String> mixinConfigs;
+    private final Map<String, Side> mixinSides;
     private final List<String> accessWideners;
     private final List<String> accessTransformers;
     private final List<String> nestedJars;
@@ -44,6 +45,7 @@ public final class ModMetadata {
         this.license = builder.license;
         this.dependencies = List.copyOf(builder.dependencies);
         this.mixinConfigs = List.copyOf(builder.mixinConfigs);
+        this.mixinSides = Map.copyOf(builder.mixinSides);
         this.accessWideners = List.copyOf(builder.accessWideners);
         this.accessTransformers = List.copyOf(builder.accessTransformers);
         this.nestedJars = List.copyOf(builder.nestedJars);
@@ -112,6 +114,29 @@ public final class ModMetadata {
         return mixinConfigs;
     }
 
+    /**
+     * The mixin configs that belong on a side.
+     *
+     * <p>Fabric and Quilt let a mod mark a whole config {@code "environment":
+     * "client"}, and inside such a config the plain {@code mixins} array is
+     * client code too: Fabric API's content registries put {@code HudMixin}
+     * there. Registered on a dedicated server, mixin went looking for
+     * {@code net.minecraft.client.gui.Hud}, failed the required config, and the
+     * failure stopped every config after it from being prepared — registry sync
+     * and the rest of Fabric API's mixins included.
+     */
+    public List<String> mixinConfigs(Side physical) {
+        List<String> out = new ArrayList<>(mixinConfigs.size());
+
+        for (String config : mixinConfigs) {
+            if (mixinSides.getOrDefault(config, Side.BOTH).runsOn(physical)) {
+                out.add(config);
+            }
+        }
+
+        return out;
+    }
+
     public List<String> accessWideners() {
         return accessWideners;
     }
@@ -145,6 +170,7 @@ public final class ModMetadata {
         builder.license = license;
         builder.dependencies.addAll(dependencies);
         builder.mixinConfigs.addAll(mixinConfigs);
+        builder.mixinSides.putAll(mixinSides);
         builder.accessWideners.addAll(accessWideners);
         builder.accessTransformers.addAll(accessTransformers);
         builder.nestedJars.addAll(nestedJars);
@@ -170,6 +196,7 @@ public final class ModMetadata {
         private final Map<String, List<EntrypointSpec>> entrypoints = new LinkedHashMap<>();
         private final List<ModDependency> dependencies = new ArrayList<>();
         private final List<String> mixinConfigs = new ArrayList<>();
+        private final Map<String, Side> mixinSides = new LinkedHashMap<>();
         private final List<String> accessWideners = new ArrayList<>();
         private final List<String> accessTransformers = new ArrayList<>();
         private final List<String> nestedJars = new ArrayList<>();
@@ -220,6 +247,16 @@ public final class ModMetadata {
 
         public Builder dependency(ModDependency value) {
             this.dependencies.add(value);
+            return this;
+        }
+
+        public Builder mixinConfig(String value, Side side) {
+            mixinConfig(value);
+
+            if (side != null && side != Side.BOTH) {
+                this.mixinSides.put(value, side);
+            }
+
             return this;
         }
 

@@ -17,6 +17,14 @@ dependencyResolutionManagement {
             url = 'https://maven.fabricmc.net/'
             content { includeGroup 'net.fabricmc' }
         }
+
+        // EventBus 7, which Forge from 1.21.6 on — and so every Forge mod for
+        // 26.x — builds its mod buses out of.
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+            content { includeModule 'net.minecraftforge', 'eventbus' }
+        }
     }
 }
 

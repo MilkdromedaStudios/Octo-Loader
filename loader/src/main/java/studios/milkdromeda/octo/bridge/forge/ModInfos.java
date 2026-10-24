@@ -66,7 +66,7 @@ public final class ModInfos {
      */
     private static String loaderOf(String modId) {
         return mod(modId).map(loaded -> switch (loaded.format()) {
-            case FABRIC, RIFT -> "fabric";
+            case FABRIC, RIFT, BUILTIN -> "fabric";
             case QUILT -> "quilt";
             case LITELOADER -> "liteloader";
             case FORGE, NEOFORGE, LEGACY_FORGE, BARE -> "javafml";

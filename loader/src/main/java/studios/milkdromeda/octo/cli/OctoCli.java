@@ -16,6 +16,7 @@ import studios.milkdromeda.octo.launch.GameProvider;
 import studios.milkdromeda.octo.launch.LaunchResult;
 import studios.milkdromeda.octo.launch.OctoLauncher;
 import studios.milkdromeda.octo.launch.OctoMain;
+import studios.milkdromeda.octo.launch.ServerBundler;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.resolve.ModResolver;
@@ -93,6 +94,10 @@ public final class OctoCli {
         List<ModCandidate> candidates = discovery.candidates();
         Resolution resolution = new ModResolver(context).resolve(candidates);
         TimeCapsule timeCapsule = new TimeCapsule(context);
+        studios.milkdromeda.octo.rebuild.ModRebuilder rebuilder = new studios.milkdromeda.octo.rebuild.ModRebuilder(
+                context, timeCapsule, new studios.milkdromeda.octo.compat.mapping.MappingProvider(
+                        context.octoDir().resolve("cache").resolve("mappings")));
+        int otherVersions = 0;
 
         System.out.println();
         System.out.println("Octo Loader " + OctoRuntime.VERSION + " - scan of " + context.modDirs());
@@ -111,7 +116,12 @@ public final class OctoCli {
 
         for (ModCandidate candidate : candidates) {
             LoadedMod view = new LoadedMod(candidate);
-            String plan = timeCapsule.describe(view);
+            String rebuild = rebuilder.describe(view);
+            String plan = rebuild != null ? rebuild : timeCapsule.describe(view);
+
+            if (rebuild != null || candidate.era().isKnown() && candidate.era().isOlderThan(timeCapsule.runtimeEra())) {
+                otherVersions++;
+            }
 
             System.out.printf("%-28s %-14s %-12s %-12s %s%n",
                     truncate(candidate.id(), 28),
@@ -140,6 +150,13 @@ public final class OctoCli {
             System.out.println();
             System.out.println("Resolution:");
             resolution.problems().forEach(problem -> System.out.println("  " + problem));
+        }
+
+        if (otherVersions > 0) {
+            System.out.println();
+            System.out.println("WARNING: " + otherVersions + " mod(s) were made for another Minecraft version and "
+                    + "would run translated.");
+            System.out.println("         They may misbehave or damage a world. Back up your worlds before playing.");
         }
 
         System.out.println();
@@ -194,9 +211,29 @@ public final class OctoCli {
         }
 
         LaunchContext toContext() {
-            GameProvider provider = new GameProvider(gameJars);
+            List<Path> jars = new ArrayList<>();
+            List<Path> bundled = new ArrayList<>();
+            String bundledMain = null;
+
+            // The server jar since 1.18 is a bundler holding the real one.
+            for (Path jar : gameJars) {
+                var unpacked = ServerBundler.isBundler(jar) ? ServerBundler.unpack(jar, gameDir)
+                        : java.util.Optional.<ServerBundler.Unpacked>empty();
+
+                if (unpacked.isPresent()) {
+                    jars.addAll(unpacked.get().gameJars());
+                    bundled.addAll(unpacked.get().libraries());
+                    bundledMain = unpacked.get().mainClass();
+                } else {
+                    jars.add(jar);
+                }
+            }
+
+            GameProvider provider = new GameProvider(jars);
             String version = minecraftVersion.isBlank() ? provider.detectVersion().orElse("") : minecraftVersion;
-            String main = mainClass != null ? mainClass : provider.detectMainClass(side).orElse(null);
+            String main = mainClass != null ? mainClass
+                    : bundledMain != null && side == Side.SERVER ? bundledMain
+                    : provider.detectMainClass(side).orElse(null);
 
             LaunchContext.Builder builder = LaunchContext.builder(gameDir)
                     .side(side)
@@ -209,11 +246,12 @@ public final class OctoCli {
                             .strict(strict));
 
             modDirs.forEach(builder::modDir);
-            gameJars.forEach(builder::gameJar);
+            jars.forEach(builder::gameJar);
 
             // Same reason as OctoMain: a library a mod mixes into has to be
             // inside the loader with the game, not outside it with the loader.
-            OctoMain.libraryJarsOnClassPath(gameJars).forEach(builder::libraryJar);
+            OctoMain.libraryJarsOnClassPath(jars).forEach(builder::libraryJar);
+            bundled.forEach(builder::libraryJar);
             return builder.build();
         }
     }

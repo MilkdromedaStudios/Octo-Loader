@@ -35,7 +35,13 @@ public final class FabricModContainer implements ModContainer {
 
     @Override
     public List<Path> getRootPaths() {
-        return List.of(mod.effectivePath());
+        List<Path> out = new ArrayList<>();
+
+        for (Path jar : mod.rootJars()) {
+            out.add(JarFileSystems.root(jar));
+        }
+
+        return out;
     }
 
     @Override
@@ -52,7 +58,7 @@ public final class FabricModContainer implements ModContainer {
                     throw new UnsupportedOperationException("not a path origin");
                 }
 
-                return List.of(mod.effectivePath());
+                return mod.rootJars();
             }
 
             @Override
@@ -100,27 +106,29 @@ public final class FabricModContainer implements ModContainer {
     @Override
     public Optional<Path> findPath(String file) {
         // Mod resources live inside the jar; Octo mounts each mod's jar as a
-        // file system on demand rather than keeping every mod's zip open.
-        Path root = mod.effectivePath();
+        // file system on demand rather than keeping every mod's zip open. The
+        // game is one "mod" spread over several jars, so each root is tried.
+        String relative = file.startsWith("/") ? file.substring(1) : file;
 
-        if (Files.isDirectory(root)) {
-            Path candidate = root.resolve(file);
-            return Files.exists(candidate) ? Optional.of(candidate) : Optional.empty();
+        for (Path root : getRootPaths()) {
+            try {
+                Path candidate = root.resolve(relative);
+
+                if (Files.exists(candidate)) {
+                    return Optional.of(candidate);
+                }
+            } catch (RuntimeException e) {
+                // An unopenable jar or an illegal name; the next root may do.
+            }
         }
 
-        try {
-            java.nio.file.FileSystem fileSystem = JarFileSystems.get(root);
-            Path candidate = fileSystem.getPath(file);
-            return Files.exists(candidate) ? Optional.of(candidate) : Optional.empty();
-        } catch (Exception e) {
-            return Optional.empty();
-        }
+        return Optional.empty();
     }
 
     @Override
     @Deprecated
     public Path getPath(String file) {
-        return findPath(file).orElseGet(() -> mod.effectivePath().resolve(file));
+        return findPath(file).orElseGet(() -> getRootPaths().get(0).resolve(file.startsWith("/") ? file.substring(1) : file));
     }
 
     @Override
