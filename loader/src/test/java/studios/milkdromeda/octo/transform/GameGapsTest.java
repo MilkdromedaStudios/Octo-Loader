@@ -40,6 +40,7 @@ class GameGapsTest {
     private static final String BOX = "net/minecraft/octotest/Box3";
     private static final String POINT = "net/minecraft/octotest/Point3";
     private static final String TAG = "net/minecraft/octotest/Tag3";
+    private static final String REGISTRY = "net/minecraft/octotest/Registry3";
 
     private static final class Defining extends ClassLoader {
         Defining() {
@@ -214,6 +215,26 @@ class GameGapsTest {
         return entry.invoke(null, tag, key);
     }
 
+    /** {@code Registry3.lookup("ab", 3)} called statically, and {@code registry.describe("k", 7L)} on an instance. */
+    private static void movedAcrossStatic(ClassWriter writer) {
+        MethodVisitor statically = method(writer, "lookedUp", "()Ljava/lang/Object;");
+        statically.visitLdcInsn("ab");
+        statically.visitInsn(Opcodes.ICONST_3);
+        statically.visitMethodInsn(Opcodes.INVOKESTATIC, REGISTRY, "lookup", "(Ljava/lang/String;I)Ljava/lang/String;",
+                false);
+        statically.visitInsn(Opcodes.ARETURN);
+        end(statically);
+
+        MethodVisitor onInstance = method(writer, "described", "()Ljava/lang/Object;");
+        onInstance.visitMethodInsn(Opcodes.INVOKESTATIC, REGISTRY, "get", "()L" + REGISTRY + ";", false);
+        onInstance.visitLdcInsn("k");
+        onInstance.visitLdcInsn(7L);
+        onInstance.visitMethodInsn(Opcodes.INVOKEVIRTUAL, REGISTRY, "describe", "(Ljava/lang/String;J)Ljava/lang/String;",
+                false);
+        onInstance.visitInsn(Opcodes.ARETURN);
+        end(onInstance);
+    }
+
     private static byte[] caller() {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
@@ -222,6 +243,7 @@ class GameGapsTest {
         widenedMethod(writer);
         constructorReferences(writer);
         oldGetters(writer);
+        movedAcrossStatic(writer);
         writer.visitEnd();
         return writer.toByteArray();
     }
@@ -311,6 +333,18 @@ class GameGapsTest {
 
         assertEquals(Boolean.TRUE, read("has", tag, "flag"));
         assertFalse(((Tag3) read("readList", tag, "items")).isEmpty());
+    }
+
+    @Test
+    @DisplayName("a static call with arguments to what is now an instance method goes through the singleton")
+    void staticCallWithArgumentsReachesInstance() throws Exception {
+        assertEquals("ababab", call(repaired(caller()), "lookedUp"));
+    }
+
+    @Test
+    @DisplayName("an instance call with arguments to what is now static drops the receiver")
+    void instanceCallWithArgumentsReachesStatic() throws Exception {
+        assertEquals("k#7", call(repaired(caller()), "described"));
     }
 
     @Test

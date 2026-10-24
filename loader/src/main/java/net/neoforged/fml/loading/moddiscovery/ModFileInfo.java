@@ -99,7 +99,56 @@ public final class ModFileInfo implements IModFileInfo {
     }
 
     @Override
+    public net.neoforged.neoforgespi.locating.IModFile getFile() {
+        return new OctoModFile(this);
+    }
+
+    @Override
     public String toString() {
         return "Mod File: " + getFileName();
+    }
+
+    /** The jar a mod came from, which mods open to read their own resources. */
+    private record OctoModFile(ModFileInfo info) implements net.neoforged.neoforgespi.locating.IModFile {
+        @Override
+        public java.nio.file.Path getFilePath() {
+            return ModInfos.pathOf(info.modId);
+        }
+
+        @Override
+        public String getFileName() {
+            return info.getFileName();
+        }
+
+        @Override
+        public java.nio.file.Path findResource(String... pathName) {
+            java.nio.file.Path jar = getFilePath();
+
+            if (jar == null) {
+                return null;
+            }
+
+            try {
+                java.nio.file.Path found = studios.milkdromeda.octo.compat.fabric.JarFileSystems.root(jar);
+
+                for (String part : pathName) {
+                    found = found.resolve(part);
+                }
+
+                return found;
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
+
+        @Override
+        public List<IModInfo> getModInfos() {
+            return info.getMods();
+        }
+
+        @Override
+        public IModFileInfo getModFileInfo() {
+            return info;
+        }
     }
 }

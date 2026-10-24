@@ -5,11 +5,17 @@ import net.minecraftforge.fml.config.ModConfig;
 
 import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
 
-/** The mod currently being constructed. */
-public final class ModLoadingContext {
+/**
+ * The mod currently being constructed.
+ *
+ * <p>Not final: from Forge 66 the context handed to a mod's constructor,
+ * {@code FMLJavaModLoadingContext}, is one of these, and mods pass it on to
+ * code that takes a {@code ModLoadingContext}.
+ */
+public class ModLoadingContext {
     private static final ModLoadingContext INSTANCE = new ModLoadingContext();
 
-    private ModLoadingContext() {
+    protected ModLoadingContext() {
     }
 
     public static ModLoadingContext get() {
@@ -28,6 +34,11 @@ public final class ModLoadingContext {
     /** The container of the mod being constructed right now. */
     public ModContainer getActiveContainer() {
         return ForgeBuses.forgeContainerFor(ForgeBuses.activeModId());
+    }
+
+    /** Forge 66's name for {@link #getActiveContainer()}, which is what mods for 26.x call. */
+    public ModContainer getContainer() {
+        return getActiveContainer();
     }
 
     public void registerConfig(ModConfig.Type type, Object spec) {

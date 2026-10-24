@@ -248,7 +248,7 @@ public final class ModResolver {
      * 26.3 is 26.3.0.x — and reporting 3.0.0 for that, as the old rule did,
      * failed every NeoForge mod's {@code [26.3,)} range.
      */
-    static Version neoForgeVersionFor(Version minecraft) {
+    public static Version neoForgeVersionFor(Version minecraft) {
         if (minecraft.part(0) >= 26) {
             return Version.parse(minecraft.part(0) + "." + minecraft.part(1) + "." + minecraft.part(2) + ".0");
         }

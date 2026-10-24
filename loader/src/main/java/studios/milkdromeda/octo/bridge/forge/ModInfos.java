@@ -91,7 +91,7 @@ public final class ModInfos {
 
     // ---------------------------------------------------------------- NeoForge
 
-    private static final class NeoInfo implements net.neoforged.neoforgespi.language.IModInfo {
+    private static final class NeoInfo extends net.neoforged.fml.loading.moddiscovery.ModInfo {
         private final String modId;
 
         NeoInfo(String modId) {
@@ -124,7 +124,7 @@ public final class ModInfos {
         }
 
         @Override
-        public net.neoforged.neoforgespi.language.IModFileInfo getOwningFile() {
+        public net.neoforged.fml.loading.moddiscovery.ModFileInfo getOwningFile() {
             return new net.neoforged.fml.loading.moddiscovery.ModFileInfo(modId);
         }
 
@@ -199,7 +199,7 @@ public final class ModInfos {
 
     // ------------------------------------------------------------------- Forge
 
-    private static final class ForgeInfo implements net.minecraftforge.forgespi.language.IModInfo {
+    private static final class ForgeInfo extends net.minecraftforge.fml.loading.moddiscovery.ModInfo {
         private final String modId;
 
         ForgeInfo(String modId) {
@@ -232,7 +232,7 @@ public final class ModInfos {
         }
 
         @Override
-        public net.minecraftforge.forgespi.language.IModFileInfo getOwningFile() {
+        public net.minecraftforge.fml.loading.moddiscovery.ModFileInfo getOwningFile() {
             return new net.minecraftforge.fml.loading.moddiscovery.ModFileInfo(modId);
         }
 
@@ -318,6 +318,11 @@ public final class ModInfos {
 
     public static String fileNameOf(String modId) {
         return fileName(modId);
+    }
+
+    /** @return the jar a mod is running from, or {@code null} when it is not loaded */
+    public static java.nio.file.Path pathOf(String modId) {
+        return mod(modId).map(LoadedMod::effectivePath).orElse(null);
     }
 
     public static String versionOf(String modId) {

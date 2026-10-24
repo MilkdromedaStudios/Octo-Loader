@@ -289,6 +289,8 @@ public final class MissingMemberTransformer implements Transformer {
         private final List<org.objectweb.asm.Handle> stubs = new java.util.ArrayList<>();
         /** Methods to add that build an object whose constructor is absent, as {@code owner, descriptor}. */
         private final List<String[]> factories = new java.util.ArrayList<>();
+        /** Methods to add that reach a member across a static/instance change, for calls with arguments. */
+        private final List<Bridge> bridges = new java.util.ArrayList<>();
         boolean changed;
 
         Rewriter(ClassVisitor delegate, TransformContext context, String className) {
@@ -403,7 +405,64 @@ public final class MissingMemberTransformer implements Transformer {
                 writeFactory("octo$new$" + i, factories.get(i)[0], factories.get(i)[1]);
             }
 
+            for (Bridge bridge : bridges) {
+                writeBridge(bridge);
+            }
+
             super.visitEnd();
+        }
+
+        /**
+         * Adds a bridge for a call whose target moved between static and
+         * instance, and returns its name. The arguments are on the stack above
+         * where the receiver goes (or above a receiver that is no longer
+         * wanted), and a method of the caller's own is the one place they can
+         * be rearranged without knowing anything else about the method.
+         */
+        private String bridge(String owner, String method, String descriptor, String singleton,
+                boolean ownerIsInterface) {
+            String bridgeDescriptor = singleton != null ? descriptor : "(L" + owner + ";" + descriptor.substring(1);
+
+            for (Bridge existing : bridges) {
+                if (existing.owner().equals(owner) && existing.method().equals(method)
+                        && existing.descriptor().equals(bridgeDescriptor)) {
+                    return existing.name();
+                }
+            }
+
+            Bridge bridge = new Bridge("octo$bridge$" + bridges.size(), bridgeDescriptor, owner, method, descriptor,
+                    singleton, ownerIsInterface);
+            bridges.add(bridge);
+            return bridge.name();
+        }
+
+        private void writeBridge(Bridge bridge) {
+            int access = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC
+                    | (classIsInterface ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE);
+            MethodVisitor method = super.visitMethod(access, bridge.name(), bridge.descriptor(), null, null);
+            method.visitCode();
+            int slot = 0;
+
+            if (bridge.singleton() != null) {
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, bridge.owner(), bridge.singleton(),
+                        "()L" + bridge.owner() + ";", bridge.ownerIsInterface());
+            } else {
+                // The receiver the caller still passes, which the static method does not want.
+                slot = 1;
+            }
+
+            for (Type argument : Type.getArgumentTypes(bridge.methodDescriptor())) {
+                method.visitVarInsn(argument.getOpcode(Opcodes.ILOAD), slot);
+                slot += argument.getSize();
+            }
+
+            int opcode = bridge.singleton() == null ? Opcodes.INVOKESTATIC
+                    : bridge.ownerIsInterface() ? Opcodes.INVOKEINTERFACE : Opcodes.INVOKEVIRTUAL;
+            method.visitMethodInsn(opcode, bridge.owner(), bridge.method(), bridge.methodDescriptor(),
+                    bridge.ownerIsInterface());
+            method.visitInsn(Type.getReturnType(bridge.methodDescriptor()).getOpcode(Opcodes.IRETURN));
+            method.visitMaxs(0, 0);
+            method.visitEnd();
         }
 
         /**
@@ -789,6 +848,26 @@ public final class MissingMemberTransformer implements Transformer {
                     boolean zeroArguments = Type.getArgumentTypes(descriptor).length == 0;
                     boolean wantsStatic = opcode == Opcodes.INVOKESTATIC;
 
+                    // With arguments on the stack above it, the receiver cannot be
+                    // added or dropped in place; a bridge method does it instead.
+                    if (isStatic != null && isStatic != wantsStatic && !zeroArguments
+                            && !(classIsInterface && classVersion < Opcodes.V1_8)) {
+                        boolean itf = Boolean.TRUE.equals(ownerIsInterface);
+                        String singleton = isStatic ? null : singletonAccessor(owner);
+
+                        if (isStatic || singleton != null) {
+                            String bridge = bridge(owner, name, descriptor, singleton, itf);
+                            String bridgeDescriptor = isStatic ? "(L" + owner + ";" + descriptor.substring(1)
+                                    : descriptor;
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, className, bridge, bridgeDescriptor,
+                                    classIsInterface);
+                            changed = true;
+                            record(context, owner, name + descriptor, className, isStatic ? "it is static now"
+                                    : "it is reached through " + singleton + "() now");
+                            return;
+                        }
+                    }
+
                     if (isStatic != null && isStatic != wantsStatic && zeroArguments) {
                         if (isStatic) {
                             // Called on an instance, now static: the receiver is
@@ -1053,6 +1132,11 @@ public final class MissingMemberTransformer implements Transformer {
 
             return null;
         }
+    }
+
+    /** A method added to the caller that reaches a member across a static/instance change. */
+    private record Bridge(String name, String descriptor, String owner, String method, String methodDescriptor,
+            String singleton, boolean ownerIsInterface) {
     }
 
     /** An object {@code NEW} made, waiting for its constructor. */

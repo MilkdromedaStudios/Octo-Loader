@@ -114,4 +114,22 @@ public final class ModList {
     public <T> Stream<T> applyForEachModContainer(Function<ModContainer, T> function) {
         return getModIds().stream().map(id -> function.apply(ForgeBuses.neoContainerFor(id)));
     }
+
+    /** One file per mod: under Octo every mod is read from a file of its own. */
+    public List<net.neoforged.neoforgespi.language.IModFileInfo> getModFiles() {
+        List<net.neoforged.neoforgespi.language.IModFileInfo> out = new ArrayList<>();
+        getModIds().forEach(id -> out.add(new ModFileInfo(id)));
+        return out;
+    }
+
+    /** The mods in load order, which is the order Octo resolved them in. */
+    public List<ModContainer> getSortedMods() {
+        List<ModContainer> out = new ArrayList<>();
+        getModIds().forEach(id -> out.add(ForgeBuses.neoContainerFor(id)));
+        return out;
+    }
+
+    public <T> Stream<T> applyForEachModFile(Function<net.neoforged.neoforgespi.locating.IModFile, T> function) {
+        return getModFiles().stream().map(file -> function.apply(file.getFile()));
+    }
 }

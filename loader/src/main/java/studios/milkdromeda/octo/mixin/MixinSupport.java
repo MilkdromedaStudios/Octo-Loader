@@ -102,6 +102,12 @@ public final class MixinSupport {
      * not fit loses the part that does not fit, so configs are served as
      * not-required unless {@code -Docto.strict=true} asks for the original
      * behaviour. Mixin then logs the one failure and carries on with the rest.
+     *
+     * <p>{@code "injectors": {"defaultRequire": 1}} is relaxed the same way. An
+     * injector that finds nothing to inject into under it is a critical error
+     * for the whole target class, so one mod aiming at code only a patched game
+     * has — Architectury hooking an event NeoForge's patches post in
+     * {@code ChunkMap} — cost every other mod's mixins in that class.
      */
     static InputStream serveConfig(String name, InputStream original) {
         if (original == null || Boolean.getBoolean("octo.strict")) {
@@ -124,12 +130,28 @@ public final class MixinSupport {
 
             com.google.gson.JsonObject config = root.getAsJsonObject();
             JsonElement required = config.get("required");
+            boolean relaxed = false;
 
-            if (required == null || !required.isJsonPrimitive() || !required.getAsBoolean()) {
+            if (required != null && required.isJsonPrimitive() && required.getAsBoolean()) {
+                config.addProperty("required", false);
+                relaxed = true;
+            }
+
+            JsonElement injectors = config.get("injectors");
+
+            if (injectors != null && injectors.isJsonObject()) {
+                JsonElement defaultRequire = injectors.getAsJsonObject().get("defaultRequire");
+
+                if (defaultRequire != null && defaultRequire.isJsonPrimitive() && defaultRequire.getAsInt() > 0) {
+                    injectors.getAsJsonObject().addProperty("defaultRequire", 0);
+                    relaxed = true;
+                }
+            }
+
+            if (!relaxed) {
                 return new java.io.ByteArrayInputStream(bytes);
             }
 
-            config.addProperty("required", false);
             LOG.debug("serving mixin config {} as not required, so one failed mixin cannot stop the rest", name);
             return new java.io.ByteArrayInputStream(config.toString().getBytes(StandardCharsets.UTF_8));
         } catch (IOException | RuntimeException e) {
@@ -152,8 +174,22 @@ public final class MixinSupport {
      */
 
     public static synchronized Weaver bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
+        return bootstrap(classLoader, mods, side, List.of());
+    }
+
+    /**
+     * @param loaderConfigs mixin configs of the loader API jars on the class
+     *                      path, which are no mod's but which the API's own
+     *                      code relies on
+     */
+    public static synchronized Weaver bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side,
+            List<String> loaderConfigs) {
         raiseCompatibilityCeiling();
         List<Config> configs = new ArrayList<>(discover(mods, side));
+
+        for (String config : loaderConfigs) {
+            configs.add(new Config("loader-api", config));
+        }
 
         // Always registered, even with no mixin-using mods present: this is how
         // the loader learns that the game has started, and a Fabric mod's client

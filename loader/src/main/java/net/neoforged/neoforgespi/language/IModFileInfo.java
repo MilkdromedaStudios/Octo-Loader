@@ -30,4 +30,9 @@ public interface IModFileInfo {
     boolean showAsResourcePack();
 
     boolean showAsDataPack();
+
+    /** The file itself, for mods that read resources out of it. */
+    default net.neoforged.neoforgespi.locating.IModFile getFile() {
+        return null;
+    }
 }

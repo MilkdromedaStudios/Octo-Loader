@@ -78,6 +78,11 @@ public final class AnnotatedClasses {
         return false;
     }
 
+    /** Whether a class carries one of these annotations at all. */
+    public static boolean carries(LoadedMod mod, String className, Set<String> descriptors) {
+        return find(mod, className, descriptors) != null;
+    }
+
     private static ScannedAnnotation find(LoadedMod mod, String className, Set<String> descriptors) {
         String internal = className.replace('.', '/');
 
