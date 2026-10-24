@@ -42,6 +42,9 @@ import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
+import studios.milkdromeda.octo.rebuild.ClassRestorer;
+import studios.milkdromeda.octo.transform.CallbackGuard;
+import studios.milkdromeda.octo.transform.ClassRelinker;
 import studios.milkdromeda.octo.transform.GameExitTransformer;
 import studios.milkdromeda.octo.transform.MemberIndex;
 import studios.milkdromeda.octo.transform.MissingClassTransformer;
@@ -235,8 +238,8 @@ public final class OctoLauncher {
         // before a single class of them is loaded, and the rebuilt jar is what
         // goes on the class path. A rebuild is kept, so this costs a launch
         // once per mod per game version.
-        ModRebuilder rebuilder = new ModRebuilder(context, timeCapsule,
-                new MappingProvider(context.octoDir().resolve("cache").resolve("mappings")));
+        mappings = new MappingProvider(context.octoDir().resolve("cache").resolve("mappings"));
+        ModRebuilder rebuilder = new ModRebuilder(context, timeCapsule, mappings);
 
         for (LoadedMod mod : mods) {
             TransformPipeline pipeline = TransformPipeline.empty();
@@ -249,8 +252,10 @@ public final class OctoLauncher {
                         + (rebuilt.fromCache() ? " (from the cache)" : ""));
             } else {
                 // Not rebuilt — nothing needed doing, or the rebuild failed — so
-                // whatever translation applies happens as each class loads.
-                pipeline = timeCapsule.pipelineFor(mod);
+                // whatever translation applies happens as each class loads. A
+                // jar that never names a game class has nothing to translate.
+                pipeline = mod.candidate().namespace() == Era.MappingNamespace.UNKNOWN
+                        ? TransformPipeline.empty() : timeCapsule.pipelineFor(mod);
 
                 if (!pipeline.isEmpty()) {
                     mod.fromAnotherVersion(true);
@@ -363,6 +368,18 @@ public final class OctoLauncher {
             LOG.info("{} mixin target(s) did not match this version and were re-aimed or skipped:",
                     mixinTargets.adjustments().size());
             mixinTargets.adjustments().forEach(entry -> LOG.info("  {}", entry));
+        }
+
+        if (relinker != null && !relinker.relinked().isEmpty()) {
+            LOG.info("{} class(es) mods from other versions named have moved, and were found:",
+                    relinker.relinked().size());
+            relinker.relinked().forEach(entry -> LOG.info("  {}", entry));
+        }
+
+        if (restorer != null && !restorer.restored().isEmpty()) {
+            LOG.info("{} class(es) this Minecraft no longer has were added back from older releases:",
+                    restorer.restored().size());
+            restorer.restored().forEach(entry -> LOG.info("  {}", entry));
         }
 
         if (gameGaps != null && !gameGaps.gaps().isEmpty()) {
@@ -655,12 +672,47 @@ public final class OctoLauncher {
             return;
         }
 
+        // Classes that moved first, so that what is left for the bypass is only
+        // what this version has in no form at all.
+        if (translated) {
+            relinker = ClassRelinker.over(List.of(classLoader.getURLs()), classLoader::classExists);
+            classLoader.addGlobalTransformer(relinker);
+
+            // And after start-up, one failing callback costs that callback,
+            // not the server it runs in.
+            if (!context.compat().strict()) {
+                classLoader.addGlobalTransformer(new CallbackGuard());
+            }
+        }
+
         MemberIndex index = new MemberIndex(classLoader::rawClassBytes);
         MixinInterfaces.collect(mods, index);
         gameGaps = MissingMemberTransformer.forTranslatedMods(index,
-                apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES);
+                apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES).withEquivalents(equivalents);
         classLoader.addGlobalTransformer(gameGaps);
+
+        // Then the classes that are gone outright: added back from the release
+        // the mod came from where that release has them, so a stand-in is only
+        // ever what is left over.
+        if (translated && mappings != null && !Boolean.getBoolean("octo.noRestore")) {
+            restorer = ClassRestorer.forMods(mods, mappings, context.side(),
+                    context.octoDir().resolve("cache").resolve("restored"));
+
+            if (restorer != null) {
+                classLoader.installRestorer(restorer, gameGaps);
+                LOG.debug("classes gone since {} can be added back", restorer.releases());
+            }
+        }
     }
+
+    /** Which classes translated mods named that moved, collected over the launch. */
+    private ClassRelinker relinker;
+
+    /** Which game classes were added back from older releases, collected over the launch. */
+    private ClassRestorer restorer;
+
+    /** The published name tables, shared by the rebuild and the restorer. */
+    private MappingProvider mappings;
 
     /** The NeoForge and Forge API jars fetched for this launch. */
     private List<Path> apiLibraries = List.of();
@@ -693,6 +745,10 @@ public final class OctoLauncher {
      */
     private void installVersionAdapters(PhantomClasses phantoms, OctoClassLoader classLoader) {
         equivalents = Equivalents.load(context.octoDir().resolve("api"));
+
+        if (apiGaps != null) {
+            apiGaps.withEquivalents(equivalents);
+        }
 
         if (!equivalents.isEmpty()) {
             LOG.debug("{} version-equivalence entrie(s) available", equivalents.size());

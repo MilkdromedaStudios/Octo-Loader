@@ -92,6 +92,30 @@
 
   "methods": [
     {
+      "owner": "net/fabricmc/fabric/api/networking/v1/PayloadTypeRegistry",
+      "name": "playS2C",
+      "alternatives": ["clientboundPlay"],
+      "note": "Fabric API named its packet registries by direction from 26.1, as Mojang does; mods from before register their packets through the old name from their initialiser"
+    },
+    {
+      "owner": "net/fabricmc/fabric/api/networking/v1/PayloadTypeRegistry",
+      "name": "playC2S",
+      "alternatives": ["serverboundPlay"],
+      "note": "Fabric API named its packet registries by direction from 26.1, as Mojang does; mods from before register their packets through the old name from their initialiser"
+    },
+    {
+      "owner": "net/fabricmc/fabric/api/networking/v1/PayloadTypeRegistry",
+      "name": "configurationS2C",
+      "alternatives": ["clientboundConfiguration"],
+      "note": "Fabric API named its packet registries by direction from 26.1, as Mojang does; mods from before register their packets through the old name from their initialiser"
+    },
+    {
+      "owner": "net/fabricmc/fabric/api/networking/v1/PayloadTypeRegistry",
+      "name": "configurationC2S",
+      "alternatives": ["serverboundConfiguration"],
+      "note": "Fabric API named its packet registries by direction from 26.1, as Mojang does; mods from before register their packets through the old name from their initialiser"
+    },
+    {
       "owner": "net/minecraft/world/entity/LivingEntity",
       "name": "shouldTriggerItemUseEffects",
       "alternatives": ["shouldTriggerItemUseEffects", "isUsingItem", "triggerItemUseEffects"],

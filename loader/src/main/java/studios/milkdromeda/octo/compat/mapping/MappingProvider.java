@@ -132,7 +132,113 @@ public final class MappingProvider {
         return built;
     }
 
+    /**
+     * A table from the obfuscated names of one release's game jar to the names
+     * the game uses now — what it takes to bring a class that release had back
+     * into this one.
+     *
+     * <p>Every name lands where a mod translated from that release would have
+     * put it: today's name where the class or member survives, and that
+     * release's own Mojang name where it does not. A class added back under the
+     * second kind of name is exactly the class a rebuilt mod is asking for.
+     */
+    public Optional<MappingSet> obfuscatedToCurrent(String release) {
+        String key = "official-" + release + "-to-mojang-" + LATEST_INTERMEDIARY;
+        return composed.computeIfAbsent(key, ignored -> {
+            Path file = cache.resolve(key + ".octomap");
+
+            if (Files.isRegularFile(file)) {
+                try {
+                    return Optional.of(read(file, key));
+                } catch (IOException | RuntimeException e) {
+                    LOG.warn("cached mappings {} are unreadable and will be rebuilt: {}", file, e.toString());
+                }
+            }
+
+            Optional<MappingSet> built = officialToCurrent(release);
+            built.ifPresent(set -> {
+                try {
+                    write(file, set);
+                } catch (IOException e) {
+                    LOG.warn("could not cache mappings {}: {}", file, e.toString());
+                }
+            });
+            return built;
+        });
+    }
+
+    /**
+     * The client jar of an old release, which carries every class of that
+     * release, common and client alike. Downloaded once into
+     * {@code .octo/cache/game}.
+     */
+    public Optional<Path> clientJar(String release) {
+        Path directory = cache.resolveSibling("game");
+        String fileName = "client-" + release + ".jar";
+
+        if (Files.isRegularFile(directory.resolve(fileName))) {
+            return Optional.of(directory.resolve(fileName));
+        }
+
+        return versionDownloads(release)
+                .filter(downloads -> downloads.has("client"))
+                .flatMap(downloads -> fetch(downloads.getAsJsonObject("client").get("url").getAsString(), fileName,
+                        directory));
+    }
+
     // ------------------------------------------------------------- composing
+
+    private Optional<MappingSet> officialToCurrent(String release) {
+        Optional<NameTable> official = mojang(release);
+        Optional<NameTable> pivot = intermediary(release);
+        Optional<Map<String, Map<String, String>>> latest = intermediaryToMojang(LATEST_INTERMEDIARY);
+
+        if (official.isEmpty() || pivot.isEmpty() || latest.isEmpty()) {
+            return Optional.empty();
+        }
+
+        NameTable names = official.get();
+        NameTable ids = pivot.get();
+        Map<String, String> classIds = latest.get().get("c");
+        Map<String, String> methodIds = latest.get().get("m");
+        Map<String, String> fieldIds = latest.get().get("f");
+        MappingSet.Builder builder = MappingSet.builder("official " + release + "->mojang " + LATEST_INTERMEDIARY);
+
+        names.classes.forEach((obf, named) -> {
+            String id = ids.classes.get(obf);
+            String now = id == null ? null : classIds.get(id);
+            builder.mapClass(obf, now != null ? now : named);
+        });
+
+        names.methods.forEach((key, named) -> {
+            int dot = key.indexOf('.');
+            int open = key.indexOf('(');
+
+            if (dot < 0 || open < dot) {
+                return;
+            }
+
+            String id = ids.methods.get(key);
+            String now = id == null ? null : methodIds.get(id);
+            builder.mapMethod(key.substring(0, dot), key.substring(dot + 1, open), key.substring(open),
+                    now != null ? now : named);
+        });
+
+        names.fields.forEach((key, named) -> {
+            int dot = key.indexOf('.');
+
+            if (dot < 0) {
+                return;
+            }
+
+            String id = ids.fields.get(key);
+            String now = id == null ? null : fieldIds.get(id);
+            builder.mapField(key.substring(0, dot), key.substring(dot + 1), names.fieldDescriptors.get(key),
+                    now != null ? now : named);
+        });
+
+        return Optional.of(builder.build());
+    }
 
     /** intermediary to today's names, the newest table first and the mod's own version behind it. */
     private Optional<MappingSet> intermediaryToCurrent(String release) {
@@ -377,6 +483,22 @@ public final class MappingProvider {
             return Optional.of(cached);
         }
 
+        Optional<JsonObject> downloads = versionDownloads(release);
+
+        if (downloads.isEmpty()) {
+            return Optional.empty();
+        }
+
+        if (!downloads.get().has("client_mappings")) {
+            LOG.info("Minecraft {} has no published mappings", release);
+            return Optional.empty();
+        }
+
+        return fetch(downloads.get().getAsJsonObject("client_mappings").get("url").getAsString(), fileName);
+    }
+
+    /** The {@code downloads} block of a release's version file, from Mojang's version list. */
+    private Optional<JsonObject> versionDownloads(String release) {
         Optional<Path> manifest = fetch(MANIFEST, "version_manifest_v2.json");
 
         if (manifest.isEmpty()) {
@@ -399,18 +521,11 @@ public final class MappingProvider {
                     return Optional.empty();
                 }
 
-                JsonObject downloads = JsonParser.parseString(Files.readString(json.get())).getAsJsonObject()
-                        .getAsJsonObject("downloads");
-
-                if (downloads == null || !downloads.has("client_mappings")) {
-                    LOG.info("Minecraft {} has no published mappings", release);
-                    return Optional.empty();
-                }
-
-                return fetch(downloads.getAsJsonObject("client_mappings").get("url").getAsString(), fileName);
+                return Optional.ofNullable(JsonParser.parseString(Files.readString(json.get())).getAsJsonObject()
+                        .getAsJsonObject("downloads"));
             }
         } catch (IOException | RuntimeException e) {
-            LOG.warn("could not find Mojang's mappings for {}: {}", release, e.toString());
+            LOG.warn("could not read Mojang's version file for {}: {}", release, e.toString());
         }
 
         return Optional.empty();
@@ -471,7 +586,11 @@ public final class MappingProvider {
 
     /** Downloads a file into the cache once; afterwards the cached copy is used. */
     private Optional<Path> fetch(String url, String fileName) {
-        Path target = cache.resolve("raw").resolve(fileName);
+        return fetch(url, fileName, cache.resolve("raw"));
+    }
+
+    private Optional<Path> fetch(String url, String fileName, Path directory) {
+        Path target = directory.resolve(fileName);
 
         if (Files.isRegularFile(target)) {
             return Optional.of(target);

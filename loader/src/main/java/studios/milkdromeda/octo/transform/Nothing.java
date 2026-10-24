@@ -85,6 +85,15 @@ final class Nothing {
         return true;
     }
 
+    /** Whether {@link #push} has a specific answer for this type rather than null. */
+    static boolean isSpecial(Type type) {
+        return switch (type.getInternalName()) {
+            case "java/util/List", "java/util/Collection", "java/lang/Iterable", "java/util/ArrayList",
+                    "java/util/Set", "java/util/Map", "java/util/Optional", "java/util/stream/Stream" -> true;
+            default -> false;
+        };
+    }
+
     private static void pushEmptyOrNull(MethodVisitor visitor, Type type) {
         switch (type.getInternalName()) {
             case "java/util/List", "java/util/Collection", "java/lang/Iterable",

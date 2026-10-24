@@ -154,7 +154,7 @@ public final class ModRebuilder {
      */
     public String describe(LoadedMod mod) {
         if (!context.compat().translateOldMods() || mod.isBuiltin()
-                || timeCapsule.runtimeEra() != Era.UNOBFUSCATED) {
+                || timeCapsule.runtimeEra() != Era.UNOBFUSCATED || mod.era() == Era.UNOBFUSCATED) {
             return null;
         }
 
@@ -182,9 +182,18 @@ public final class ModRebuilder {
         List<String> steps = new ArrayList<>();
         MappingSet names = MappingSet.EMPTY;
 
+        // A mod that never names a game class has nothing to translate, whatever
+        // era its class files suggest: a maths library compiled for Java 8 is
+        // not a 1.12 mod.
+        if (namespace == MappingNamespace.UNKNOWN) {
+            return Optional.empty();
+        }
+
         // Since 26.1 the game carries Mojang's names, so a mod speaking any other
-        // set of names — or Mojang's own from an older release — is renamed.
-        if (runtimeEra == Era.UNOBFUSCATED) {
+        // set of names — or Mojang's own from an older release — is renamed. A
+        // mod already built for this era is never renamed, whatever stray
+        // numbered names it carries.
+        if (runtimeEra == Era.UNOBFUSCATED && modEra != Era.UNOBFUSCATED) {
             boolean olderMojang = namespace == MappingNamespace.MOJANG && modEra.isKnown()
                     && modEra.isOlderThan(Era.UNOBFUSCATED) && builtFor != null;
 

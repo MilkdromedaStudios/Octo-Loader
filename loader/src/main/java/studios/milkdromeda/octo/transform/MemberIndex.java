@@ -64,6 +64,12 @@ public final class MemberIndex {
 
     /** Whether {@code owner} or anything it inherits from declares this method. */
     public boolean hasMethod(String owner, String name, String descriptor) {
+        if (name.equals("<init>")) {
+            // Constructors are the class's own; a superclass's do not count.
+            Shape shape = shape(owner);
+            return shape != null && shape.methods().contains(name + descriptor);
+        }
+
         return findMethodOwner(owner, name + descriptor, new HashSet<>()) != null;
     }
 
@@ -75,6 +81,81 @@ public final class MemberIndex {
 
     public boolean hasField(String owner, String name, String descriptor) {
         return hasField(owner, name + ":" + descriptor, new HashSet<>());
+    }
+
+    /**
+     * The descriptors {@code owner} answers {@code name} with: its own and
+     * everything it inherits, except for constructors, which are never
+     * inherited.
+     */
+    public List<String> methodDescriptors(String owner, String name) {
+        Set<String> out = new LinkedHashSet<>();
+        collectDescriptors(owner, name + "(", !name.equals("<init>"), out, new HashSet<>());
+        return new ArrayList<>(out);
+    }
+
+    private void collectDescriptors(String owner, String prefix, boolean inherited, Set<String> out,
+            Set<String> seen) {
+        if (owner == null || !seen.add(owner)) {
+            return;
+        }
+
+        Shape shape = shape(owner);
+
+        if (shape == null) {
+            return;
+        }
+
+        for (String method : shape.methods()) {
+            if (method.startsWith(prefix)) {
+                out.add(method.substring(prefix.length() - 1));
+            }
+        }
+
+        if (inherited) {
+            collectDescriptors(shape.superName(), prefix, true, out, seen);
+
+            for (String iface : allInterfaces(shape)) {
+                collectDescriptors(iface, prefix, true, out, seen);
+            }
+        }
+    }
+
+    /** Whether a value of {@code type} can be used where {@code ancestor} is expected. */
+    public boolean isSubtype(String type, String ancestor) {
+        if (type.equals(ancestor) || ancestor.equals("java/lang/Object")) {
+            return true;
+        }
+
+        return isSubtype(type, ancestor, new HashSet<>());
+    }
+
+    private boolean isSubtype(String type, String ancestor, Set<String> seen) {
+        if (type == null || !seen.add(type)) {
+            return false;
+        }
+
+        if (type.equals(ancestor)) {
+            return true;
+        }
+
+        Shape shape = shape(type);
+
+        if (shape == null) {
+            return false;
+        }
+
+        if (isSubtype(shape.superName(), ancestor, seen)) {
+            return true;
+        }
+
+        for (String iface : allInterfaces(shape)) {
+            if (isSubtype(iface, ancestor, seen)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -189,9 +270,29 @@ public final class MemberIndex {
             return null;
         }
 
-        Shape shape = shapes.computeIfAbsent(internalName, this::read);
-        return shape == ABSENT ? null : shape;
+        Shape shape = shapes.get(internalName);
+
+        if (shape == null) {
+            // Reading a class runs it through the loader's transformers, and one
+            // of those asks this index about other classes — which may ask about
+            // this one. Whoever arrives while it is being read is told nothing is
+            // known, rather than going round again.
+            if (shapes.putIfAbsent(internalName, READING) != null) {
+                Shape other = shapes.get(internalName);
+                return other == READING || other == ABSENT ? null : other;
+            }
+
+            try {
+                shape = read(internalName);
+            } finally {
+                shapes.put(internalName, shape == null ? ABSENT : shape);
+            }
+        }
+
+        return shape == ABSENT || shape == READING ? null : shape;
     }
+
+    private static final Shape READING = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of());
 
     private Shape read(String internalName) {
         byte[] bytes;

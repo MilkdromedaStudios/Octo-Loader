@@ -145,8 +145,7 @@ public final class EraDetector {
         }
 
         return switch (format) {
-            case FABRIC, QUILT -> scan.namespaceHits(MappingNamespace.INTERMEDIARY) == 0
-                    ? Era.UNOBFUSCATED : Era.UNKNOWN;
+            case FABRIC, QUILT -> Era.UNOBFUSCATED;
             case NEOFORGE -> Era.CURRENT;
             default -> Era.UNKNOWN;
         };

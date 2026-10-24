@@ -71,10 +71,28 @@ public final class LiveStandIns {
         }
     }
 
+    /**
+     * An object of an interface type that does nothing, or null for anything
+     * else — what a call a translated mod makes into something this version no
+     * longer has hands back, so the call after it does not fail on a null.
+     */
+    public static Object silentOrNull(Class<?> type) {
+        if (type == null || !type.isInterface()) {
+            return null;
+        }
+
+        try {
+            return silent(type);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     /** An implementation of {@code type} whose every method does nothing and returns a default. */
     @SuppressWarnings("unchecked")
     static <T> T silent(Class<T> type) {
-        return (T) Proxy.newProxyInstance(LiveStandIns.class.getClassLoader(), new Class<?>[] { type },
+        ClassLoader loader = type.getClassLoader() != null ? type.getClassLoader() : LiveStandIns.class.getClassLoader();
+        return (T) Proxy.newProxyInstance(loader, new Class<?>[] { type },
                 (proxy, method, arguments) -> {
                     if (method.getDeclaringClass() == Object.class) {
                         return switch (method.getName()) {
