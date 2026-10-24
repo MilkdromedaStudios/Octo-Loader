@@ -64,7 +64,7 @@ public final class ModRebuilder {
     private static final OctoLog LOG = OctoLog.of(ModRebuilder.class);
 
     /** Bumped whenever what a rebuild produces changes, so old caches are not reused. */
-    private static final int FORMAT = 1;
+    private static final int FORMAT = 2;
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
 
@@ -270,6 +270,18 @@ public final class ModRebuilder {
                     .orElse(null);
         }
 
+        // Plenty of NeoForge and Forge mods name no Minecraft range at all, only
+        // the loader's — Jade asks for NeoForge [21.0.143,) — and the loader's
+        // version is the game's in disguise.
+        if (candidate == null) {
+            candidate = fromLoaderDependency(mod);
+        }
+
+        // Failing everything, the jar's own name: MouseTweaks-neoforge-mc1.21.
+        if (candidate == null) {
+            candidate = fromFileName(mod.candidate().path().getFileName().toString());
+        }
+
         if (candidate == null || !candidate.matches("1\\.\\d+(\\.\\d+)?")) {
             return null;
         }
@@ -277,6 +289,56 @@ public final class ModRebuilder {
         // 1.21 and 1.21.0 are the same release; Mojang calls it 1.21.
         return candidate.endsWith(".0") && candidate.chars().filter(c -> c == '.').count() == 2
                 ? candidate.substring(0, candidate.length() - 2) : candidate;
+    }
+
+    /**
+     * The release a NeoForge or Forge range implies: NeoForge 21.1.x is 1.21.1
+     * (and 21.0.x is 1.21), Forge 47 is 1.20.1.
+     */
+    static String fromLoaderDependency(LoadedMod mod) {
+        for (studios.milkdromeda.octo.mod.ModDependency dependency : mod.metadata().dependencies()) {
+            if (dependency.versions().isAny()) {
+                continue;
+            }
+
+            studios.milkdromeda.octo.mod.version.Version lower = dependency.versions().lowerBound();
+
+            if (lower.size() == 0 || lower.part(0) <= 0) {
+                continue;
+            }
+
+            switch (dependency.modId()) {
+                case "neoforge" -> {
+                    // NeoForge's own versions start at 20.2. A lower bound like
+                    // [1,) is FML's language loader version, which mods.toml's
+                    // loaderVersion also turns into a dependency, and says
+                    // nothing about the game.
+                    if (lower.part(0) >= 20 && lower.part(0) < 26 && lower.size() >= 2) {
+                        return "1." + lower.part(0) + (lower.part(1) > 0 ? "." + lower.part(1) : "");
+                    }
+                }
+                case "forge" -> {
+                    String release = studios.milkdromeda.octo.resolve.ModResolver.minecraftForForge(lower.part(0));
+
+                    if (release != null) {
+                        return release;
+                    }
+                }
+                default -> {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static final java.util.regex.Pattern FILE_NAME_RELEASE =
+            java.util.regex.Pattern.compile("(?:^|[-_+ ]|mc)(1\\.\\d{1,2}(?:\\.\\d{1,2})?)(?=[-_+ ]|\\.jar$|$)");
+
+    /** {@code -1.21.1-} or {@code mc1.21} in a jar's name. */
+    static String fromFileName(String fileName) {
+        java.util.regex.Matcher matcher = FILE_NAME_RELEASE.matcher(fileName);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static String firstVersion(String text) {
@@ -294,6 +356,9 @@ public final class ModRebuilder {
         try (ZipFile zip = new ZipFile(source.toFile())) {
             Map<String, List<String>> parents = parents(zip);
             Remapper remapper = plan.names().remapper(owner -> parents.getOrDefault(owner, List.of()));
+            // A mod in Mojang's names with no refmap names the game in its
+            // mixin annotations as plain text, which only this can translate.
+            boolean mixinStrings = mod.candidate().namespace() == MappingNamespace.MOJANG && !hasRefmap(zip);
             TransformContext transformContext = TransformContext.of(mod, name -> true);
             Set<String> written = new LinkedHashSet<>();
 
@@ -319,7 +384,9 @@ public final class ModRebuilder {
                     String outName = name;
 
                     if (name.endsWith(".class") && !name.startsWith("META-INF/versions/")) {
-                        byte[] rewritten = rewriteClass(name, bytes, remapper, plan, transformContext);
+                        byte[] rewritten = rewriteClass(name, mixinStrings
+                                ? MixinStrings.translate(bytes, remapper, mixinTargetsOf(bytes)) : bytes,
+                                remapper, plan, transformContext);
                         String internal = new ClassReader(rewritten).getClassName();
                         outName = internal + ".class";
                         bytes = rewritten;
@@ -351,6 +418,16 @@ public final class ModRebuilder {
 
         Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
         return classes;
+    }
+
+    private static boolean hasRefmap(ZipFile zip) {
+        return zip.stream().anyMatch(entry -> entry.getName().endsWith("refmap.json"));
+    }
+
+    private static List<String> mixinTargetsOf(byte[] bytes) {
+        ClassNode node = new ClassNode();
+        new ClassReader(bytes).accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return mixinTargets(node);
     }
 
     private static boolean isSignature(String name) {

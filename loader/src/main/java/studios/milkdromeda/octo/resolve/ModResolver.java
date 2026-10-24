@@ -209,6 +209,28 @@ public final class ModResolver {
             Map.entry("1.21.9", 59), Map.entry("1.21.10", 60), Map.entry("1.21.11", 61), Map.entry("26.1", 62),
             Map.entry("26.1.1", 63), Map.entry("26.1.2", 64), Map.entry("26.2", 65), Map.entry("26.3", 66));
 
+    /**
+     * The game version a Forge major version was for, the newest when several
+     * share it: 47 is 1.20.1, 14 is 1.12.2.
+     *
+     * @return the release, or {@code null} when the table has no such major
+     */
+    public static String minecraftForForge(int major) {
+        Version best = null;
+
+        for (Map.Entry<String, Integer> entry : FORGE_MAJOR.entrySet()) {
+            if (entry.getValue() == major) {
+                Version candidate = Version.parse(entry.getKey());
+
+                if (best == null || candidate.compareTo(best) > 0) {
+                    best = candidate;
+                }
+            }
+        }
+
+        return best == null ? null : best.raw();
+    }
+
     /** Forge's version for a game version, e.g. 1.20.1 to 47.x and 26.3 to 66.x. */
     static Version forgeVersionFor(Version minecraft) {
         String release = minecraft.raw().replaceAll("[-+].*$", "");

@@ -170,6 +170,16 @@ class RestoreTest {
     }
 
     @Test
+    @DisplayName("an inner class that moved with its outer one is found under that spelling too")
+    void innerClassUnderItsOutersNewName() {
+        String moved = "net/minecraft/resources/Identifier$Serializer";
+        byte[] restored = restorer(Side.SERVER).restore(moved);
+
+        assertNotNull(restored, "a mod rebuilt from Mojang's 1.21 names asks for it as Identifier$Serializer");
+        assertTrue(shape(restored).contains("class " + moved), "the class must be defined under the name asked for");
+    }
+
+    @Test
     @DisplayName("a class added back once is reused from the cache without the old jar")
     void restoredClassesAreCached() throws Exception {
         byte[] first = restorer(Side.SERVER).restore(SERIALIZER);
