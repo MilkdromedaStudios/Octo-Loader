@@ -68,6 +68,7 @@ public final class ModClassScanner {
     private static final String LITEMOD = "com/mumfrey/liteloader/LiteMod";
 
     private static final Pattern SEARGE_MEMBER = Pattern.compile("(func|field)_\\d+_[a-zA-Z]+_?");
+    private static final Pattern SRG_MEMBER = Pattern.compile("[mf]_\\d+_");
     private static final Pattern INTERMEDIARY_CLASS = Pattern.compile("net/minecraft/class_\\d+.*");
     private static final Pattern INTERMEDIARY_MEMBER = Pattern.compile("(method|field)_\\d+");
     private static final Pattern OBFUSCATED_CLASS = Pattern.compile("[a-z]{1,3}(\\$[a-z0-9]{1,3})?");
@@ -302,6 +303,8 @@ public final class ModClassScanner {
 
             if (SEARGE_MEMBER.matcher(name).matches()) {
                 result.hit(MappingNamespace.SEARGE);
+            } else if (SRG_MEMBER.matcher(name).matches()) {
+                result.hit(MappingNamespace.SRG);
             } else if (INTERMEDIARY_MEMBER.matcher(name).matches()) {
                 result.hit(MappingNamespace.INTERMEDIARY);
             }

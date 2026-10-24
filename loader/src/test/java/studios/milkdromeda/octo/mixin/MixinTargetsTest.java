@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.StringReader;
 import java.util.LinkedHashMap;
@@ -250,11 +251,20 @@ class MixinTargetsTest {
     }
 
     @Test
-    @DisplayName("a mixin whose target is not on the class path is left for mixin to complain about")
-    void unknownTargetIsLeftAlone() {
+    @DisplayName("a mixin whose target is not here is marked @Pseudo, so its config is not lost with it")
+    void unknownTargetBecomesPseudo() {
         byte[] original = compiled.get("mixinpkg.ScreenMixin");
 
         assertNotNull(original);
-        assertSame(original, adapt(original, Map.of()));
+        byte[] adapted = adapt(original, Map.of());
+
+        // A missing target in a required config is an InvalidMixinException in
+        // prepare, and that takes every config prepared after it down too. A
+        // client screen mixin on a dedicated server is exactly this case.
+        org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+        new org.objectweb.asm.ClassReader(adapted).accept(node, 0);
+        assertTrue(node.invisibleAnnotations != null && node.invisibleAnnotations.stream()
+                        .anyMatch(annotation -> annotation.desc.equals("Lorg/spongepowered/asm/mixin/Pseudo;")),
+                "the mixin should have been marked @Pseudo");
     }
 }

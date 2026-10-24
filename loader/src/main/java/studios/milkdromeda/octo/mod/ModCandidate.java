@@ -13,6 +13,7 @@ public final class ModCandidate {
     private final ModCandidate parent;
     private ModMetadata metadata;
     private Era era = Era.UNKNOWN;
+    private Era.MappingNamespace namespace = Era.MappingNamespace.UNKNOWN;
     private BytecodeIndex bytecode = BytecodeIndex.EMPTY;
     private final List<String> notes = new ArrayList<>();
 
@@ -58,6 +59,18 @@ public final class ModCandidate {
 
     public void era(Era value) {
         this.era = value;
+    }
+
+    /**
+     * The naming scheme the mod's bytecode uses for the game: what has to be
+     * translated from when the game it is running in uses another.
+     */
+    public Era.MappingNamespace namespace() {
+        return namespace;
+    }
+
+    public void namespace(Era.MappingNamespace value) {
+        this.namespace = value == null ? Era.MappingNamespace.UNKNOWN : value;
     }
 
     /**

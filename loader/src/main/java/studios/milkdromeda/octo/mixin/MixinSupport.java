@@ -2,6 +2,7 @@ package studios.milkdromeda.octo.mixin;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -90,6 +91,53 @@ public final class MixinSupport {
     private MixinSupport() {
     }
 
+    /**
+     * Hands mixin a registered config, relaxed so that one broken mixin costs
+     * only itself.
+     *
+     * <p>A config marked {@code "required": true} turns any mixin in it that
+     * cannot be prepared or applied into an error that ends mixin's whole pass —
+     * and with it every config that had not been prepared yet, whichever mod
+     * they belong to. Octo's position everywhere else is that a mod that does
+     * not fit loses the part that does not fit, so configs are served as
+     * not-required unless {@code -Docto.strict=true} asks for the original
+     * behaviour. Mixin then logs the one failure and carries on with the rest.
+     */
+    static InputStream serveConfig(String name, InputStream original) {
+        if (original == null || Boolean.getBoolean("octo.strict")) {
+            return original;
+        }
+
+        synchronized (MixinSupport.class) {
+            if (!REGISTERED.contains(name)) {
+                return original;
+            }
+        }
+
+        try (InputStream in = original) {
+            byte[] bytes = in.readAllBytes();
+            JsonElement root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
+
+            if (!root.isJsonObject()) {
+                return new java.io.ByteArrayInputStream(bytes);
+            }
+
+            com.google.gson.JsonObject config = root.getAsJsonObject();
+            JsonElement required = config.get("required");
+
+            if (required == null || !required.isJsonPrimitive() || !required.getAsBoolean()) {
+                return new java.io.ByteArrayInputStream(bytes);
+            }
+
+            config.addProperty("required", false);
+            LOG.debug("serving mixin config {} as not required, so one failed mixin cannot stop the rest", name);
+            return new java.io.ByteArrayInputStream(config.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            LOG.debug("could not relax mixin config {}: {}", name, e.toString());
+            return null;
+        }
+    }
+
     /** Octo's own configuration, which hooks the game's startup. */
     private static final String OWN_CONFIG = "octo.mixins.json";
 
@@ -105,7 +153,7 @@ public final class MixinSupport {
 
     public static synchronized Weaver bootstrap(OctoClassLoader classLoader, List<LoadedMod> mods, Side side) {
         raiseCompatibilityCeiling();
-        List<Config> configs = new ArrayList<>(discover(mods));
+        List<Config> configs = new ArrayList<>(discover(mods, side));
 
         // Always registered, even with no mixin-using mods present: this is how
         // the loader learns that the game has started, and a Fabric mod's client
@@ -146,7 +194,7 @@ public final class MixinSupport {
 
             LOG.info("mixin {} ready with {} config(s) from {} mod(s), up to {}", MixinBootstrap.VERSION,
                     configs.size(), configs.stream().map(Config::modId).distinct().count(),
-                    MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED);
+                    effectiveCeiling);
             return new MixinWeaver(transformer);
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
@@ -169,11 +217,11 @@ public final class MixinSupport {
     private record Config(String modId, String path) {
     }
 
-    private static List<Config> discover(List<LoadedMod> mods) {
+    private static List<Config> discover(List<LoadedMod> mods, Side side) {
         List<Config> out = new ArrayList<>();
 
         for (LoadedMod mod : mods) {
-            Set<String> declared = new LinkedHashSet<>(mod.metadata().mixinConfigs());
+            Set<String> declared = new LinkedHashSet<>(mod.metadata().mixinConfigs(side));
 
             try (ModSource source = ModSource.open(mod.effectivePath())) {
                 declared.addAll(fromManifest(source));
@@ -227,12 +275,48 @@ public final class MixinSupport {
             }
         }
 
+        effectiveCeiling = best;
+
         if (best != MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED) {
             LOG.debug("raising the mixin compatibility ceiling from {} to {} (Java {}, {})",
                     MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED, best, Runtime.version().feature(),
                     ASM.getVersionString());
-            MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED = best;
+            setMaxSupported(best);
         }
+    }
+
+    /**
+     * Older mixin builds read this field to decide whether to refuse a config
+     * outright; from Fabric's 0.17.5 it is final and only decides whether to log
+     * a warning, so there it is left alone. Reflection keeps both working.
+     */
+    private static void setMaxSupported(MixinEnvironment.CompatibilityLevel level) {
+        try {
+            java.lang.reflect.Field field = MixinEnvironment.CompatibilityLevel.class.getField("MAX_SUPPORTED");
+
+            if (java.lang.reflect.Modifier.isFinal(field.getModifiers())) {
+                return;
+            }
+
+            field.set(null, level);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOG.debug("could not raise mixin's compatibility ceiling: {}", e.toString());
+        }
+    }
+
+    /**
+     * The highest level this JVM and the bundled ASM can actually honour.
+     *
+     * <p>Kept here rather than read back from mixin's {@code MAX_SUPPORTED}: in
+     * Fabric's mixin 0.17.5 that field is final and frozen at {@code JAVA_13},
+     * and gating configs on it refused every mod built for 26.x.
+     */
+    private static volatile MixinEnvironment.CompatibilityLevel effectiveCeiling =
+            MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED;
+
+    /** @return the compatibility level mixin can honour on this runtime */
+    public static MixinEnvironment.CompatibilityLevel effectiveCeiling() {
+        return effectiveCeiling;
     }
 
     /** Class file major version 52 is Java 8, 61 is Java 17, and so on. */
@@ -272,13 +356,13 @@ public final class MixinSupport {
         try {
             MixinEnvironment.CompatibilityLevel wanted = MixinEnvironment.CompatibilityLevel.valueOf(declared);
 
-            if (MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED.isAtLeast(wanted)) {
+            if (effectiveCeiling.isAtLeast(wanted)) {
                 return true;
             }
 
             LOG.warn("{}: {} needs mixin compatibility {} but this runtime supports at most {}; "
                     + "its mixins are skipped so that other mods keep theirs",
-                    modId, path, wanted, MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED);
+                    modId, path, wanted, effectiveCeiling);
             return false;
         } catch (IllegalArgumentException e) {
             // A level from a newer mixin than this one: let mixin decide.

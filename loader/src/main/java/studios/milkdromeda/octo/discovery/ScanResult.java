@@ -116,6 +116,38 @@ public final class ScanResult {
         return best;
     }
 
+    /**
+     * The scheme the mod's references to the game are written in.
+     *
+     * <p>Not simply the most frequent one: a Forge mod from 1.17–1.20.4 names
+     * classes the Mojang way and members the SRG way, and is SRG for every
+     * purpose that matters, however many class references it makes. The
+     * numbered schemes are decisive wherever they appear at all.
+     */
+    public MappingNamespace bytecodeNamespace() {
+        int total = 0;
+
+        for (int hits : namespaceHits.values()) {
+            total += hits;
+        }
+
+        for (MappingNamespace numbered : new MappingNamespace[] {
+                MappingNamespace.INTERMEDIARY, MappingNamespace.SRG, MappingNamespace.SEARGE }) {
+            int hits = namespaceHits(numbered);
+
+            // Decisive, but not on one stray name among hundreds: a 26.3 Fabric
+            // API mixin still carries "method_2902" in an annotation string, and
+            // that alone made a current module look like an intermediary one. A
+            // real numbered mod, however small, has them in a good share of the
+            // references it makes.
+            if (hits > 0 && (hits >= 3 || hits * 20 >= total)) {
+                return numbered;
+            }
+        }
+
+        return dominantNamespace();
+    }
+
     public int namespaceHits(MappingNamespace namespace) {
         return namespaceHits.getOrDefault(namespace, 0);
     }

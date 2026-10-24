@@ -5,6 +5,12 @@ dependencies {
     testImplementation project(':loader')
 }
 
+// The loader carries EventBus 7, which is published for Java 21; see the note
+// in loader/build.gradle on why that is still fine for a Java 17 build.
+java {
+    disableAutoTargetJvm()
+}
+
 // The installer ships the loader inside itself so an install works with no
 // network access at all (`--offline`).
 tasks.register('embedLoader', Copy) {

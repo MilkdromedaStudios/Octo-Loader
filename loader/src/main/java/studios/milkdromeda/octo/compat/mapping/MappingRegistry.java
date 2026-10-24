@@ -241,6 +241,7 @@ public final class MappingRegistry {
     public static String namespaceOf(MappingNamespace namespace) {
         return switch (namespace) {
             case SEARGE -> "searge";
+            case SRG -> "srg";
             case INTERMEDIARY -> "intermediary";
             case MOJANG -> "mojang";
             case OFFICIAL, UNKNOWN -> "official";
@@ -256,7 +257,7 @@ public final class MappingRegistry {
 
         return switch (text) {
             case "obf", "notch", "obfuscated" -> "official";
-            case "srg", "mcp" -> "searge";
+            case "mcp" -> "searge";
             case "named", "yarn", "deobf" -> "named";
             case "moj", "mojmap", "official-mojang" -> "mojang";
             default -> text;

@@ -16,6 +16,9 @@ public final class ForgeBuses {
     private static final Map<String, OctoNeoEventBus> NEO_BUSES = new ConcurrentHashMap<>();
     private static final Map<String, net.neoforged.fml.ModContainer> NEO_CONTAINERS = new ConcurrentHashMap<>();
     private static final Map<String, net.minecraftforge.fml.ModContainer> FORGE_CONTAINERS = new ConcurrentHashMap<>();
+    private static final Map<String, net.minecraftforge.eventbus.api.bus.BusGroup> FORGE_GROUPS =
+            new ConcurrentHashMap<>();
+    private static final Map<String, Object> FORGE_CONTEXTS = new ConcurrentHashMap<>();
     private static final ThreadLocal<String> ACTIVE = new ThreadLocal<>();
 
     /** The bus every mod can post on, the one Forge calls the "Forge bus". */
@@ -55,6 +58,27 @@ public final class ForgeBuses {
         return NEO_CONTAINERS.computeIfAbsent(modId, net.neoforged.fml.ModContainer::new);
     }
 
+    /**
+     * The mod's own EventBus 7 bus group, as Forge 66 hands it out.
+     *
+     * <p>Named after the mod, as Forge's own are; EventBus refuses two groups
+     * with the same name, so one is made per mod and reused.
+     */
+    public static net.minecraftforge.eventbus.api.bus.BusGroup forgeBusGroupFor(String modId) {
+        return FORGE_GROUPS.computeIfAbsent(modId, id -> {
+            try {
+                return net.minecraftforge.eventbus.api.bus.BusGroup.create("octo:" + id + ":" + System.nanoTime());
+            } catch (RuntimeException e) {
+                return net.minecraftforge.eventbus.api.bus.BusGroup.DEFAULT;
+            }
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T forgeContextFor(String modId, java.util.function.Function<String, T> factory) {
+        return (T) FORGE_CONTEXTS.computeIfAbsent(modId, factory::apply);
+    }
+
     public static net.minecraftforge.fml.ModContainer forgeContainerFor(String modId) {
         return FORGE_CONTAINERS.computeIfAbsent(modId, net.minecraftforge.fml.ModContainer::new);
     }
@@ -73,6 +97,8 @@ public final class ForgeBuses {
         NEO_BUSES.clear();
         NEO_CONTAINERS.clear();
         FORGE_CONTAINERS.clear();
+        FORGE_GROUPS.clear();
+        FORGE_CONTEXTS.clear();
         ACTIVE.remove();
     }
 }

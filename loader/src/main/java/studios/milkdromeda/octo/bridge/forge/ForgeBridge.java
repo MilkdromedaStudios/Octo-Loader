@@ -61,6 +61,15 @@ public final class ForgeBridge implements LoaderBridge {
         // call and around every lifecycle dispatch, so a mod reaching for its own
         // bus from a setup handler finds the same one it found in its constructor.
         for (EntrypointSpec spec : specs) {
+            if (!AnnotatedClasses.runsOnThisSide(mod, spec.className(), MOD_ANNOTATIONS)) {
+                // @Mod(value = "x", dist = Dist.CLIENT) is a class written for the
+                // client and nothing else. Constructing it on a dedicated server
+                // is a NoClassDefFoundError for the first screen it names, and it
+                // took the whole mod with it.
+                LOG.debug("{}: {} is for the other side; not constructing it here", mod.id(), spec.className());
+                continue;
+            }
+
             try {
                 Class<?> type = Class.forName(spec.className(), false, classLoader);
                 Object instance = instantiate(type, mod);
@@ -74,74 +83,126 @@ public final class ForgeBridge implements LoaderBridge {
                 mod.fail(cause);
             }
         }
+
+        if (!mod.isFailed()) {
+            AnnotatedClasses.subscribe(mod, classLoader);
+        }
     }
 
-    /** Picks the constructor the mod's generation expects. */
+    /**
+     * Picks the constructor the mod's generation expects.
+     *
+     * <p>Fully resolvable constructors first, preferring the one asking for the
+     * most: a constructor taking the bus, the container and the side is the
+     * newer convention and is how NeoForge and Forge 66 mods expect to be built.
+     * Failing that, a no-argument constructor. Failing that — a mod built
+     * against a loader version whose constructor asks for something Octo has
+     * never heard of — the constructor with the fewest unknowns is called with
+     * nothing in those places, because a mod that runs without one argument is
+     * worth more than a mod that does not run.
+     */
     private Object instantiate(Class<?> type, LoadedMod mod) throws ReflectiveOperationException {
         Constructor<?> best = null;
         Object[] arguments = null;
+        int bestScore = Integer.MIN_VALUE;
 
         for (Constructor<?> constructor : type.getDeclaredConstructors()) {
             Class<?>[] parameters = constructor.getParameterTypes();
+            Object[] resolved = new Object[parameters.length];
+            int unknown = 0;
 
-            if (parameters.length == 0) {
-                if (best == null) {
-                    best = constructor;
-                    arguments = new Object[0];
+            for (int i = 0; i < parameters.length; i++) {
+                Object argument = argumentFor(parameters[i], mod);
+
+                if (argument == MISSING) {
+                    unknown++;
+                    resolved[i] = parameters[i].isPrimitive() ? primitiveDefault(parameters[i]) : null;
+                } else {
+                    resolved[i] = argument;
                 }
-
-                continue;
             }
 
-            Object[] resolved = resolveArguments(parameters, mod);
+            // Every unknown costs more than every known argument earns.
+            int score = (parameters.length - unknown) - unknown * 100;
 
-            if (resolved != null) {
-                // A constructor asking for the bus is the newer convention and is
-                // preferred: it is how NeoForge mods expect to be built.
+            if (score > bestScore) {
+                bestScore = score;
                 best = constructor;
                 arguments = resolved;
-                break;
             }
         }
 
         if (best == null) {
-            throw new NoSuchMethodException(type.getName() + " has no constructor Octo can call");
+            throw new NoSuchMethodException(type.getName() + " has no constructor at all");
+        }
+
+        if (bestScore < 0) {
+            LOG.warn("{}: no constructor of {} asks only for what Octo can supply; calling {} with nothing for "
+                    + "the rest", mod.id(), type.getName(), best);
+            mod.recordFix("constructed with defaults for constructor arguments Octo cannot supply");
         }
 
         best.setAccessible(true);
         return best.newInstance(arguments);
     }
 
-    /** @return the arguments to pass, or {@code null} when a parameter cannot be supplied */
-    private Object[] resolveArguments(Class<?>[] parameters, LoadedMod mod) {
-        Object[] arguments = new Object[parameters.length];
-
-        for (int i = 0; i < parameters.length; i++) {
-            String name = parameters[i].getName();
-
-            arguments[i] = switch (name) {
-                case "net.neoforged.bus.api.IEventBus" -> ForgeBuses.neoBusFor(mod.id());
-                case "net.minecraftforge.eventbus.api.IEventBus" -> ForgeBuses.forgeBusFor(mod.id());
-                case "net.neoforged.fml.ModContainer" -> ForgeBuses.neoContainerFor(mod.id());
-                case "net.minecraftforge.fml.ModContainer" -> ForgeBuses.forgeContainerFor(mod.id());
-                case "net.neoforged.api.distmarker.Dist" ->
-                        OctoRuntime.get().side() == Side.CLIENT
-                                ? net.neoforged.api.distmarker.Dist.CLIENT
-                                : net.neoforged.api.distmarker.Dist.DEDICATED_SERVER;
-                case "net.minecraftforge.api.distmarker.Dist" ->
-                        OctoRuntime.get().side() == Side.CLIENT
-                                ? net.minecraftforge.api.distmarker.Dist.CLIENT
-                                : net.minecraftforge.api.distmarker.Dist.DEDICATED_SERVER;
-                default -> MISSING;
-            };
-
-            if (arguments[i] == MISSING) {
-                return null;
-            }
+    private static Object primitiveDefault(Class<?> type) {
+        if (type == boolean.class) {
+            return false;
         }
 
-        return arguments;
+        if (type == long.class) {
+            return 0L;
+        }
+
+        if (type == double.class) {
+            return 0d;
+        }
+
+        if (type == float.class) {
+            return 0f;
+        }
+
+        if (type == char.class) {
+            return (char) 0;
+        }
+
+        if (type == byte.class) {
+            return (byte) 0;
+        }
+
+        if (type == short.class) {
+            return (short) 0;
+        }
+
+        return 0;
     }
+
+    /** @return what to pass for one constructor parameter, or {@link #MISSING} */
+    private Object argumentFor(Class<?> parameter, LoadedMod mod) {
+        return switch (parameter.getName()) {
+            case "net.neoforged.bus.api.IEventBus" -> ForgeBuses.neoBusFor(mod.id());
+            case "net.minecraftforge.eventbus.api.IEventBus" -> ForgeBuses.forgeBusFor(mod.id());
+            case "net.minecraftforge.eventbus.api.bus.BusGroup" -> ForgeBuses.forgeBusGroupFor(mod.id());
+            case "net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext" ->
+                    net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext.of(mod.id());
+            case "net.neoforged.fml.ModContainer" -> ForgeBuses.neoContainerFor(mod.id());
+            case "net.minecraftforge.fml.ModContainer" -> ForgeBuses.forgeContainerFor(mod.id());
+            case "net.neoforged.api.distmarker.Dist" ->
+                    OctoRuntime.get().side() == Side.CLIENT
+                            ? net.neoforged.api.distmarker.Dist.CLIENT
+                            : net.neoforged.api.distmarker.Dist.DEDICATED_SERVER;
+            case "net.minecraftforge.api.distmarker.Dist" ->
+                    OctoRuntime.get().side() == Side.CLIENT
+                            ? net.minecraftforge.api.distmarker.Dist.CLIENT
+                            : net.minecraftforge.api.distmarker.Dist.DEDICATED_SERVER;
+            default -> MISSING;
+        };
+    }
+
+    /** The annotations a Forge or NeoForge mod class is marked with. */
+    private static final java.util.Set<String> MOD_ANNOTATIONS = java.util.Set.of(
+            "Lnet/neoforged/fml/common/Mod;", "Lnet/minecraftforge/fml/common/Mod;");
 
     private static final Object MISSING = new Object();
 
@@ -191,11 +252,35 @@ public final class ForgeBridge implements LoaderBridge {
                 ForgeBuses.neoBusFor(mod.id()).post((net.neoforged.bus.api.Event) event);
             } else {
                 ForgeBuses.forgeBusFor(mod.id()).post((net.minecraftforge.eventbus.api.Event) event);
+                postToBusGroup(mod, type, event);
             }
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             Throwable cause = Failures.unwrap(e);
             LOG.warn("{}: could not post {}: {}", mod.id(), simpleName, Failures.describe(cause));
+            OctoLog.detail(cause);
+        }
+    }
+
+    /**
+     * Posts a lifecycle event the way Forge 66 delivers it: on the event's bus
+     * within the mod's own bus group, where {@code FMLCommonSetupEvent.getBus(
+     * context.getModBusGroup()).addListener(this::setup)} put the listener.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void postToBusGroup(LoadedMod mod, Class<?> type, Object event) {
+        try {
+            net.minecraftforge.eventbus.api.bus.EventBus bus = net.minecraftforge.fml.event.IModBusEvent.getBus(
+                    ForgeBuses.forgeBusGroupFor(mod.id()), (Class) type);
+
+            if (bus.hasListeners()) {
+                bus.post((net.minecraftforge.eventbus.internal.Event) event);
+            }
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            Throwable cause = Failures.unwrap(e);
+            LOG.warn("{}: could not post {} to its bus group: {}", mod.id(), type.getSimpleName(),
+                    Failures.describe(cause));
             OctoLog.detail(cause);
         }
     }

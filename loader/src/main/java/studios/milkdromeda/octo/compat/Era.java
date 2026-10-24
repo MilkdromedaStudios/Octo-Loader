@@ -36,8 +36,17 @@ public enum Era {
     /** 1.17 – 1.20.4. Java 16+, modules, official Mojang mappings in common use. */
     MODERN("modern", "1.17", "1.20.4", MappingNamespace.MOJANG),
 
-    /** 1.20.5 and later. NeoForge's own metadata file, component-based items. */
-    CURRENT("current", "1.20.5", null, MappingNamespace.MOJANG);
+    /** 1.20.5 – 1.21.11. NeoForge's own metadata file, component-based items. */
+    CURRENT("current", "1.20.5", "1.21.11", MappingNamespace.MOJANG),
+
+    /**
+     * 26.1 and later. Year-numbered releases, Java 25, and a game shipped without
+     * obfuscation: the jar carries Mojang's own names, so Fabric mods stopped
+     * being compiled against intermediary and Forge and NeoForge stopped
+     * remapping at install time. A mod from any earlier era speaks a different
+     * set of names from the game it is running in.
+     */
+    UNOBFUSCATED("unobfuscated", "26.1", null, MappingNamespace.MOJANG);
 
     /** The naming scheme the game's classes carried in a given era. */
     public enum MappingNamespace {
@@ -48,6 +57,11 @@ public enum Era {
         SEARGE,
         /** Fabric's stable numbered names: {@code class_310}, {@code method_1551}. */
         INTERMEDIARY,
+        /**
+         * Forge's numbered member names from 1.17 to 1.20.4, {@code m_91087_} and
+         * {@code f_91074_}, on classes that already carry Mojang's names.
+         */
+        SRG,
         /** Mojang's published deobfuscation maps: {@code Minecraft.getInstance}. */
         MOJANG
     }
@@ -79,6 +93,32 @@ public enum Era {
     /** {@code true} when this era predates the era Octo is currently running under. */
     public boolean isOlderThan(Era other) {
         return ordinal() < other.ordinal();
+    }
+
+    /** The later of two eras, treating {@link #UNKNOWN} as no information. */
+    public static Era latest(Era a, Era b) {
+        if (!a.isKnown()) {
+            return b;
+        }
+
+        if (!b.isKnown()) {
+            return a;
+        }
+
+        return a.ordinal() >= b.ordinal() ? a : b;
+    }
+
+    /** The earlier of two eras, treating {@link #UNKNOWN} as no information. */
+    public static Era earliest(Era a, Era b) {
+        if (!a.isKnown()) {
+            return b;
+        }
+
+        if (!b.isKnown()) {
+            return a;
+        }
+
+        return a.ordinal() <= b.ordinal() ? a : b;
     }
 
     public boolean contains(Version version) {
@@ -132,7 +172,11 @@ public enum Era {
             }
         }
 
-        return version.part(0) >= 1 && version.part(1) > 20 ? CURRENT : UNKNOWN;
+        if (version.part(0) >= 26) {
+            return UNOBFUSCATED;
+        }
+
+        return version.part(0) == 1 && version.part(1) > 20 ? CURRENT : UNKNOWN;
     }
 
     @Override

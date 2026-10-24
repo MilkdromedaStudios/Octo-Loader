@@ -57,6 +57,7 @@ public final class MixinTargets implements Transformer {
     private static final OctoLog LOG = OctoLog.of(MixinTargets.class);
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
+    private static final String PSEUDO = "Lorg/spongepowered/asm/mixin/Pseudo;";
     private static final String SHADOW = "Lorg/spongepowered/asm/mixin/Shadow;";
     private static final String ACCESSOR = "Lorg/spongepowered/asm/mixin/gen/Accessor;";
     private static final String INVOKER = "Lorg/spongepowered/asm/mixin/gen/Invoker;";
@@ -156,10 +157,53 @@ public final class MixinTargets implements Transformer {
         List<Target> targets = readTargets(declaration);
 
         if (targets.isEmpty()) {
-            // Either the mixin has no resolvable target — an abstract base that
-            // real mixins extend — or the target is not on the class path, and
-            // mixin's own message about that is the useful one.
+            // A mixin that names targets none of which exist: a client class on a
+            // dedicated server, or a class this version removed. Mixin's answer is
+            // an InvalidMixinException during prepare, and in a required config
+            // that aborts the prepare of every config after it — one missing HUD
+            // class cost Fabric API its registry sync. Mixin's own @Pseudo says
+            // "skip me if the target is not there", which is exactly this case.
+            if (!targetNames(declaration).isEmpty() && !isPseudo(mixin)) {
+                if (mixin.invisibleAnnotations == null) {
+                    mixin.invisibleAnnotations = new ArrayList<>();
+                }
+
+                mixin.invisibleAnnotations.add(new AnnotationNode(PSEUDO));
+                note(context, className, "none of its targets " + targetNames(declaration)
+                        + " exist here, so it is skipped instead of failing its config");
+                ClassWriter writer = new ClassWriter(0);
+                mixin.accept(writer);
+                return writer.toByteArray();
+            }
+
+            // Otherwise an abstract base that real mixins extend, with nothing
+            // to check.
             return bytes;
+        }
+
+        // What the mixin adds to its target is part of the target by the time
+        // the injectors run: Lithium adds getHeldItem() to EntityCollisionContext
+        // and then injects into it. Without these, that injector looked aimed at
+        // nothing and was switched off.
+        List<Member> added = new ArrayList<>();
+
+        for (MethodNode method : mixin.methods) {
+            if (!method.name.startsWith("<") && annotation(method.visibleAnnotations, SHADOW) == null
+                    && annotation(method.invisibleAnnotations, SHADOW) == null) {
+                added.add(new Member(method.name, method.desc));
+            }
+        }
+
+        if (!added.isEmpty()) {
+            List<Target> merged = new ArrayList<>(targets.size());
+
+            for (Target target : targets) {
+                List<Member> methods = new ArrayList<>(target.methods());
+                methods.addAll(added);
+                merged.add(new Target(target.name(), methods, target.fields()));
+            }
+
+            targets = merged;
         }
 
         boolean changed = false;
@@ -185,7 +229,26 @@ public final class MixinTargets implements Transformer {
 
     // ------------------------------------------------------------------ targets
 
+    private static boolean isPseudo(ClassNode mixin) {
+        return annotation(mixin.invisibleAnnotations, PSEUDO) != null
+                || annotation(mixin.visibleAnnotations, PSEUDO) != null;
+    }
+
     private List<Target> readTargets(AnnotationNode declaration) {
+        List<Target> out = new ArrayList<>();
+
+        for (String name : targetNames(declaration)) {
+            Target target = shapeOf(name);
+
+            if (target != null) {
+                out.add(target);
+            }
+        }
+
+        return out;
+    }
+
+    private static Set<String> targetNames(AnnotationNode declaration) {
         Set<String> names = new LinkedHashSet<>();
 
         if (value(declaration, "value") instanceof List<?> types) {
@@ -204,17 +267,7 @@ public final class MixinTargets implements Transformer {
             }
         }
 
-        List<Target> out = new ArrayList<>();
-
-        for (String name : names) {
-            Target target = shapeOf(name);
-
-            if (target != null) {
-                out.add(target);
-            }
-        }
-
-        return out;
+        return names;
     }
 
     /**
@@ -841,8 +894,9 @@ public final class MixinTargets implements Transformer {
 
             // A wildcard, a @Desc reference or a namespaced selector: mixin's own
             // resolver understands these and this one does not, so it stands back.
+            // A regular-expression selector, /^with/ desc=/...$/, is mixin's too.
             if (text.isEmpty() || text.indexOf('*') >= 0 || text.indexOf('{') >= 0
-                    || text.charAt(0) == '@' || text.indexOf(':') >= 0) {
+                    || text.charAt(0) == '@' || text.charAt(0) == '/' || text.indexOf(':') >= 0) {
                 return null;
             }
 

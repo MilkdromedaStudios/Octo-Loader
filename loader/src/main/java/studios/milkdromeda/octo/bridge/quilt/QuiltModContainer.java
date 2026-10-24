@@ -28,7 +28,7 @@ public final class QuiltModContainer implements ModContainer {
 
     @Override
     public Path rootPath() {
-        return mod.effectivePath();
+        return studios.milkdromeda.octo.compat.fabric.JarFileSystems.root(mod.effectivePath());
     }
 
     private record Metadata(LoadedMod mod) implements ModMetadata {

@@ -24,7 +24,7 @@ public final class OctoMain {
 
     public static void main(String[] args) throws Exception {
         List<String> arguments = List.of(args);
-        Path gameDir = gameDirectory(arguments, System.getProperty("java.class.path", ""));
+        Path gameDir = gameDirectory(arguments, System.getProperty("java.class.path", ""), detectSide(arguments));
         Path logFile = gameDir.resolve(".octo").resolve("logs").resolve("octo-loader.log");
 
         try {
@@ -52,14 +52,34 @@ public final class OctoMain {
      * {@code libraries/} layout gives us the actual installation root.
      */
     static Path gameDirectory(List<String> arguments, String classPath) {
-        return gameDirectory(arguments, classPath, System.getenv("APPDATA"), System.getProperty("user.home"));
+        return gameDirectory(arguments, classPath, Side.CLIENT);
+    }
+
+    static Path gameDirectory(List<String> arguments, String classPath, Side side) {
+        return gameDirectory(arguments, classPath, System.getenv("APPDATA"), System.getProperty("user.home"), side);
     }
 
     static Path gameDirectory(List<String> arguments, String classPath, String appData, String userHome) {
+        return gameDirectory(arguments, classPath, appData, userHome, Side.CLIENT);
+    }
+
+    static Path gameDirectory(List<String> arguments, String classPath, String appData, String userHome,
+            Side side) {
         String declared = argument(arguments, "--gameDir", null);
 
         if (declared != null && !declared.isBlank() && !declared.contains("${")) {
             return Path.of(declared).toAbsolutePath().normalize();
+        }
+
+        // A server is started from its own directory by a script, and that
+        // directory is the game directory: it is where the world, the
+        // properties and the mods are. Falling through to the client's
+        // %APPDATA%\.minecraft below put a server's mods folder in somebody's
+        // home directory and loaded nothing from the folder next to the jar.
+        if (side == Side.SERVER) {
+            Path workingDirectory = Path.of("").toAbsolutePath().normalize();
+            LOG.info("--gameDir was not supplied; using the server directory {}", workingDirectory);
+            return workingDirectory;
         }
 
         Path fromClassPath = installationRoot(classPath);
@@ -133,14 +153,37 @@ public final class OctoMain {
     private static void launch(List<String> arguments, Path gameDir) throws Exception {
         Side side = detectSide(arguments);
 
-        List<Path> gameJars = gameJarsOnClassPath();
+        List<Path> gameJars = new ArrayList<>(gameJarsOnClassPath());
+        List<Path> bundledLibraries = new ArrayList<>();
+        String bundledMainClass = null;
+        String bundledVersion = null;
+
+        // Since 1.18 the server jar is a bundler with the real server inside it.
+        for (Path jar : List.copyOf(gameJars)) {
+            if (!ServerBundler.isBundler(jar)) {
+                continue;
+            }
+
+            var unpacked = ServerBundler.unpack(jar, gameDir);
+
+            if (unpacked.isPresent()) {
+                gameJars.remove(jar);
+                gameJars.addAll(unpacked.get().gameJars());
+                bundledLibraries.addAll(unpacked.get().libraries());
+                bundledMainClass = unpacked.get().mainClass();
+                bundledVersion = unpacked.get().version();
+            }
+        }
+
         GameProvider provider = new GameProvider(gameJars);
+        String fallbackVersion = bundledVersion == null || bundledVersion.isBlank()
+                ? argument(arguments, "--mcVersion", argument(arguments, "--version", ""))
+                : bundledVersion;
+        String version = provider.detectVersion().orElse(fallbackVersion);
 
-        String version = provider.detectVersion()
-                .orElseGet(() -> argument(arguments, "--mcVersion", argument(arguments, "--version", "")));
-
-        String mainClass = provider.detectMainClass(side)
-                .orElse(side == Side.SERVER ? GameProvider.SERVER_MAIN : GameProvider.CLIENT_MAIN);
+        String mainClass = bundledMainClass != null && side == Side.SERVER ? bundledMainClass
+                : provider.detectMainClass(side)
+                        .orElse(side == Side.SERVER ? GameProvider.SERVER_MAIN : GameProvider.CLIENT_MAIN);
 
         if (System.getProperty("octo.debug") != null) {
             OctoLog.setThreshold(OctoLog.Level.DEBUG);
@@ -150,7 +193,7 @@ public final class OctoMain {
                 .side(side)
                 .minecraftVersion(version)
                 .mainClass(mainClass)
-                .launchArguments(arguments)
+                .launchArguments(gameArguments(arguments))
                 .compat(compatOptions());
 
         List<String> requestedModDirs = allArguments(arguments, "--modsDir");
@@ -167,7 +210,10 @@ public final class OctoMain {
 
         modDirs.forEach(builder::modDir);
         gameJars.forEach(builder::gameJar);
-        libraryJarsOnClassPath(gameJars).forEach(builder::libraryJar);
+        libraryJarsOnClassPath(gameJars).stream()
+                .filter(jar -> !ServerBundler.isBundler(jar))
+                .forEach(builder::libraryJar);
+        bundledLibraries.forEach(builder::libraryJar);
 
         LOG.info("Octo Loader starting from {}", gameDir);
         LOG.info("mods will be loaded from {}", modDirs);
@@ -280,6 +326,59 @@ public final class OctoMain {
         boolean client = arguments.contains("--accessToken") || arguments.contains("--username")
                 || arguments.contains("--assetsDir");
         return client ? Side.CLIENT : Side.SERVER;
+    }
+
+    /** Options that are Octo's own and mean nothing to Minecraft. */
+    private static final java.util.Set<String> OCTO_OPTIONS = java.util.Set.of(
+            "--side", "--modsDir", "--mcVersion", "--gameJar");
+
+    /**
+     * The arguments to hand on to the game, without Octo's own.
+     *
+     * <p>Minecraft parses its command line strictly: an option it does not know
+     * is a {@code joptsimple.UnrecognizedOptionException} and the server never
+     * starts. The start scripts the installer writes pass {@code --side server}
+     * so that Octo knows what it is launching, which is exactly such an option.
+     */
+    static List<String> gameArguments(List<String> arguments) {
+        List<String> out = new ArrayList<>(arguments.size());
+        java.util.Set<String> seen = new java.util.HashSet<>();
+
+        for (int i = 0; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            boolean hasValue = i + 1 < arguments.size() && !arguments.get(i + 1).startsWith("--");
+
+            if (OCTO_OPTIONS.contains(argument)) {
+                i++;
+                continue;
+            }
+
+            int equals = argument.indexOf('=');
+
+            if (equals > 0 && OCTO_OPTIONS.contains(argument.substring(0, equals))) {
+                continue;
+            }
+
+            // Every Minecraft option takes one value, and asking jopt-simple for
+            // "the" value of one given twice is an exception before the game has
+            // opened a window. The Octo profile adds --gameDir for launchers that
+            // leave it out; the vanilla profile it inherits from already passes
+            // it, and the launcher simply concatenates the two. The first one
+            // wins, as it always has.
+            if (argument.startsWith("--") && !seen.add(argument)) {
+                LOG.debug("{} was given more than once; keeping the first", argument);
+
+                if (hasValue) {
+                    i++;
+                }
+
+                continue;
+            }
+
+            out.add(argument);
+        }
+
+        return out;
     }
 
     private static String argument(List<String> arguments, String name, String fallback) {

@@ -29,6 +29,11 @@ public class ModContainer {
         return modId;
     }
 
+    /** The mod's EventBus 7 bus group (Forge 66 and later). */
+    public net.minecraftforge.eventbus.api.bus.BusGroup getModBusGroup() {
+        return studios.milkdromeda.octo.bridge.forge.ForgeBuses.forgeBusGroupFor(getModId());
+    }
+
     public IEventBus getEventBus() {
         return ForgeBuses.forgeBusFor(modId);
     }

@@ -74,6 +74,15 @@ public final class OctoMixinService extends MixinServiceAbstract
         return "Octo";
     }
 
+    /**
+     * What this runtime can honour, so mixin does not warn "not a supported
+     * configuration" every time a 26.x mod asks for {@code JAVA_25}.
+     */
+    @Override
+    public org.spongepowered.asm.mixin.MixinEnvironment.CompatibilityLevel getMaxCompatibilityLevel() {
+        return MixinSupport.effectiveCeiling();
+    }
+
     @Override
     public boolean isValid() {
         return true;
@@ -142,7 +151,7 @@ public final class OctoMixinService extends MixinServiceAbstract
 
     @Override
     public InputStream getResourceAsStream(String name) {
-        return loader().getResourceAsStream(name);
+        return MixinSupport.serveConfig(name, loader().getResourceAsStream(name));
     }
 
     @Override

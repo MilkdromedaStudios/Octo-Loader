@@ -120,13 +120,14 @@ class MixinLoadingTest {
 
         launch(gameJar);
 
-        // Mixin ships pinned at JAVA_13 and leaves it to the host to raise. Every
-        // mixin config written in the last few years asks for JAVA_17 or later,
-        // so leaving it alone rejects all of them.
-        assertTrue(MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED
+        // Mixin ships pinned at JAVA_13 and leaves it to the host to work out
+        // what the JVM can really do. Every mixin config written in the last few
+        // years asks for JAVA_17 or later, and every 26.x mod for JAVA_25, so
+        // gating on mixin's own number rejects all of them.
+        assertTrue(studios.milkdromeda.octo.mixin.MixinSupport.effectiveCeiling()
                         .isAtLeast(MixinEnvironment.CompatibilityLevel.JAVA_17),
                 "the ceiling should have been raised past mixin's default, but is "
-                        + MixinEnvironment.CompatibilityLevel.MAX_SUPPORTED);
+                        + studios.milkdromeda.octo.mixin.MixinSupport.effectiveCeiling());
     }
 
     private static String describeFailures(LaunchResult result) {

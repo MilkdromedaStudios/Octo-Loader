@@ -20,6 +20,7 @@ import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.api.Equivalents;
+import studios.milkdromeda.octo.compat.mapping.MappingProvider;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.discovery.Discovery;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
@@ -29,16 +30,23 @@ import studios.milkdromeda.octo.mixin.MixinTargets;
 import studios.milkdromeda.octo.mod.ModCandidate;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
+import studios.milkdromeda.octo.rebuild.MixinInterfaces;
+import studios.milkdromeda.octo.rebuild.ModRebuilder;
 import studios.milkdromeda.octo.report.GameWatch;
 import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.report.ReportWindow;
 import studios.milkdromeda.octo.resolve.ModResolver;
 import studios.milkdromeda.octo.resolve.Resolution;
+import studios.milkdromeda.octo.runtime.BuiltinMods;
 import studios.milkdromeda.octo.runtime.Lifecycle;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
+import studios.milkdromeda.octo.rebuild.ClassRestorer;
+import studios.milkdromeda.octo.transform.CallbackGuard;
+import studios.milkdromeda.octo.transform.ClassRelinker;
 import studios.milkdromeda.octo.transform.GameExitTransformer;
+import studios.milkdromeda.octo.transform.MemberIndex;
 import studios.milkdromeda.octo.transform.MissingClassTransformer;
 import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
@@ -90,6 +98,7 @@ public final class OctoLauncher {
                 context.minecraftVersion().isEmpty() ? "unknown" : context.minecraftVersion(), context.side());
 
         OctoRuntime runtime = OctoRuntime.initialise(context);
+        BuiltinMods.create(context).forEach(runtime::register);
         PhantomClasses phantoms = new PhantomClasses();
         OctoClassLoader classLoader = new OctoClassLoader(gameUrls(), getClass().getClassLoader(),
                 TransformPipeline.empty(), phantoms, context.compat(), report);
@@ -225,8 +234,35 @@ public final class OctoLauncher {
             mods.add(mod);
         }
 
+        // Mods built for another Minecraft are rebuilt into this one's names
+        // before a single class of them is loaded, and the rebuilt jar is what
+        // goes on the class path. A rebuild is kept, so this costs a launch
+        // once per mod per game version.
+        mappings = new MappingProvider(context.octoDir().resolve("cache").resolve("mappings"));
+        ModRebuilder rebuilder = new ModRebuilder(context, timeCapsule, mappings);
+
         for (LoadedMod mod : mods) {
-            classLoader.addMod(mod, timeCapsule.pipelineFor(mod));
+            TransformPipeline pipeline = TransformPipeline.empty();
+            ModRebuilder.Result rebuilt = rebuilder.prepare(mod);
+
+            if (rebuilt.rebuilt()) {
+                mod.effectivePath(rebuilt.jar());
+                mod.fromAnotherVersion(true);
+                mod.recordFix("rebuilt for Minecraft " + context.minecraftVersion() + ": " + rebuilt.summary()
+                        + (rebuilt.fromCache() ? " (from the cache)" : ""));
+            } else {
+                // Not rebuilt — nothing needed doing, or the rebuild failed — so
+                // whatever translation applies happens as each class loads. A
+                // jar that never names a game class has nothing to translate.
+                pipeline = mod.candidate().namespace() == Era.MappingNamespace.UNKNOWN
+                        ? TransformPipeline.empty() : timeCapsule.pipelineFor(mod);
+
+                if (!pipeline.isEmpty()) {
+                    mod.fromAnotherVersion(true);
+                }
+            }
+
+            classLoader.addMod(mod, pipeline);
         }
 
         // The libraries the mods brought with them. Before this they were
@@ -239,12 +275,18 @@ public final class OctoLauncher {
             libraries.forEach(classLoader::addLibrary);
         }
 
+        // NeoForge and Forge mods link against the game-side half of their
+        // loader, which ships with the loader rather than as a mod.
+        apiLibraries = LoaderApiLibraries.resolve(context, mods);
+        apiLibraries.forEach(classLoader::addLibrary);
+
         // All of these rewrite the game itself on behalf of the mods, so they are
         // installed before a single class is loaded and apply to every jar —
         // including the mixin configuration plugins mixin loads during its own
         // bootstrap, which is where a mod first calls into the loader's API.
         installApiGapCover(classLoader);
         installVersionAdapters(phantoms, classLoader);
+        installGameGapBypass(mods, classLoader);
         installAccessRules(mods, classLoader);
         installExitCover(classLoader);
 
@@ -328,12 +370,92 @@ public final class OctoLauncher {
             mixinTargets.adjustments().forEach(entry -> LOG.info("  {}", entry));
         }
 
+        if (relinker != null && !relinker.relinked().isEmpty()) {
+            LOG.info("{} class(es) mods from other versions named have moved, and were found:",
+                    relinker.relinked().size());
+            relinker.relinked().forEach(entry -> LOG.info("  {}", entry));
+        }
+
+        if (restorer != null && !restorer.restored().isEmpty()) {
+            LOG.info("{} class(es) this Minecraft no longer has were added back from older releases:",
+                    restorer.restored().size());
+            restorer.restored().forEach(entry -> LOG.info("  {}", entry));
+        }
+
+        if (gameGaps != null && !gameGaps.gaps().isEmpty()) {
+            LOG.info("{} game member(s) mods from other versions asked for do not exist here and were bypassed:",
+                    gameGaps.gaps().size());
+            gameGaps.gaps().forEach(gap -> LOG.info("  {}", gap));
+        }
+
+        warnAboutOtherVersions(mods);
+
         for (LoadedMod mod : failed) {
             record(LoadingReport.Severity.ERROR, mod.id(), "it failed while starting up, so it is not running",
                     Failures.describe(mod.failure()));
         }
 
         return new LaunchResult(runtime, resolution, classLoader, loaded, failed);
+    }
+
+    /**
+     * Tells the player, plainly and every time, that mods from another version
+     * are running.
+     *
+     * <p>A translated mod is a mod running against a game its author never
+     * tested. Most of what can go wrong is a feature that quietly does nothing,
+     * but some of it is not: a block that saves under one name and loads under
+     * another, an entity whose data no longer means what it meant, a world
+     * generator writing chunks the game cannot read back. Those end up in the
+     * save. So this is not left to the log — it is in the report and on screen,
+     * with the advice that actually prevents the damage: back up first.
+     */
+    private void warnAboutOtherVersions(List<LoadedMod> mods) {
+        List<LoadedMod> translated = mods.stream()
+                .filter(mod -> mod.isFromAnotherVersion() && !mod.isFailed())
+                .toList();
+
+        if (translated.isEmpty()) {
+            return;
+        }
+
+        StringBuilder detail = new StringBuilder();
+        detail.append("These mods were made for a different Minecraft version. Octo rebuilt them to run on ")
+                .append(context.minecraftVersion().isBlank() ? "this version" : context.minecraftVersion())
+                .append(", stood in for what this version no longer has, and skipped what it could not carry over.")
+                .append(System.lineSeparator())
+                .append("They may misbehave, crash, or save data this version cannot read back, which can corrupt ")
+                .append("or break a world. BACK UP YOUR WORLDS before playing with them, and try them on a new ")
+                .append("world first.")
+                .append(System.lineSeparator()).append(System.lineSeparator());
+
+        for (LoadedMod mod : translated) {
+            detail.append("  ").append(mod.id()).append(' ').append(mod.metadata().version())
+                    .append(" - built for ").append(builtForDescription(mod)).append(System.lineSeparator());
+        }
+
+        LOG.warn("================================================================================");
+        LOG.warn(" {} mod(s) from other Minecraft versions are running translated.", translated.size());
+        LOG.warn(" They may break or corrupt worlds. BACK UP YOUR WORLDS before playing.");
+        LOG.warn("================================================================================");
+
+        record(LoadingReport.Severity.WARNING, "Your worlds",
+                translated.size() + " mod(s) from other Minecraft versions are running translated and could damage "
+                        + "a world - back up your worlds first",
+                detail.toString().strip());
+    }
+
+    private String builtForDescription(LoadedMod mod) {
+        String declared = mod.metadata().declaredMinecraftVersion().orElse(null);
+
+        if (declared != null && !declared.isBlank()) {
+            return "Minecraft " + declared;
+        }
+
+        return mod.metadata().minecraftDependency()
+                .filter(dependency -> !dependency.versions().isAny())
+                .map(dependency -> "Minecraft " + dependency.versions())
+                .orElse("an older Minecraft (" + mod.era() + " era)");
     }
 
     /**
@@ -533,6 +655,77 @@ public final class OctoLauncher {
     private MissingMemberTransformer apiGaps;
 
     /**
+     * The last resort for mods from another Minecraft: a call to something this
+     * game no longer has is not made, and a default stands in for its result.
+     *
+     * <p>Renaming, the rule packs and stand-in classes come first and answer
+     * most of it. What gets here is a method that exists in no form at all, and
+     * the choice is between a mod that loses that one call and a mod that dies
+     * the first time it reaches it. Only mods carried across from another
+     * version are touched; a current mod calling something absent has a real
+     * problem that should be seen.
+     */
+    private void installGameGapBypass(List<LoadedMod> mods, OctoClassLoader classLoader) {
+        boolean translated = mods.stream().anyMatch(LoadedMod::isFromAnotherVersion);
+
+        if (!translated && apiLibraries.isEmpty() || !context.compat().stubMissingApi()) {
+            return;
+        }
+
+        // Classes that moved first, so that what is left for the bypass is only
+        // what this version has in no form at all.
+        if (translated) {
+            relinker = ClassRelinker.over(List.of(classLoader.getURLs()), classLoader::classExists);
+            classLoader.addGlobalTransformer(relinker);
+
+            // And after start-up, one failing callback costs that callback,
+            // not the server it runs in.
+            if (!context.compat().strict()) {
+                classLoader.addGlobalTransformer(new CallbackGuard());
+            }
+        }
+
+        MemberIndex index = new MemberIndex(classLoader::rawClassBytes);
+        MixinInterfaces.collect(mods, index);
+        gameGaps = MissingMemberTransformer.forTranslatedMods(index,
+                apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES).withEquivalents(equivalents);
+        classLoader.addGlobalTransformer(gameGaps);
+
+        // Then the classes that are gone outright: added back from the release
+        // the mod came from where that release has them, so a stand-in is only
+        // ever what is left over.
+        if (translated && mappings != null && !Boolean.getBoolean("octo.noRestore")) {
+            restorer = ClassRestorer.forMods(mods, mappings, context.side(),
+                    context.octoDir().resolve("cache").resolve("restored"));
+
+            if (restorer != null) {
+                classLoader.installRestorer(restorer, gameGaps);
+                LOG.debug("classes gone since {} can be added back", restorer.releases());
+            }
+        }
+    }
+
+    /** Which classes translated mods named that moved, collected over the launch. */
+    private ClassRelinker relinker;
+
+    /** Which game classes were added back from older releases, collected over the launch. */
+    private ClassRestorer restorer;
+
+    /** The published name tables, shared by the rebuild and the restorer. */
+    private MappingProvider mappings;
+
+    /** The NeoForge and Forge API jars fetched for this launch. */
+    private List<Path> apiLibraries = List.of();
+
+    /** What translated mods called that this game does not have, collected over the launch. */
+    private MissingMemberTransformer gameGaps;
+
+    /** Whether the jar on the class path is a rebuilt copy rather than the one that was found. */
+    private static boolean isRebuilt(LoadedMod mod) {
+        return !mod.effectivePath().equals(mod.candidate().path());
+    }
+
+    /**
      * Teaches the launch what this Minecraft has instead of what the mods expect.
      *
      * <p>Three things, all versions of one problem — a mod naming something the
@@ -552,6 +745,10 @@ public final class OctoLauncher {
      */
     private void installVersionAdapters(PhantomClasses phantoms, OctoClassLoader classLoader) {
         equivalents = Equivalents.load(context.octoDir().resolve("api"));
+
+        if (apiGaps != null) {
+            apiGaps.withEquivalents(equivalents);
+        }
 
         if (!equivalents.isEmpty()) {
             LOG.debug("{} version-equivalence entrie(s) available", equivalents.size());
@@ -712,11 +909,15 @@ public final class OctoLauncher {
         ByteScan worthReading = new ByteScan(answerablePrefixes(table));
 
         for (LoadedMod mod : mods) {
-            boolean fromAnotherEra = mod.era().isKnown() && mod.era().isOlderThan(timeCapsule.runtimeEra());
+            boolean fromAnotherEra = mod.isFromAnotherVersion()
+                    || mod.era().isKnown() && mod.era().isOlderThan(timeCapsule.runtimeEra());
             java.util.function.Predicate<String> answerable = fromAnotherEra
                     ? name -> true
                     : name -> isOctosToAnswerFor(name, table);
-            TransformPipeline pipeline = fromAnotherEra ? timeCapsule.pipelineFor(mod) : TransformPipeline.empty();
+            // A rebuilt jar is already in today's names; only a mod translated
+            // as it loads needs its classes put through the translation first.
+            TransformPipeline pipeline = fromAnotherEra && !isRebuilt(mod) ? timeCapsule.pipelineFor(mod)
+                    : TransformPipeline.empty();
 
             try (ModSource source = ModSource.open(mod.effectivePath())) {
                 for (String entry : source.entries()) {

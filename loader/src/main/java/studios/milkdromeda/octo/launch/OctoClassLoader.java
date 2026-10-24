@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import studios.milkdromeda.octo.mod.ModSource;
+import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.transform.PhantomClasses;
@@ -80,6 +81,10 @@ public final class OctoClassLoader extends URLClassLoader {
     private volatile TransformPipeline globalPipeline = TransformPipeline.empty();
     /** Mixin, which runs last and is deliberately not part of what mixin itself reads. */
     private volatile Weaver weaver;
+    /** Brings back game classes mods from older versions name, before any stand-in is made for them. */
+    private volatile ClassRestorer restorer;
+    /** What a restored class passes through: it is old code, and gets the same bypass as translated mods. */
+    private volatile Transformer restoredRepair;
 
     public OctoClassLoader(List<URL> urls, ClassLoader parent, TransformPipeline gamePipeline,
             PhantomClasses phantoms, LaunchContext.CompatOptions compat, LoadingReport report) {
@@ -156,6 +161,19 @@ public final class OctoClassLoader extends URLClassLoader {
         this.weaver = weaver;
     }
 
+    /**
+     * Installs the restorer that adds back game classes a mod from another
+     * version names and this one lacks.
+     *
+     * @param repair what each restored class passes through before it is
+     *               defined — the same bypass translated mods get, since a
+     *               restored class is old code calling into a new game
+     */
+    public void installRestorer(ClassRestorer restorer, Transformer repair) {
+        this.restoredRepair = repair;
+        this.restorer = restorer;
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         synchronized (getClassLoadingLock(name)) {
@@ -174,11 +192,27 @@ public final class OctoClassLoader extends URLClassLoader {
                     return super.loadClass(name, resolve);
                 } catch (ClassNotFoundException e) {
                     // Octo implements the mod-facing half of four loaders, not the
-                    // whole of any of them. A mod reaching for a corner none of the
-                    // bridges covers — some FML internal, say — used to fail here
-                    // and take the mod with it, even though the reference was one
-                    // the mod would never have called. Falling through lets the
-                    // stand-in machinery answer instead.
+                    // whole of any of them. What it does not have may still be on
+                    // this loader's own path — a loader API library a mod bundles,
+                    // or the real NeoForge or Forge API jar — and the real class
+                    // beats any stand-in, so that is asked next.
+                    try {
+                        Class<?> found = findClass(name);
+
+                        if (resolve) {
+                            resolveClass(found);
+                        }
+
+                        return found;
+                    } catch (ClassNotFoundException notHereEither) {
+                        // Fall through to the stand-in machinery.
+                    }
+
+                    // A mod reaching for a corner none of the bridges covers —
+                    // some FML internal, say — used to fail here and take the mod
+                    // with it, even though the reference was one the mod would
+                    // never have called. Falling through lets the stand-in
+                    // machinery answer instead.
                     Class<?> phantom = definePhantom(name, true);
 
                     if (phantom == null) {
@@ -270,6 +304,14 @@ public final class OctoClassLoader extends URLClassLoader {
                 return generated;
             }
 
+            // A class the game used to have, from the release the mod was
+            // built for: the real thing, where a stand-in could only guess.
+            Class<?> restored = defineRestored(name);
+
+            if (restored != null) {
+                return restored;
+            }
+
             // Planned stand-ins only. Anything invented on demand waits until
             // loadClass has given the parent its turn.
             Class<?> phantom = definePhantom(name, false);
@@ -312,6 +354,54 @@ public final class OctoClassLoader extends URLClassLoader {
                 new ProtectionDomain(codeSource, null, this, null));
     }
 
+    /**
+     * Defines a game class this version no longer has, added back from an older
+     * release.
+     *
+     * <p>Only for names a translated mod was seen to reference — the names a
+     * stand-in was planned for. The game probing for a class it knows may be
+     * absent must keep getting "absent".
+     *
+     * @return the class, or {@code null} when it is not one to add back
+     */
+    private Class<?> defineRestored(String name) {
+        ClassRestorer current = restorer;
+        String internalName = name.replace('.', '/');
+
+        if (current == null || !(phantoms.canGenerate(internalName) || current.isNamedByRestored(internalName))) {
+            return null;
+        }
+
+        byte[] bytes;
+
+        try {
+            bytes = current.restore(internalName);
+        } catch (RuntimeException e) {
+            LOG.warn("could not add back {}: {}", name, e.toString());
+            return null;
+        }
+
+        if (bytes == null) {
+            return null;
+        }
+
+        TransformContext context = TransformContext.of(null, this::classExists);
+        Transformer repair = restoredRepair;
+
+        if (repair != null) {
+            try {
+                bytes = repair.transform(internalName, bytes, context);
+            } catch (RuntimeException e) {
+                LOG.debug("could not repair the restored {}: {}", name, e.toString());
+            }
+        }
+
+        bytes = weave(globalPipeline.apply(internalName, bytes, context), internalName, context);
+        definePackageFor(name, null);
+        return defineClass(name, bytes, 0, bytes.length,
+                new ProtectionDomain(new CodeSource(null, (Certificate[]) null), null, this, null));
+    }
+
     private void definePackageFor(String className, URL jar) {
         int lastDot = className.lastIndexOf('.');
 
@@ -337,7 +427,7 @@ public final class OctoClassLoader extends URLClassLoader {
         }
 
         String internalName = name.replace('.', '/');
-        PhantomClasses.Spec spec = phantoms.spec(internalName);
+        PhantomClasses.Spec spec = phantoms.canGenerate(internalName) ? phantoms.spec(internalName) : null;
 
         if (spec == null && mayInvent) {
             spec = declareLoaderApiStandIn(internalName);

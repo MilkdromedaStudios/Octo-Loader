@@ -49,6 +49,51 @@ final class Nothing {
         }
     }
 
+    private static final String LIVE = "studios/milkdromeda/octo/bridge/forge/LiveStandIns";
+
+    /**
+     * Pushes a working object for the handful of types where a default is a
+     * dead mod: the loaders' event buses.
+     *
+     * @param owner the class the value is for, which an event's own bus needs
+     * @return whether anything was pushed; when not, the caller falls back to
+     *         {@link #push}
+     */
+    static boolean pushLive(MethodVisitor visitor, Type type, String owner) {
+        switch (type.getInternalName()) {
+            case "net/neoforged/bus/api/IEventBus" -> visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE,
+                    "neoBus", "()Lnet/neoforged/bus/api/IEventBus;", false);
+            case "net/minecraftforge/eventbus/api/IEventBus" -> visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE,
+                    "forgeBus", "()Lnet/minecraftforge/eventbus/api/IEventBus;", false);
+            case "net/minecraftforge/eventbus/api/bus/BusGroup" -> visitor.visitMethodInsn(Opcodes.INVOKESTATIC,
+                    LIVE, "busGroup", "()Lnet/minecraftforge/eventbus/api/bus/BusGroup;", false);
+            case "net/minecraftforge/eventbus/api/bus/EventBus" -> {
+                visitor.visitLdcInsn(Type.getObjectType(owner));
+                visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE, "eventBus",
+                        "(Ljava/lang/Class;)Lnet/minecraftforge/eventbus/api/bus/EventBus;", false);
+            }
+            case "net/minecraftforge/eventbus/api/bus/CancellableEventBus" -> {
+                visitor.visitLdcInsn(Type.getObjectType(owner));
+                visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE, "cancellableEventBus",
+                        "(Ljava/lang/Class;)Lnet/minecraftforge/eventbus/api/bus/CancellableEventBus;", false);
+            }
+            default -> {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Whether {@link #push} has a specific answer for this type rather than null. */
+    static boolean isSpecial(Type type) {
+        return switch (type.getInternalName()) {
+            case "java/util/List", "java/util/Collection", "java/lang/Iterable", "java/util/ArrayList",
+                    "java/util/Set", "java/util/Map", "java/util/Optional", "java/util/stream/Stream" -> true;
+            default -> false;
+        };
+    }
+
     private static void pushEmptyOrNull(MethodVisitor visitor, Type type) {
         switch (type.getInternalName()) {
             case "java/util/List", "java/util/Collection", "java/lang/Iterable",
