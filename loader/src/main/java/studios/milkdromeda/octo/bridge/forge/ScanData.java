@@ -66,6 +66,35 @@ public final class ScanData {
         return out;
     }
 
+    /** The same, in Forge's spelling, which Forge mods compare against their own types. */
+    public static List<net.minecraftforge.forgespi.language.ModFileScanData> allForge() {
+        List<net.minecraftforge.forgespi.language.ModFileScanData> out = new ArrayList<>();
+
+        for (ModFileScanData neo : all()) {
+            net.minecraftforge.forgespi.language.ModFileScanData forge =
+                    new net.minecraftforge.forgespi.language.ModFileScanData();
+            neo.getClasses().forEach(data -> forge.getClasses().add(
+                    new net.minecraftforge.forgespi.language.ModFileScanData.ClassData(data.clazz(), data.parent(),
+                            data.interfaces())));
+            neo.getAnnotations().forEach(data -> forge.getAnnotations().add(
+                    new net.minecraftforge.forgespi.language.ModFileScanData.AnnotationData(data.annotationType(),
+                            data.targetType(), data.clazz(), data.memberName(), data.annotationData())));
+
+            for (net.neoforged.neoforgespi.language.IModFileInfo info : neo.getIModInfoData()) {
+                net.minecraftforge.fml.loading.moddiscovery.ModFileInfo file =
+                        net.minecraftforge.fml.loading.moddiscovery.ModFileInfo.of(info.moduleName());
+
+                if (file != null) {
+                    forge.addModFileInfo(file);
+                }
+            }
+
+            out.add(forge);
+        }
+
+        return out;
+    }
+
     /** Test hook: forgets what was converted, so a fresh launch converts again. */
     public static void reset() {
         BY_MOD.clear();

@@ -41,6 +41,7 @@ class GameGapsTest {
     private static final String POINT = "net/minecraft/octotest/Point3";
     private static final String TAG = "net/minecraft/octotest/Tag3";
     private static final String REGISTRY = "net/minecraft/octotest/Registry3";
+    private static final String ID = "net/minecraft/octotest/Id3";
 
     private static final class Defining extends ClassLoader {
         Defining() {
@@ -235,6 +236,26 @@ class GameGapsTest {
         end(onInstance);
     }
 
+    /** {@code new ResourceLocation("mod", "thing")} and {@code new ResourceLocation("mod:thing")}, as 1.20 wrote them. */
+    private static void privateConstructors(ClassWriter writer) {
+        MethodVisitor twoArguments = method(writer, "identified", "()Ljava/lang/Object;");
+        twoArguments.visitTypeInsn(Opcodes.NEW, ID);
+        twoArguments.visitInsn(Opcodes.DUP);
+        twoArguments.visitLdcInsn("mod");
+        twoArguments.visitLdcInsn("thing");
+        twoArguments.visitMethodInsn(Opcodes.INVOKESPECIAL, ID, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V", false);
+        twoArguments.visitInsn(Opcodes.ARETURN);
+        end(twoArguments);
+
+        MethodVisitor oneArgument = method(writer, "parsed", "()Ljava/lang/Object;");
+        oneArgument.visitTypeInsn(Opcodes.NEW, ID);
+        oneArgument.visitInsn(Opcodes.DUP);
+        oneArgument.visitLdcInsn("mod:other");
+        oneArgument.visitMethodInsn(Opcodes.INVOKESPECIAL, ID, "<init>", "(Ljava/lang/String;)V", false);
+        oneArgument.visitInsn(Opcodes.ARETURN);
+        end(oneArgument);
+    }
+
     private static byte[] caller() {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
@@ -244,6 +265,7 @@ class GameGapsTest {
         constructorReferences(writer);
         oldGetters(writer);
         movedAcrossStatic(writer);
+        privateConstructors(writer);
         writer.visitEnd();
         return writer.toByteArray();
     }
@@ -345,6 +367,44 @@ class GameGapsTest {
     @DisplayName("an instance call with arguments to what is now static drops the receiver")
     void instanceCallWithArgumentsReachesStatic() throws Exception {
         assertEquals("k#7", call(repaired(caller()), "described"));
+    }
+
+    @Test
+    @DisplayName("a constructor that is private now is reached through the class's own factory")
+    void privateConstructorUsesFactory() throws Exception {
+        assertEquals("mod:thing", String.valueOf(call(repaired(caller()), "identified")),
+                "fromNamespaceAndPath, not tryBuild, which answers null");
+    }
+
+    @Test
+    @DisplayName("a constructor that is gone is reached through the factory taking the same arguments")
+    void goneConstructorUsesFactory() throws Exception {
+        assertEquals("mod:other", String.valueOf(call(repaired(caller()), "parsed")),
+                "parse, not withDefaultNamespace, which would read the whole string as a path");
+    }
+
+    @Test
+    @DisplayName("a private member reached from its own nest is left alone")
+    void nestmatesKeepPrivateAccess() {
+        String nestmate = ID + "$Builder";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, nestmate, null, "java/lang/Object", null);
+        MethodVisitor build = method(writer, "build", "()Ljava/lang/Object;");
+        build.visitTypeInsn(Opcodes.NEW, ID);
+        build.visitInsn(Opcodes.DUP);
+        build.visitLdcInsn("a");
+        build.visitLdcInsn("b");
+        build.visitMethodInsn(Opcodes.INVOKESPECIAL, ID, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V", false);
+        build.visitInsn(Opcodes.ARETURN);
+        end(build);
+        writer.visitEnd();
+        byte[] original = writer.toByteArray();
+
+        MissingMemberTransformer gaps = MissingMemberTransformer.forTranslatedMods(
+                new MemberIndex(GameGapsTest::classBytes), List.of("net/minecraft/octotest/"));
+
+        assertSame(original, gaps.transform(nestmate, original, TransformContext.of(null, name -> true)),
+                "an inner class may call its outer class's private constructor; nothing to repair");
     }
 
     @Test

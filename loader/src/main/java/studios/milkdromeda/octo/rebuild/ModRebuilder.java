@@ -36,6 +36,7 @@ import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.mapping.MappingProvider;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
 import studios.milkdromeda.octo.compat.mapping.MappingSet;
+import studios.milkdromeda.octo.compat.mapping.VersionDiff;
 import studios.milkdromeda.octo.launch.LaunchContext;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.runtime.OctoRuntime;
@@ -64,7 +65,7 @@ public final class ModRebuilder {
     private static final OctoLog LOG = OctoLog.of(ModRebuilder.class);
 
     /** Bumped whenever what a rebuild produces changes, so old caches are not reused. */
-    private static final int FORMAT = 2;
+    private static final int FORMAT = 3;
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
 
@@ -88,7 +89,12 @@ public final class ModRebuilder {
     }
 
     /** A plan: which table to rename through, and which rules to apply after. */
-    private record Plan(MappingSet names, TransformPipeline rules, String recipe, String description) {
+    /**
+     * @param renames what the game renamed after the newest published table,
+     *                applied as a second pass over what {@code names} produced
+     */
+    private record Plan(MappingSet names, MappingSet renames, TransformPipeline rules, String recipe,
+            String description) {
     }
 
     /**
@@ -181,6 +187,7 @@ public final class ModRebuilder {
         List<String> recipe = new ArrayList<>();
         List<String> steps = new ArrayList<>();
         MappingSet names = MappingSet.EMPTY;
+        MappingSet renames = MappingSet.EMPTY;
 
         // A mod that never names a game class has nothing to translate, whatever
         // era its class files suggest: a maths library compiled for Java 8 is
@@ -206,6 +213,12 @@ public final class ModRebuilder {
                     names = table.get();
                     recipe.add("names=" + table.get().name());
                     steps.add(describe(namespace) + (version == null ? "" : " " + version) + " -> today's names");
+                    renames = gameRenames(version);
+
+                    if (!renames.isEmpty()) {
+                        recipe.add("renames=" + renames.name() + "#" + renames.size());
+                        steps.add(renames.size() + " later rename(s) found by comparing jars");
+                    }
                 } else {
                     steps.add("no " + describe(namespace) + " table could be had, names left as they are");
                 }
@@ -236,7 +249,22 @@ public final class ModRebuilder {
         recipe.add("octo=" + OctoRuntime.VERSION);
         recipe.add("format=" + FORMAT);
         recipe.add("game=" + context.minecraftVersion());
-        return Optional.of(new Plan(names, rules, String.join(";", recipe), String.join(", ", steps)));
+        return Optional.of(new Plan(names, renames, rules, String.join(";", recipe), String.join(", ", steps)));
+    }
+
+    /**
+     * What the running game renamed that no published table knows: since
+     * 1.21.11, the last release with tables, and since the mod's own release
+     * for members intermediary lost track of.
+     */
+    private MappingSet gameRenames(String release) {
+        String side = context.side().name().toLowerCase(Locale.ROOT);
+        MappingSet latest = mappings.latestToGame(context.gameJars(), context.minecraftVersion(), side)
+                .orElse(MappingSet.EMPTY);
+        MappingSet own = release == null || release.equals(MappingProvider.LATEST_INTERMEDIARY) ? MappingSet.EMPTY
+                : mappings.releaseToGame(release, context.gameJars(), context.minecraftVersion(), side)
+                        .orElse(MappingSet.EMPTY);
+        return latest.orElse(own);
     }
 
     private static String describe(MappingNamespace namespace) {
@@ -354,11 +382,13 @@ public final class ModRebuilder {
         int classes = 0;
 
         try (ZipFile zip = new ZipFile(source.toFile())) {
-            Map<String, List<String>> parents = parents(zip);
+            Map<String, List<String>> mixinTargets = new HashMap<>();
+            Map<String, List<String>> parents = parents(zip, mixinTargets);
             Remapper remapper = plan.names().remapper(owner -> parents.getOrDefault(owner, List.of()));
             // A mod in Mojang's names with no refmap names the game in its
             // mixin annotations as plain text, which only this can translate.
             boolean mixinStrings = mod.candidate().namespace() == MappingNamespace.MOJANG && !hasRefmap(zip);
+            Remapper renamer = plan.renames().isEmpty() ? null : renamer(plan.renames(), parents, remapper);
             TransformContext transformContext = TransformContext.of(mod, name -> true);
             Set<String> written = new LinkedHashSet<>();
 
@@ -387,12 +417,20 @@ public final class ModRebuilder {
                         byte[] rewritten = rewriteClass(name, mixinStrings
                                 ? MixinStrings.translate(bytes, remapper, mixinTargetsOf(bytes)) : bytes,
                                 remapper, plan, transformContext);
+
+                        if (renamer != null) {
+                            rewritten = rename(rewritten, renamer, mixinStrings);
+                        }
                         String internal = new ClassReader(rewritten).getClassName();
                         outName = internal + ".class";
                         bytes = rewritten;
                         classes++;
                     } else if (isNameBearingText(name)) {
                         bytes = rewriteText(name, bytes, plan.names(), remapper);
+
+                        if (renamer != null) {
+                            bytes = renameText(name, bytes, plan.renames(), renamer, targetsIn(mixinTargets, remapper));
+                        }
                     } else if (name.equals("META-INF/MANIFEST.MF")) {
                         bytes = stripDigests(bytes);
                     }
@@ -418,6 +456,174 @@ public final class ModRebuilder {
 
         Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
         return classes;
+    }
+
+    /**
+     * The second pass's remapper. Its names are the first pass's output, so
+     * the mod's own hierarchy is translated into them; the game's comes from
+     * the game's jars, for a renamed member a mod reaches through a subclass.
+     */
+    private Remapper renamer(MappingSet renames, Map<String, List<String>> parents, Remapper first) {
+        Map<String, List<String>> game = VersionDiff.hierarchy(context.gameJars());
+        Map<String, List<String>> own = new java.util.HashMap<>();
+
+        parents.forEach((owner, list) -> {
+            List<String> mapped = new ArrayList<>(list.size());
+            list.forEach(parent -> mapped.add(first.map(parent)));
+            own.put(first.map(owner), mapped);
+        });
+
+        return renames.remapper(owner -> {
+            List<String> mine = own.get(owner);
+            return mine != null ? mine : game.getOrDefault(owner, List.of());
+        });
+    }
+
+    private static byte[] rename(byte[] bytes, Remapper renamer, boolean mixinStrings) {
+        byte[] current = mixinStrings ? MixinStrings.translate(bytes, renamer, mixinTargetsOf(bytes)) : bytes;
+        ClassWriter writer = new ClassWriter(0);
+        new ClassReader(current).accept(new ClassRemapper(writer, renamer), 0);
+        return writer.toByteArray();
+    }
+
+    private static final java.util.regex.Pattern QUALIFIED_MEMBER = java.util.regex.Pattern.compile(
+            "L[A-Za-z0-9_/$]+;[A-Za-z0-9_$]+(?:\\([^)\"]*\\)[^\"\\s,]*|:[^\"\\s,]+)");
+
+    /** Each mixin's targets in the first pass's names, which are the names the second pass takes. */
+    private static Map<String, List<String>> targetsIn(Map<String, List<String>> targets, Remapper first) {
+        Map<String, List<String>> out = new HashMap<>();
+        targets.forEach((mixin, list) -> {
+            List<String> mapped = new ArrayList<>(list.size());
+            list.forEach(target -> mapped.add(first.map(target)));
+            out.put(mixin, mapped);
+        });
+        return out;
+    }
+
+    /**
+     * The second pass over a refmap, widener or transformer.
+     *
+     * @param mixinTargets each mixin's targets, which a refmap's unqualified
+     *                     entries — an accessor's {@code cookingProgress:I} —
+     *                     are members of
+     */
+    static byte[] renameText(String name, byte[] bytes, MappingSet renames, Remapper renamer,
+            Map<String, List<String>> mixinTargets) {
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        String lower = name.toLowerCase(Locale.ROOT);
+        String rewritten;
+
+        if (lower.endsWith(".accesswidener") || lower.endsWith(".classtweaker")) {
+            rewritten = rewriteAccessWidener(text, renames, renamer);
+        } else if (lower.endsWith("accesstransformer.cfg")) {
+            rewritten = rewriteAccessTransformer(text, renames, renamer);
+        } else {
+            String structured = lower.endsWith(".json") ? renameRefmap(text, renamer, mixinTargets) : null;
+
+            if (structured != null) {
+                rewritten = structured;
+            } else {
+                java.util.regex.Matcher matcher = QUALIFIED_MEMBER.matcher(text);
+                StringBuilder out = new StringBuilder(text.length());
+
+                while (matcher.find()) {
+                    String mapped = MixinStrings.qualifiedReference(matcher.group(), renamer);
+                    matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(
+                            mapped != null ? mapped : matcher.group()));
+                }
+
+                matcher.appendTail(out);
+                rewritten = out.toString();
+            }
+        }
+
+        return rewritten.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Walks a refmap as what it is — mixin class to annotation string to
+     * resolved name — so an entry with no owner is resolved against that
+     * mixin's targets.
+     *
+     * @return the rewritten refmap, or {@code null} when it is not one
+     */
+    private static String renameRefmap(String text, Remapper renamer, Map<String, List<String>> mixinTargets) {
+        com.google.gson.JsonObject root;
+
+        try {
+            root = com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+        } catch (RuntimeException e) {
+            return null;
+        }
+
+        boolean changed = false;
+        List<com.google.gson.JsonObject> tables = new ArrayList<>();
+
+        if (root.get("mappings") instanceof com.google.gson.JsonObject mappings) {
+            tables.add(mappings);
+        }
+
+        if (root.get("data") instanceof com.google.gson.JsonObject data) {
+            data.entrySet().forEach(entry -> {
+                if (entry.getValue() instanceof com.google.gson.JsonObject table) {
+                    tables.add(table);
+                }
+            });
+        }
+
+        for (com.google.gson.JsonObject table : tables) {
+            for (Map.Entry<String, com.google.gson.JsonElement> mixin : table.entrySet()) {
+                if (!(mixin.getValue() instanceof com.google.gson.JsonObject entries)) {
+                    continue;
+                }
+
+                List<String> targets = mixinTargets.getOrDefault(mixin.getKey(), List.of());
+
+                for (Map.Entry<String, com.google.gson.JsonElement> entry : entries.entrySet()) {
+                    if (!entry.getValue().isJsonPrimitive()) {
+                        continue;
+                    }
+
+                    String value = entry.getValue().getAsString();
+                    String mapped = value.startsWith("L") && value.indexOf(';') > 0
+                            ? MixinStrings.qualifiedReference(value, renamer)
+                            : unqualified(value, renamer, targets);
+
+                    if (mapped != null) {
+                        entry.setValue(new com.google.gson.JsonPrimitive(mapped));
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        return changed ? new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(root) : text;
+    }
+
+    /** {@code name:desc} or {@code name(desc)ret} on one of the mixin's targets. */
+    private static String unqualified(String value, Remapper renamer, List<String> targets) {
+        int colon = value.indexOf(':');
+        int open = value.indexOf('(');
+
+        for (String target : targets) {
+            if (open > 0) {
+                String name = value.substring(0, open);
+                String mapped = name.startsWith("<") ? name : renamer.mapMethodName(target, name, value.substring(open));
+
+                if (!mapped.equals(name)) {
+                    return mapped + value.substring(open);
+                }
+            } else if (colon > 0) {
+                String name = value.substring(0, colon);
+                String mapped = renamer.mapFieldName(target, name, value.substring(colon + 1));
+
+                if (!mapped.equals(name)) {
+                    return mapped + value.substring(colon);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static boolean hasRefmap(ZipFile zip) {
@@ -463,6 +669,12 @@ public final class ModRebuilder {
      * looked up on the class that actually has it.
      */
     private static Map<String, List<String>> parents(ZipFile zip) throws IOException {
+        return parents(zip, new HashMap<>());
+    }
+
+    /** @param mixinTargetsOut filled with each mixin's own targets, which a refmap's entries are relative to */
+    private static Map<String, List<String>> parents(ZipFile zip, Map<String, List<String>> mixinTargetsOut)
+            throws IOException {
         Map<String, List<String>> out = new HashMap<>();
         Enumeration<? extends ZipEntry> entries = zip.entries();
 
@@ -490,8 +702,13 @@ public final class ModRebuilder {
                 }
 
                 list.addAll(node.interfaces);
-                list.addAll(mixinTargets(node));
+                List<String> targets = mixinTargets(node);
+                list.addAll(targets);
                 out.put(node.name, list);
+
+                if (!targets.isEmpty()) {
+                    mixinTargetsOut.put(node.name, targets);
+                }
             } catch (RuntimeException e) {
                 LOG.debug("could not read {}: {}", entry.getName(), e.toString());
             }

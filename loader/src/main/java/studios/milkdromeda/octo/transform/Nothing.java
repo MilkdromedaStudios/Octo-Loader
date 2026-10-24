@@ -77,6 +77,9 @@ final class Nothing {
                 visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE, "cancellableEventBus",
                         "(Ljava/lang/Class;)Lnet/minecraftforge/eventbus/api/bus/CancellableEventBus;", false);
             }
+            // 1.8 to 1.12's MinecraftForge.EVENT_BUS, which Forge 66 has no
+            // field for: a bus that takes registrations, so the mod goes on.
+            case "net/minecraftforge/fml/common/eventhandler/EventBus" -> construct(visitor, type.getInternalName());
             default -> {
                 return false;
             }

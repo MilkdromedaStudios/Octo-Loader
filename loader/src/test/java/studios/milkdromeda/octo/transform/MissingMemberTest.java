@@ -246,6 +246,31 @@ class MissingMemberTest {
     }
 
     @Test
+    @DisplayName("a field of a loader class nothing has reads as a default instead of failing to link")
+    void absentLoaderClassFieldIsADefault() throws Exception {
+        // Forge's ForgeConfigSpec reads Logging.CORE, from an FML jar Octo
+        // does not have; an invented stand-in has no such field.
+        String className = "com/example/gapmod/MarkerReader";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, className, null, "java/lang/Object", null);
+        MethodVisitor probe = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "probe",
+                "()Ljava/lang/Object;", null, null);
+        probe.visitCode();
+        probe.visitFieldInsn(Opcodes.GETSTATIC, "net/minecraftforge/fml/Logging", "CORE",
+                "Lorg/apache/logging/log4j/Marker;");
+        probe.visitInsn(Opcodes.ARETURN);
+        probe.visitMaxs(0, 0);
+        probe.visitEnd();
+        writer.visitEnd();
+
+        byte[] repaired = new MissingMemberTransformer(getClass().getClassLoader()).transform(className,
+                writer.toByteArray(), TransformContext.of(null, name -> !name.equals("net/minecraftforge/fml/Logging")));
+        Method entry = new Defining().define(className.replace('/', '.'), repaired).getDeclaredMethod("probe");
+
+        assertNull(entry.invoke(null));
+    }
+
+    @Test
     @DisplayName("getModFileById answers presence, which is what mods use it for")
     void modFileLookupAnswersPresence() {
         // Nothing is running, so nothing is loaded, and the honest answer to

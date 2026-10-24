@@ -33,10 +33,11 @@ import org.objectweb.asm.Opcodes;
 public final class MemberIndex {
     /** One class, as far as linking against it is concerned. */
     public record Shape(String name, String superName, List<String> interfaces, boolean isInterface,
-            Set<String> methods, Set<String> fields, Set<String> staticMethods) {
+            Set<String> methods, Set<String> fields, Set<String> staticMethods, Map<String, Integer> methodAccess) {
     }
 
-    private static final Shape ABSENT = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of());
+    private static final Shape ABSENT = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
+            Map.of());
 
     private final Function<String, byte[]> classBytes;
     private final Map<String, Shape> shapes = new ConcurrentHashMap<>();
@@ -119,6 +120,41 @@ public final class MemberIndex {
                 collectDescriptors(iface, prefix, true, out, seen);
             }
         }
+    }
+
+    /**
+     * The access flags of the method a call would reach: the owner's own for a
+     * constructor, otherwise the nearest declaration up the hierarchy.
+     *
+     * @return the flags, or {@code null} when the method is not found
+     */
+    public Integer methodAccess(String owner, String name, String descriptor) {
+        String key = name + descriptor;
+        Shape declaring = name.equals("<init>") ? shape(owner) : findMethodOwner(owner, key, new HashSet<>());
+        return declaring == null ? null : declaring.methodAccess().get(key);
+    }
+
+    /** The owner's own public static methods returning it with these parameters, in declaration order. */
+    public List<String> staticFactories(String owner, String parameters) {
+        Shape shape = shape(owner);
+        List<String> out = new ArrayList<>();
+
+        if (shape == null) {
+            return out;
+        }
+
+        String suffix = parameters + "L" + owner + ";";
+
+        for (String method : shape.methods()) {
+            Integer access = shape.methodAccess().get(method);
+
+            if (access != null && (access & Opcodes.ACC_STATIC) != 0 && (access & Opcodes.ACC_PUBLIC) != 0
+                    && method.endsWith(suffix) && method.indexOf('(') == method.length() - suffix.length()) {
+                out.add(method.substring(0, method.indexOf('(')));
+            }
+        }
+
+        return out;
     }
 
     /** Whether a value of {@code type} can be used where {@code ancestor} is expected. */
@@ -292,7 +328,8 @@ public final class MemberIndex {
         return shape == ABSENT || shape == READING ? null : shape;
     }
 
-    private static final Shape READING = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of());
+    private static final Shape READING = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
+            Map.of());
 
     private Shape read(String internalName) {
         byte[] bytes;
@@ -311,6 +348,7 @@ public final class MemberIndex {
             Set<String> methods = new LinkedHashSet<>();
             Set<String> staticMethods = new LinkedHashSet<>();
             Set<String> fields = new LinkedHashSet<>();
+            Map<String, Integer> methodAccess = new java.util.HashMap<>();
             String[] header = new String[1];
             List<String> interfaces = new ArrayList<>();
             boolean[] isInterface = new boolean[1];
@@ -331,6 +369,7 @@ public final class MemberIndex {
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
                         String[] exceptions) {
                     methods.add(name + descriptor);
+                    methodAccess.put(name + descriptor, access);
 
                     if ((access & Opcodes.ACC_STATIC) != 0) {
                         staticMethods.add(name + descriptor);
@@ -348,7 +387,7 @@ public final class MemberIndex {
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
             return new Shape(internalName, header[0], List.copyOf(interfaces), isInterface[0], methods, fields,
-                    staticMethods);
+                    staticMethods, methodAccess);
         } catch (RuntimeException e) {
             return ABSENT;
         }
@@ -365,10 +404,12 @@ public final class MemberIndex {
             Set<String> methods = new LinkedHashSet<>();
             Set<String> staticMethods = new LinkedHashSet<>();
             Set<String> fields = new LinkedHashSet<>();
+            Map<String, Integer> methodAccess = new java.util.HashMap<>();
 
             for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
                 String key = method.getName() + org.objectweb.asm.Type.getMethodDescriptor(method);
                 methods.add(key);
+                methodAccess.put(key, method.getModifiers());
 
                 if (java.lang.reflect.Modifier.isStatic(method.getModifiers())) {
                     staticMethods.add(key);
@@ -376,7 +417,9 @@ public final class MemberIndex {
             }
 
             for (java.lang.reflect.Constructor<?> constructor : type.getDeclaredConstructors()) {
-                methods.add("<init>" + org.objectweb.asm.Type.getConstructorDescriptor(constructor));
+                String key = "<init>" + org.objectweb.asm.Type.getConstructorDescriptor(constructor);
+                methods.add(key);
+                methodAccess.put(key, constructor.getModifiers());
             }
 
             for (java.lang.reflect.Field field : type.getDeclaredFields()) {
@@ -391,7 +434,7 @@ public final class MemberIndex {
 
             return new Shape(internalName, type.getSuperclass() == null ? null
                     : type.getSuperclass().getName().replace('.', '/'), interfaces, type.isInterface(), methods,
-                    fields, staticMethods);
+                    fields, staticMethods, methodAccess);
         } catch (ClassNotFoundException | LinkageError | RuntimeException e) {
             return ABSENT;
         }

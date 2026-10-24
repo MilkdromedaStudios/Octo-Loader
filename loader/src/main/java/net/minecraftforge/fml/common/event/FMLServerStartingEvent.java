@@ -16,6 +16,11 @@ public class FMLServerStartingEvent {
         return modId;
     }
 
+    /** The side the game is running as, which mods of this era branched on before anything else. */
+    public net.minecraftforge.fml.relauncher.Side getSide() {
+        return net.minecraftforge.fml.relauncher.Side.current();
+    }
+
     /** The mod's own config file, the thing every mod of this era asked for first. */
     public File getSuggestedConfigurationFile() {
         return OctoRuntime.get().configDir().resolve(modId + ".cfg").toFile();

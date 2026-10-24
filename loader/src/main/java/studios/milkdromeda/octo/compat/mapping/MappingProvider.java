@@ -16,6 +16,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -164,6 +165,73 @@ public final class MappingProvider {
                 }
             });
             return built;
+        });
+    }
+
+    /**
+     * The renames between the newest release with published tables and the
+     * game running now, worked out by comparing the two jars.
+     *
+     * <p>Every other table here translates into 1.21.11's names, and the year
+     * releases renamed things after that without publishing anything. This is
+     * the last step of every translation: the furnace's
+     * {@code cookingProgress} in 1.21.11 is {@code cookingTimer} in 26.3.
+     *
+     * @param gameJars    the running game's jars
+     * @param gameVersion the running game's version
+     * @param side        which jar those are; a dedicated server's has no
+     *                    client classes, so its comparison covers less
+     * @return the renames, or empty when the game is not a year release or
+     *         the old jar could not be had
+     */
+    public Optional<MappingSet> latestToGame(List<Path> gameJars, String gameVersion, String side) {
+        return releaseToGame(LATEST_INTERMEDIARY, gameJars, gameVersion, side);
+    }
+
+    /**
+     * The same comparison from an older release's own names, for what its
+     * route through intermediary loses: a member Mojang reworked rather than
+     * renamed got a new intermediary number, so nothing links 1.21's
+     * {@code cookingProgress} to the {@code cookingTimer} it became in 1.21.2.
+     */
+    public Optional<MappingSet> releaseToGame(String release, List<Path> gameJars, String gameVersion, String side) {
+        if (release == null || gameJars.isEmpty() || gameVersion == null
+                || !gameVersion.matches("\\d{2,}\\..*")) {
+            return Optional.empty();
+        }
+
+        String key = "mojang-" + release + "-to-" + gameVersion + "-" + side;
+        return composed.computeIfAbsent(key, ignored -> {
+            Path file = cache.resolve(key + ".octomap");
+
+            if (Files.isRegularFile(file)) {
+                try {
+                    return Optional.of(read(file, key));
+                } catch (IOException | RuntimeException e) {
+                    LOG.warn("cached renames {} are unreadable and will be worked out again: {}", file, e.toString());
+                }
+            }
+
+            Optional<Path> oldJar = clientJar(release);
+            Optional<NameTable> names = oldJar.isPresent() ? mojang(release) : Optional.empty();
+
+            if (oldJar.isEmpty() || names.isEmpty()) {
+                LOG.info("Minecraft {} could not be had, so renames since it are left to the bypass", release);
+                return Optional.empty();
+            }
+
+            try {
+                long started = System.nanoTime();
+                MappingSet renames = VersionDiff.between(VersionDiff.readObfuscated(oldJar.get(), names.get()),
+                        VersionDiff.readNamed(gameJars), "mojang " + release + "->" + gameVersion);
+                LOG.info("found {} member rename(s) between Minecraft {} and {} in {} ms", renames.size(),
+                        release, gameVersion, (System.nanoTime() - started) / 1_000_000);
+                write(file, renames);
+                return Optional.of(renames);
+            } catch (IOException | RuntimeException e) {
+                LOG.warn("could not compare Minecraft {} with {}: {}", release, gameVersion, e.toString());
+                return Optional.empty();
+            }
         });
     }
 

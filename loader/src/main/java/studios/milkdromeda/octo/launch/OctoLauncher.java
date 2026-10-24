@@ -399,7 +399,10 @@ public final class OctoLauncher {
         }
 
         if (gameGaps != null && !gameGaps.gaps().isEmpty()) {
-            LOG.info("{} game member(s) mods from other versions asked for do not exist here and were bypassed:",
+            // Mods from other versions and the loader API jars, which expect a
+            // game their installer patched; what each one was answered with —
+            // the member's new shape, or a default — is on its own line above.
+            LOG.info("{} game member(s) asked for are not here as asked, and were redirected or bypassed:",
                     gameGaps.gaps().size());
             gameGaps.gaps().forEach(gap -> LOG.info("  {}", gap));
         }
