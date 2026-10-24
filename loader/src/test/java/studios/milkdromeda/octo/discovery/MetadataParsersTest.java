@@ -79,6 +79,47 @@ class MetadataParsersTest {
     }
 
     @Test
+    @DisplayName("custom values and provided ids, which mods read off each other")
+    void customValuesAndProvides() throws IOException {
+        Path fabric = new JarBuilder().file("fabric.mod.json", """
+                {
+                  "schemaVersion": 1,
+                  "id": "sodium",
+                  "version": "0.8.0",
+                  "provides": ["indium"],
+                  "custom": {
+                    "fabric-renderer-api-v1:contains_renderer": true,
+                    "modmenu": { "links": ["a", 2], "badges": null }
+                  }
+                }
+                """).writeTo(directory.resolve("sodium.jar"));
+
+        Map<String, Object> custom = discover(fabric).metadata().customValues();
+        assertEquals(List.of("indium"), discover(fabric).metadata().provides());
+        assertEquals(Boolean.TRUE, custom.get("fabric-renderer-api-v1:contains_renderer"));
+        Map<?, ?> modmenu = (Map<?, ?>) custom.get("modmenu");
+        assertEquals("a", ((List<?>) modmenu.get("links")).get(0));
+        assertEquals(2, ((Number) ((List<?>) modmenu.get("links")).get(1)).intValue());
+        assertTrue(modmenu.containsKey("badges"));
+
+        Path quilt = new JarBuilder().file("quilt.mod.json", """
+                {
+                  "schema_version": 1,
+                  "quilt_loader": {
+                    "group": "com.example", "id": "quiltmod", "version": "1.0.0",
+                    "provides": ["com.example:legacy_id", { "id": "other_id", "version": "1.0.0" }]
+                  },
+                  "mixin": "quiltmod.mixins.json",
+                  "modmenu": { "badges": ["library"] }
+                }
+                """).writeTo(directory.resolve("quilt-custom.jar"));
+
+        ModCandidate quiltMod = discover(quilt);
+        assertEquals(List.of("legacy_id", "other_id"), quiltMod.metadata().provides());
+        assertEquals(List.of("modmenu"), List.copyOf(quiltMod.metadata().customValues().keySet()));
+    }
+
+    @Test
     @DisplayName("quilt.mod.json")
     void quilt() throws IOException {
         Path jar = new JarBuilder().file("quilt.mod.json", """

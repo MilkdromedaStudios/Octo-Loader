@@ -53,6 +53,13 @@ public final class FabricMetadataParser implements MetadataParser {
                 .side(Side.parse(Json.string(json, "environment", "*"), Side.BOTH));
 
         Json.strings(json, "authors").forEach(builder::author);
+        Json.strings(json, "provides").forEach(builder::provide);
+
+        JsonObject custom = Json.object(json, "custom");
+
+        if (custom != null) {
+            custom.entrySet().forEach(entry -> builder.customValue(entry.getKey(), Json.plain(entry.getValue())));
+        }
 
         JsonObject entrypoints = Json.object(json, "entrypoints");
 

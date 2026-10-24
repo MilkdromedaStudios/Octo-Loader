@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import studios.milkdromeda.octo.launch.LaunchContext;
 import studios.milkdromeda.octo.mod.Side;
@@ -30,6 +31,7 @@ public final class OctoRuntime {
     private final List<LoadedMod> mods = new ArrayList<>();
     private final Map<String, LoadedMod> modsById = new LinkedHashMap<>();
     private final Map<String, List<Entrypoint>> entrypoints = new LinkedHashMap<>();
+    private final Map<String, List<Deferred>> deferred = new LinkedHashMap<>();
     private final Map<String, Object> objectShare = new ConcurrentHashMap<>();
     private final Map<String, List<BiConsumer<String, Object>>> shareWaiters = new ConcurrentHashMap<>();
     private volatile Lifecycle phase = Lifecycle.PRE_LAUNCH;
@@ -108,6 +110,11 @@ public final class OctoRuntime {
     public void register(LoadedMod mod) {
         mods.add(mod);
         modsById.put(mod.id(), mod);
+
+        // getModContainer("cloth-config2") finds Cloth Config, as on Fabric.
+        for (String alias : mod.metadata().provides()) {
+            modsById.putIfAbsent(alias, mod);
+        }
     }
 
     /** An entrypoint object together with the mod that supplied it. */
@@ -122,12 +129,43 @@ public final class OctoRuntime {
      * {@code FabricLoader.getEntrypoints("mymod:api", ...)} keeps working, and
      * now also finds entrypoints registered by mods from other ecosystems.
      */
-    public void registerEntrypoint(String key, LoadedMod mod, Object instance) {
+    public synchronized void registerEntrypoint(String key, LoadedMod mod, Object instance) {
         entrypoints.computeIfAbsent(key, ignored -> new ArrayList<>()).add(new Entrypoint(key, mod, instance));
         mod.instances().add(instance);
     }
 
-    public List<Entrypoint> entrypoints(String key) {
+    private record Deferred(LoadedMod mod, Supplier<Object> factory) {
+    }
+
+    /**
+     * Records an entrypoint to be built the first time its key is asked for.
+     *
+     * <p>That is when Fabric builds them, and mods count on it: JourneyMap's
+     * client entrypoint reads {@code Minecraft.getInstance()} in its
+     * constructor, which is null until the game is being made, and the plugin
+     * entrypoints for REI or Jade name classes that only exist when those mods
+     * are installed, so building them unasked fails for nothing.
+     *
+     * @param factory builds the instance, or answers {@code null} when it
+     *                could not, having said why
+     */
+    public synchronized void deferEntrypoint(String key, LoadedMod mod, Supplier<Object> factory) {
+        deferred.computeIfAbsent(key, ignored -> new ArrayList<>()).add(new Deferred(mod, factory));
+    }
+
+    public synchronized List<Entrypoint> entrypoints(String key) {
+        List<Deferred> waiting = deferred.remove(key);
+
+        if (waiting != null) {
+            for (Deferred entry : waiting) {
+                Object instance = entry.factory().get();
+
+                if (instance != null) {
+                    registerEntrypoint(key, entry.mod(), instance);
+                }
+            }
+        }
+
         return List.copyOf(entrypoints.getOrDefault(key, List.of()));
     }
 

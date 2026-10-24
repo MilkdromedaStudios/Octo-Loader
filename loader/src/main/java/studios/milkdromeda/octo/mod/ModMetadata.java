@@ -33,6 +33,8 @@ public final class ModMetadata {
     private final List<String> accessTransformers;
     private final List<String> nestedJars;
     private final String declaredMinecraftVersion;
+    private final List<String> provides;
+    private final Map<String, Object> customValues;
 
     private ModMetadata(Builder builder) {
         this.id = builder.id;
@@ -50,6 +52,8 @@ public final class ModMetadata {
         this.accessTransformers = List.copyOf(builder.accessTransformers);
         this.nestedJars = List.copyOf(builder.nestedJars);
         this.declaredMinecraftVersion = builder.declaredMinecraftVersion;
+        this.provides = List.copyOf(builder.provides);
+        this.customValues = Collections.unmodifiableMap(new LinkedHashMap<>(builder.customValues));
 
         Map<String, List<EntrypointSpec>> copy = new LinkedHashMap<>();
         builder.entrypoints.forEach((phase, specs) -> copy.put(phase, List.copyOf(specs)));
@@ -155,6 +159,25 @@ public final class ModMetadata {
         return Optional.ofNullable(declaredMinecraftVersion);
     }
 
+    /** Further ids this mod answers for: Fabric's and Quilt's {@code provides}. */
+    public List<String> provides() {
+        return provides;
+    }
+
+    /**
+     * The free-form values a mod published for other mods to read: Fabric's
+     * {@code custom} block, and the fields Quilt leaves to mods. Each is a
+     * plain value: a map, a list, a string, a number, a boolean, or null.
+     *
+     * <p>Mods steer each other through these. Sodium says
+     * {@code fabric-renderer-api-v1:contains_renderer} so that Fabric API's own
+     * renderer stands aside; without it both registered, and the second
+     * registration threw.
+     */
+    public Map<String, Object> customValues() {
+        return customValues;
+    }
+
     /** The Minecraft version range this mod asks for, from whichever field its format uses. */
     public Optional<ModDependency> minecraftDependency() {
         return dependencies.stream().filter(d -> d.modId().equals("minecraft")).findFirst();
@@ -175,6 +198,8 @@ public final class ModMetadata {
         builder.accessTransformers.addAll(accessTransformers);
         builder.nestedJars.addAll(nestedJars);
         builder.declaredMinecraftVersion = declaredMinecraftVersion;
+        builder.provides.addAll(provides);
+        builder.customValues.putAll(customValues);
         entrypoints.forEach((phase, specs) -> builder.entrypoints.put(phase, new ArrayList<>(specs)));
         return builder;
     }
@@ -201,6 +226,8 @@ public final class ModMetadata {
         private final List<String> accessTransformers = new ArrayList<>();
         private final List<String> nestedJars = new ArrayList<>();
         private String declaredMinecraftVersion;
+        private final List<String> provides = new ArrayList<>();
+        private final Map<String, Object> customValues = new LinkedHashMap<>();
 
         private Builder(String id, ModFormat format) {
             this.id = id;
@@ -282,6 +309,19 @@ public final class ModMetadata {
 
         public Builder declaredMinecraftVersion(String value) {
             this.declaredMinecraftVersion = value == null || value.isBlank() ? null : value.trim();
+            return this;
+        }
+
+        public Builder provide(String value) {
+            if (value != null && !value.isBlank() && !value.equals(id)) {
+                this.provides.add(value.trim());
+            }
+
+            return this;
+        }
+
+        public Builder customValue(String key, Object value) {
+            this.customValues.put(key, value);
             return this;
         }
 

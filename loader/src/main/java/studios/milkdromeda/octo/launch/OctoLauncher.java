@@ -28,6 +28,7 @@ import studios.milkdromeda.octo.hook.GameHooks;
 import studios.milkdromeda.octo.mixin.MixinSupport;
 import studios.milkdromeda.octo.mixin.MixinTargets;
 import studios.milkdromeda.octo.mod.ModCandidate;
+import studios.milkdromeda.octo.mod.ModFormat;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.rebuild.MixinInterfaces;
@@ -332,7 +333,19 @@ public final class OctoLauncher {
 
             if (!deferred.isEmpty()) {
                 LOG.info("holding {} until the game has started", describe(deferred));
-                GameHooks.arm(() -> deferred.forEach(phase -> dispatch(phase, mods)));
+                // Fabric and Quilt run their client initialisers as the client
+                // starts being built; Forge's client setup comes once it exists.
+                List<LoadedMod> fabricFamily = mods.stream()
+                        .filter(mod -> mod.format().family() == ModFormat.Family.FABRIC).toList();
+                List<LoadedMod> others = mods.stream()
+                        .filter(mod -> mod.format().family() != ModFormat.Family.FABRIC).toList();
+
+                if (deferred.contains(Lifecycle.SIDED_SETUP) && !fabricFamily.isEmpty()) {
+                    GameHooks.armEarly(() -> dispatch(Lifecycle.SIDED_SETUP, fabricFamily));
+                }
+
+                GameHooks.arm(() -> deferred.forEach(phase -> dispatch(phase,
+                        phase == Lifecycle.SIDED_SETUP ? others : mods)));
             }
         } finally {
             Thread.currentThread().setContextClassLoader(previous);

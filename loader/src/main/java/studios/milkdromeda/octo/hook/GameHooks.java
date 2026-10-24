@@ -26,6 +26,9 @@ public final class GameHooks {
 
     private static volatile Runnable pending;
     private static final AtomicBoolean fired = new AtomicBoolean();
+    /** What runs as the client starts being built, rather than once it is. */
+    private static volatile Runnable early;
+    private static final AtomicBoolean firedEarly = new AtomicBoolean();
 
     private GameHooks() {
     }
@@ -36,8 +39,52 @@ public final class GameHooks {
         fired.set(false);
     }
 
+    /**
+     * Registers the work to do part-way into the client's constructor, before
+     * its options and window exist: Fabric's client initialisers. Sodium's
+     * mixin into {@code setFullscreen}, further into that constructor, reads
+     * the config its initialiser loads; run at the end of the constructor
+     * instead, there was no config yet and the game crashed starting.
+     */
+    public static void armEarly(Runnable action) {
+        early = action;
+        firedEarly.set(false);
+    }
+
+    /** Called from the mixin just before the client builds its options. */
+    public static void clientConstructing(Object game) {
+        if (OctoRuntime.isRunning()) {
+            OctoRuntime.get().gameInstance(game);
+        }
+
+        runEarly("the game began starting");
+    }
+
+    private static void runEarly(String reason) {
+        if (!firedEarly.compareAndSet(false, true)) {
+            return;
+        }
+
+        Runnable action = early;
+        early = null;
+
+        if (action == null) {
+            return;
+        }
+
+        LOG.debug("dispatching the early client phases: {}", reason);
+
+        try {
+            action.run();
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.error("the early client phases failed: {}", Failures.describe(e));
+            OctoLog.detail(e);
+        }
+    }
+
     public static boolean isArmed() {
-        return pending != null && !fired.get();
+        return pending != null && !fired.get() || early != null && !firedEarly.get();
     }
 
     /**
@@ -69,6 +116,9 @@ public final class GameHooks {
     }
 
     private static void run(String reason) {
+        // Whatever was meant to run earlier and did not, runs first.
+        runEarly(reason);
+
         if (!fired.compareAndSet(false, true)) {
             return;
         }
@@ -95,5 +145,7 @@ public final class GameHooks {
     public static void reset() {
         pending = null;
         fired.set(false);
+        early = null;
+        firedEarly.set(false);
     }
 }
