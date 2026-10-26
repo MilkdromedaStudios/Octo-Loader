@@ -78,6 +78,28 @@ class MixinTargetsTest {
                     @Accessor("entries")
                     public abstract Map<String, String> getEntries();
                 }
+                """, "mixinpkg.PatchedFieldMixin", """
+                package mixinpkg;
+
+                import java.util.Map;
+
+                import org.spongepowered.asm.mixin.Mixin;
+                import org.spongepowered.asm.mixin.Shadow;
+                import org.spongepowered.asm.mixin.injection.At;
+                import org.spongepowered.asm.mixin.injection.Inject;
+                import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+                /** Written against a game a loader patched: the field and the method are the patch's. */
+                @Mixin(targets = "game.Screen")
+                public class PatchedFieldMixin {
+                    @Shadow private boolean confirmedExperimentalWarning;
+                    @Shadow private Map<String, String> details;
+
+                    @Inject(method = "withConfirmedWarning(Z)Lgame/Screen;", at = @At("RETURN"))
+                    private void withConfirmedWarning(boolean confirmed, CallbackInfo callback) {
+                        confirmedExperimentalWarning = confirmed;
+                    }
+                }
                 """));
     }
 
@@ -248,6 +270,53 @@ class MixinTargetsTest {
 
         writer.visitEnd();
         return writer.toByteArray();
+    }
+
+    private static ClassNode adaptedPatchedFieldMixin() {
+        Map<String, byte[]> classPath = new LinkedHashMap<>();
+        classPath.put(TARGET, target());
+
+        ClassNode node = new ClassNode();
+        new ClassReader(adapt(compiled.get("mixinpkg.PatchedFieldMixin"), classPath)).accept(node, 0);
+        return node;
+    }
+
+    private static boolean isShadow(org.objectweb.asm.tree.FieldNode field) {
+        List<AnnotationNode> annotations = new java.util.ArrayList<>();
+
+        if (field.visibleAnnotations != null) {
+            annotations.addAll(field.visibleAnnotations);
+        }
+
+        if (field.invisibleAnnotations != null) {
+            annotations.addAll(field.invisibleAnnotations);
+        }
+
+        return annotations.stream().anyMatch(annotation -> annotation.desc.equals("Lorg/spongepowered/asm/mixin/Shadow;"));
+    }
+
+    @Test
+    @DisplayName("an injector handler named after its target is not mistaken for the target")
+    void handlerIsNotItsOwnTarget() {
+        AnnotationNode injector = injector(adaptedPatchedFieldMixin(), "withConfirmedWarning");
+
+        assertEquals(List.of("withConfirmedWarning(Z)Lgame/Screen;"), value(injector, "method"),
+                "the handler is merged under another name, so it is nothing to inject into");
+        assertEquals(0, value(injector, "require"));
+    }
+
+    @Test
+    @DisplayName("a shadowed field the target lacks becomes a field the mixin adds; one it has stays a shadow")
+    void missingShadowFieldIsAdded() {
+        Map<String, Boolean> shadows = new LinkedHashMap<>();
+
+        for (org.objectweb.asm.tree.FieldNode field : adaptedPatchedFieldMixin().fields) {
+            shadows.put(field.name, isShadow(field));
+        }
+
+        assertEquals(Boolean.FALSE, shadows.get("confirmedExperimentalWarning"),
+                "mixin rejects a whole mixin over a shadow it cannot locate");
+        assertEquals(Boolean.TRUE, shadows.get("details"));
     }
 
     @Test

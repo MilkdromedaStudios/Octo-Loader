@@ -61,6 +61,15 @@ public final class ForgeBridge implements LoaderBridge {
         // call and around every lifecycle dispatch, so a mod reaching for its own
         // bus from a setup handler finds the same one it found in its constructor.
         for (EntrypointSpec spec : specs) {
+            if (isTheOtherLoaders(mod, spec.className())) {
+                // One jar for Forge and NeoForge has a @Mod class for each, and
+                // each is written against its own loader's API. Constructing
+                // NeoForge's in a Forge launch is a VerifyError at best.
+                LOG.debug("{}: {} is the other loader's @Mod class; not constructing it", mod.id(),
+                        spec.className());
+                continue;
+            }
+
             if (!AnnotatedClasses.runsOnThisSide(mod, spec.className(), MOD_ANNOTATIONS)) {
                 // @Mod(value = "x", dist = Dist.CLIENT) is a class written for the
                 // client and nothing else. Constructing it on a dedicated server
@@ -203,6 +212,19 @@ public final class ForgeBridge implements LoaderBridge {
     /** The annotations a Forge or NeoForge mod class is marked with. */
     private static final java.util.Set<String> MOD_ANNOTATIONS = java.util.Set.of(
             "Lnet/neoforged/fml/common/Mod;", "Lnet/minecraftforge/fml/common/Mod;");
+    private static final java.util.Set<String> NEOFORGE_MOD = java.util.Set.of("Lnet/neoforged/fml/common/Mod;");
+    private static final java.util.Set<String> FORGE_MOD = java.util.Set.of("Lnet/minecraftforge/fml/common/Mod;");
+
+    /** Whether a class is marked as a mod only for the loader this jar is not being read as. */
+    private static boolean isTheOtherLoaders(LoadedMod mod, String className) {
+        return switch (mod.format()) {
+            case FORGE -> AnnotatedClasses.carries(mod, className, NEOFORGE_MOD)
+                    && !AnnotatedClasses.carries(mod, className, FORGE_MOD);
+            case NEOFORGE -> AnnotatedClasses.carries(mod, className, FORGE_MOD)
+                    && !AnnotatedClasses.carries(mod, className, NEOFORGE_MOD);
+            default -> false;
+        };
+    }
 
     private static final Object MISSING = new Object();
 

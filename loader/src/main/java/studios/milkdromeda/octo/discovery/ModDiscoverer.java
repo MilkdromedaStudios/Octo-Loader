@@ -62,6 +62,8 @@ public final class ModDiscoverer {
     private final ModClassScanner scanner = new ModClassScanner();
     private final EraDetector eraDetector = new EraDetector();
     private final Path extractionDir;
+    /** The loader the folder's single-loader jars are for, which multi-loader jars are read as. */
+    private ModFormat preferred;
 
     /**
      * @param extractionDir where nested jars are unpacked; usually {@code .octo/nested}
@@ -83,6 +85,7 @@ public final class ModDiscoverer {
             try (Stream<Path> files = Files.list(directory)) {
                 List<Path> sorted = files.filter(ModDiscoverer::isCandidateFile).sorted().toList();
                 LOG.info("{} contains {} file(s) to inspect", directory, sorted.size());
+                preferred = preferredFormat(sorted);
 
                 for (Path file : sorted) {
                     discovery.add(discoverFile(file, null, discovery));
@@ -196,10 +199,91 @@ public final class ModDiscoverer {
      * @return the mods declared in this archive, or {@code null} when a metadata
      *         file is present but unreadable
      */
+    /**
+     * Which loader the folder is for, judged by the jars that are for only one.
+     *
+     * <p>A multi-loader jar — Collective ships a {@code fabric.mod.json}, a
+     * {@code mods.toml} and a {@code neoforge.mods.toml} side by side — has to be
+     * read as one of them, and the fixed order used to make that Fabric every
+     * time. In a Forge folder that ran Collective's Fabric code against a Fabric
+     * API nothing had installed, and Collective failed where its Forge half
+     * would have run. The jars that only speak one loader say what the folder
+     * is; only the metadata file names are read for this, never the jar's
+     * classes.
+     *
+     * @return the most common single loader, or {@code null} when nothing says
+     */
+    private ModFormat preferredFormat(List<Path> files) {
+        java.util.Map<ModFormat, Integer> votes = new java.util.EnumMap<>(ModFormat.class);
+
+        for (Path file : files) {
+            List<ModFormat> formats = new ArrayList<>();
+
+            try (ModSource source = ModSource.open(file)) {
+                for (MetadataParser parser : parsers) {
+                    if (parser.matches(source)) {
+                        formats.add(parser.format());
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                continue;
+            }
+
+            // A Quilt mod carrying a fabric.mod.json too still speaks one loader.
+            if (formats.size() == 2 && formats.contains(ModFormat.QUILT) && formats.contains(ModFormat.FABRIC)) {
+                formats.remove(ModFormat.FABRIC);
+            }
+
+            if (formats.size() == 1) {
+                votes.merge(formats.get(0), 1, Integer::sum);
+            }
+        }
+
+        ModFormat best = null;
+        int bestVotes = 0;
+
+        for (java.util.Map.Entry<ModFormat, Integer> vote : votes.entrySet()) {
+            if (vote.getValue() > bestVotes) {
+                best = vote.getKey();
+                bestVotes = vote.getValue();
+            }
+        }
+
+        if (best != null) {
+            LOG.debug("the folder is mostly {} mods; jars for several loaders are read as {}", best, best);
+        }
+
+        return best;
+    }
+
+    /** The parsers to try on one jar: the folder's own loader first, then the usual order. */
+    private List<MetadataParser> parserOrder(ModSource source) {
+        if (preferred == null) {
+            return parsers;
+        }
+
+        for (MetadataParser parser : parsers) {
+            if (parser.format() == preferred && parser.matches(source)) {
+                List<MetadataParser> ordered = new ArrayList<>();
+                ordered.add(parser);
+
+                for (MetadataParser other : parsers) {
+                    if (other != parser) {
+                        ordered.add(other);
+                    }
+                }
+
+                return ordered;
+            }
+        }
+
+        return parsers;
+    }
+
     private List<ModMetadata> parseMetadata(ModSource source, Discovery discovery, boolean nested) {
         List<String> broken = new ArrayList<>();
 
-        for (MetadataParser parser : parsers) {
+        for (MetadataParser parser : parserOrder(source)) {
             if (!parser.matches(source)) {
                 continue;
             }

@@ -62,4 +62,11 @@ public final class FMLLoader {
     public String getLauncherInfo() {
         return "Octo Loader " + OctoRuntime.VERSION;
     }
+
+    public VersionInfo getVersionInfo() {
+        String minecraft = OctoRuntime.isRunning() ? OctoRuntime.get().minecraftVersion() : "";
+        String neoForge = minecraft.isEmpty() ? "" : studios.milkdromeda.octo.resolve.ModResolver
+                .neoForgeVersionFor(studios.milkdromeda.octo.mod.version.Version.parse(minecraft)).raw();
+        return new VersionInfo(neoForge, "12.0.0", minecraft, minecraft);
+    }
 }

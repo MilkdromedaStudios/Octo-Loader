@@ -108,6 +108,25 @@ public final class MissingMemberTransformer implements Transformer {
 
         /** Whether a {@code type} can be passed where {@code ancestor} is expected. */
         boolean isAssignable(String type, String ancestor);
+
+        /** @return the access flags of the method a call reaches, or {@code null} when unknown */
+        default Integer methodAccess(String owner, String name, String descriptor) {
+            return null;
+        }
+
+        /** The owner's public static methods taking these parameters and returning the owner. */
+        default List<String> staticFactories(String owner, String parameters) {
+            return List.of();
+        }
+
+        /**
+         * Whether the owner is nowhere at all: not something this lookup can
+         * see, and not on the class path either. Its members are then as
+         * missing as members get.
+         */
+        default boolean isAbsent(String owner, TransformContext context) {
+            return false;
+        }
     }
 
     private final Lookup lookup;
@@ -131,7 +150,16 @@ public final class MissingMemberTransformer implements Transformer {
         this.translatedModsOnly = translatedModsOnly;
         this.alsoCovered = List.copyOf(alsoCovered);
         this.name = name;
+
+        // The loader API jars' own packages are game-side too: a translated
+        // Forge mod whose main class names only MinecraftForge and never
+        // net/minecraft/ still reaches into what Forge 66 changed.
+        List<String> mentions = new java.util.ArrayList<>(List.of("net/minecraft/", "com/mojang/"));
+        mentions.addAll(alsoCovered);
+        this.mentionsGame = new ByteScan(mentions);
     }
+
+    private final ByteScan mentionsGame;
 
     /**
      * Guards the game for mods built for another version: what this Minecraft
@@ -204,7 +232,7 @@ public final class MissingMemberTransformer implements Transformer {
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
         // A class that never names one of these packages cannot call into it, and
         // this runs over every class the game loads, so the cheap answer first.
-        if (!(translatedModsOnly ? MENTIONS_GAME : MENTIONS_LOADER_API).matches(bytes)) {
+        if (!(translatedModsOnly ? mentionsGame : MENTIONS_LOADER_API).matches(bytes)) {
             return bytes;
         }
 
@@ -226,7 +254,6 @@ public final class MissingMemberTransformer implements Transformer {
             "fabricmc/", "fml/", "quiltmc/", "neoforged/", "minecraftforge/", "liteloader/",
             "artifact/versioning/"));
 
-    private static final ByteScan MENTIONS_GAME = new ByteScan(List.of("net/minecraft/", "com/mojang/"));
 
     private boolean isAlsoCovered(String className) {
         for (String prefix : alsoCovered) {
@@ -289,6 +316,8 @@ public final class MissingMemberTransformer implements Transformer {
         private final List<org.objectweb.asm.Handle> stubs = new java.util.ArrayList<>();
         /** Methods to add that build an object whose constructor is absent, as {@code owner, descriptor}. */
         private final List<String[]> factories = new java.util.ArrayList<>();
+        /** Methods to add that reach a member across a static/instance change, for calls with arguments. */
+        private final List<Bridge> bridges = new java.util.ArrayList<>();
         boolean changed;
 
         Rewriter(ClassVisitor delegate, TransformContext context, String className) {
@@ -403,7 +432,64 @@ public final class MissingMemberTransformer implements Transformer {
                 writeFactory("octo$new$" + i, factories.get(i)[0], factories.get(i)[1]);
             }
 
+            for (Bridge bridge : bridges) {
+                writeBridge(bridge);
+            }
+
             super.visitEnd();
+        }
+
+        /**
+         * Adds a bridge for a call whose target moved between static and
+         * instance, and returns its name. The arguments are on the stack above
+         * where the receiver goes (or above a receiver that is no longer
+         * wanted), and a method of the caller's own is the one place they can
+         * be rearranged without knowing anything else about the method.
+         */
+        private String bridge(String owner, String method, String descriptor, String singleton,
+                boolean ownerIsInterface) {
+            String bridgeDescriptor = singleton != null ? descriptor : "(L" + owner + ";" + descriptor.substring(1);
+
+            for (Bridge existing : bridges) {
+                if (existing.owner().equals(owner) && existing.method().equals(method)
+                        && existing.descriptor().equals(bridgeDescriptor)) {
+                    return existing.name();
+                }
+            }
+
+            Bridge bridge = new Bridge("octo$bridge$" + bridges.size(), bridgeDescriptor, owner, method, descriptor,
+                    singleton, ownerIsInterface);
+            bridges.add(bridge);
+            return bridge.name();
+        }
+
+        private void writeBridge(Bridge bridge) {
+            int access = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC
+                    | (classIsInterface ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE);
+            MethodVisitor method = super.visitMethod(access, bridge.name(), bridge.descriptor(), null, null);
+            method.visitCode();
+            int slot = 0;
+
+            if (bridge.singleton() != null) {
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, bridge.owner(), bridge.singleton(),
+                        "()L" + bridge.owner() + ";", bridge.ownerIsInterface());
+            } else {
+                // The receiver the caller still passes, which the static method does not want.
+                slot = 1;
+            }
+
+            for (Type argument : Type.getArgumentTypes(bridge.methodDescriptor())) {
+                method.visitVarInsn(argument.getOpcode(Opcodes.ILOAD), slot);
+                slot += argument.getSize();
+            }
+
+            int opcode = bridge.singleton() == null ? Opcodes.INVOKESTATIC
+                    : bridge.ownerIsInterface() ? Opcodes.INVOKEINTERFACE : Opcodes.INVOKEVIRTUAL;
+            method.visitMethodInsn(opcode, bridge.owner(), bridge.method(), bridge.methodDescriptor(),
+                    bridge.ownerIsInterface());
+            method.visitInsn(Type.getReturnType(bridge.methodDescriptor()).getOpcode(Opcodes.IRETURN));
+            method.visitMaxs(0, 0);
+            method.visitEnd();
         }
 
         /**
@@ -514,9 +600,18 @@ public final class MissingMemberTransformer implements Transformer {
 
                     Boolean exists = lookup.hasMethod(owner, name, descriptor);
 
+                    if (exists == null && lookup.isAbsent(owner, context)) {
+                        exists = Boolean.FALSE;
+                    }
+
                     if (exists == null) {
                         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
                         return;
+                    }
+
+                    if (exists && inaccessible(owner, name, descriptor)) {
+                        // There, but no longer callable from here: as good as gone.
+                        exists = Boolean.FALSE;
                     }
 
                     if (exists) {
@@ -555,6 +650,32 @@ public final class MissingMemberTransformer implements Transformer {
                     }
 
                     if (followNewShape(opcode, owner, name, descriptor, isInterface)) {
+                        return;
+                    }
+
+                    String shim = classVersion >= Opcodes.V1_5 ? Shims.shimFor(owner, name, descriptor) : null;
+
+                    if (shim != null) {
+                        // Removed, but the old behaviour is a line of the new
+                        // API: DataResult.get() is result() or error(), wrapped.
+                        boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+
+                        if (isStatic) {
+                            delegate.visitLdcInsn(Type.getObjectType(owner));
+                        }
+
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shim,
+                                Shims.descriptorFor(descriptor, isStatic), false);
+                        Type returned = Type.getReturnType(descriptor);
+
+                        if (returned.getSort() == Type.OBJECT || returned.getSort() == Type.ARRAY) {
+                            delegate.visitTypeInsn(Opcodes.CHECKCAST, returned.getSort() == Type.ARRAY
+                                    ? returned.getDescriptor() : returned.getInternalName());
+                        }
+
+                        changed = true;
+                        record(context, owner, name + descriptor, className,
+                                "it is rebuilt from what this version's API has");
                         return;
                     }
 
@@ -599,18 +720,42 @@ public final class MissingMemberTransformer implements Transformer {
 
                     pending.pop();
 
-                    if (owner.equals(className) || isOwnClass(context, owner) || !lookup.guards(owner)
-                            || !Boolean.FALSE.equals(lookup.hasMethod(owner, "<init>", descriptor))) {
+                    if (owner.equals(className) || isOwnClass(context, owner) || !lookup.guards(owner)) {
                         super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", descriptor, false);
                         return;
                     }
 
-                    String compatible = compatibleOverload(owner, "<init>", descriptor, false, false);
+                    Boolean exists = lookup.hasMethod(owner, "<init>", descriptor);
+                    boolean blocked = Boolean.TRUE.equals(exists) && inaccessible(owner, "<init>", descriptor);
+
+                    if (!blocked && !Boolean.FALSE.equals(exists)) {
+                        super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", descriptor, false);
+                        return;
+                    }
+
+                    String compatible = blocked ? null : compatibleOverload(owner, "<init>", descriptor, false, false);
 
                     if (compatible != null) {
                         super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", compatible, false);
                         changed = true;
                         record(context, owner, "<init>" + descriptor, className, "it takes " + compatible + " now");
+                        return;
+                    }
+
+                    // A constructor that is private now, or gone — ResourceLocation's,
+                    // which every 1.20 mod calls — is reached the way the class
+                    // wants to be built instead: Identifier.fromNamespaceAndPath
+                    // for (namespace, path), Identifier.parse for "namespace:path".
+                    String factoryMethod = staticFactory(owner, descriptor);
+
+                    if (factoryMethod != null) {
+                        super.visitMethodInsn(Opcodes.INVOKESTATIC, owner, factoryMethod,
+                                factoryDescriptor(owner, descriptor), Boolean.TRUE.equals(lookup.isInterface(owner)));
+                        dropUninitialised(made);
+                        changed = true;
+                        record(context, owner, "<init>" + descriptor, className,
+                                (blocked ? "it is private now" : "it is gone") + ", so " + factoryMethod
+                                        + " builds it");
                         return;
                     }
 
@@ -625,18 +770,7 @@ public final class MissingMemberTransformer implements Transformer {
                     factories.add(new String[] { owner, descriptor });
                     super.visitMethodInsn(Opcodes.INVOKESTATIC, className, factory,
                             factoryDescriptor(owner, descriptor), classIsInterface);
-
-                    if (made.duplicated) {
-                        // uninitialised, uninitialised, built -> built
-                        super.visitInsn(Opcodes.DUP_X2);
-                        super.visitInsn(Opcodes.POP);
-                        super.visitInsn(Opcodes.POP2);
-                    } else {
-                        // uninitialised, built -> nothing; the caller discarded it
-                        super.visitInsn(Opcodes.POP);
-                        super.visitInsn(Opcodes.POP);
-                    }
-
+                    dropUninitialised(made);
                     changed = true;
                     record(context, owner, "<init>" + descriptor, className,
                             "it is built through a constructor this version has");
@@ -759,6 +893,23 @@ public final class MissingMemberTransformer implements Transformer {
                     }
                 }
 
+                /**
+                 * Removes what {@code NEW} left on the stack, now that the
+                 * object came from somewhere else and sits above it.
+                 */
+                private void dropUninitialised(PendingNew made) {
+                    if (made.duplicated) {
+                        // uninitialised, uninitialised, built -> built
+                        super.visitInsn(Opcodes.DUP_X2);
+                        super.visitInsn(Opcodes.POP);
+                        super.visitInsn(Opcodes.POP2);
+                    } else {
+                        // uninitialised, built -> nothing; the caller discarded it
+                        super.visitInsn(Opcodes.POP);
+                        super.visitInsn(Opcodes.POP);
+                    }
+                }
+
                 /** Makes a call's result what the caller expects of it. */
                 private void adaptResult(Type returned, Type wanted) {
                     if (returned.equals(wanted)) {
@@ -788,6 +939,26 @@ public final class MissingMemberTransformer implements Transformer {
                     Boolean isStatic = lookup.isStatic(owner, name, descriptor);
                     boolean zeroArguments = Type.getArgumentTypes(descriptor).length == 0;
                     boolean wantsStatic = opcode == Opcodes.INVOKESTATIC;
+
+                    // With arguments on the stack above it, the receiver cannot be
+                    // added or dropped in place; a bridge method does it instead.
+                    if (isStatic != null && isStatic != wantsStatic && !zeroArguments
+                            && !(classIsInterface && classVersion < Opcodes.V1_8)) {
+                        boolean itf = Boolean.TRUE.equals(ownerIsInterface);
+                        String singleton = isStatic ? null : singletonAccessor(owner);
+
+                        if (isStatic || singleton != null) {
+                            String bridge = bridge(owner, name, descriptor, singleton, itf);
+                            String bridgeDescriptor = isStatic ? "(L" + owner + ";" + descriptor.substring(1)
+                                    : descriptor;
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, className, bridge, bridgeDescriptor,
+                                    classIsInterface);
+                            changed = true;
+                            record(context, owner, name + descriptor, className, isStatic ? "it is static now"
+                                    : "it is reached through " + singleton + "() now");
+                            return;
+                        }
+                    }
 
                     if (isStatic != null && isStatic != wantsStatic && zeroArguments) {
                         if (isStatic) {
@@ -856,7 +1027,8 @@ public final class MissingMemberTransformer implements Transformer {
                     justMade = null;
 
                     if (owner.equals(className) || isOwnClass(context, owner) || !lookup.guards(owner)
-                            || !Boolean.FALSE.equals(lookup.hasField(owner, name, descriptor))) {
+                            || !(Boolean.FALSE.equals(lookup.hasField(owner, name, descriptor))
+                                    || lookup.isAbsent(owner, context))) {
                         super.visitFieldInsn(opcode, owner, name, descriptor);
                         return;
                     }
@@ -1024,6 +1196,58 @@ public final class MissingMemberTransformer implements Transformer {
         }
 
         /**
+         * Whether the member a call reaches exists but may not be called from
+         * this class: private to another class, or package-private — or, for a
+         * constructor, protected — in another package.
+         */
+        private boolean inaccessible(String owner, String name, String descriptor) {
+            Integer access = lookup.methodAccess(owner, name, descriptor);
+
+            if (access == null || (access & Opcodes.ACC_PUBLIC) != 0) {
+                return false;
+            }
+
+            // Private reaches across a nest: since Java 11 an inner class calls
+            // its outer class's private methods directly, and ModConfigSpec's
+            // Builder does exactly that.
+            if ((access & Opcodes.ACC_PRIVATE) != 0) {
+                return !nestOf(owner).equals(nestOf(className));
+            }
+
+            boolean samePackage = packageOf(owner).equals(packageOf(className));
+            return (access & Opcodes.ACC_PROTECTED) != 0 ? name.equals("<init>") && !samePackage : !samePackage;
+        }
+
+        /**
+         * The public static method that builds an {@code owner} from the same
+         * arguments a constructor took. {@code try} methods answer null rather
+         * than fail, which the caller never expected of a constructor, so they
+         * are not chosen.
+         */
+        private String staticFactory(String owner, String constructor) {
+            String parameters = constructor.substring(0, constructor.indexOf(')') + 1);
+            String best = null;
+            int bestRank = Integer.MAX_VALUE;
+
+            for (String candidate : lookup.staticFactories(owner, parameters)) {
+                if (candidate.startsWith("try")) {
+                    continue;
+                }
+
+                int rank = candidate.equals("of") ? 0 : candidate.equals("parse") ? 1
+                        : candidate.startsWith("from") ? 2 : candidate.startsWith("create") ? 3
+                        : candidate.startsWith("new") ? 4 : candidate.startsWith("with") ? 6 : 5;
+
+                if (rank < bestRank) {
+                    best = candidate;
+                    bestRank = rank;
+                }
+            }
+
+            return best;
+        }
+
+        /**
          * Whether a call on {@code owner} returning {@code type} is a builder
          * handing itself back. A getter that happens to return its own type —
          * {@code tag.getCompound("child")} — is not: answering it with the
@@ -1055,6 +1279,11 @@ public final class MissingMemberTransformer implements Transformer {
         }
     }
 
+    /** A method added to the caller that reaches a member across a static/instance change. */
+    private record Bridge(String name, String descriptor, String owner, String method, String methodDescriptor,
+            String singleton, boolean ownerIsInterface) {
+    }
+
     /** An object {@code NEW} made, waiting for its constructor. */
     private static final class PendingNew {
         final String type;
@@ -1069,6 +1298,17 @@ public final class MissingMemberTransformer implements Transformer {
     /** Method names that ask for something rather than configure the receiver. */
     private static final List<String> QUERY_PREFIXES = List.of("get", "is", "has", "find", "read", "copy", "to",
             "as", "contains", "compute", "parse", "of", "from", "create", "load", "lookup", "resolve");
+
+    /** The top-level class whose nest a class belongs to, as javac nests them. */
+    private static String nestOf(String internalName) {
+        int dollar = internalName.indexOf('$', internalName.lastIndexOf('/') + 1);
+        return dollar < 0 ? internalName : internalName.substring(0, dollar);
+    }
+
+    private static String packageOf(String internalName) {
+        int slash = internalName.lastIndexOf('/');
+        return slash < 0 ? "" : internalName.substring(0, slash);
+    }
 
     private static String argumentList(Type[] arguments, int count) {
         StringBuilder out = new StringBuilder();
@@ -1215,6 +1455,18 @@ public final class MissingMemberTransformer implements Transformer {
         public Boolean isInterface(String owner) {
             Class<?> type = resolve(owner);
             return type == null ? null : type.isInterface();
+        }
+
+        /**
+         * A loader-API class Octo does not have and nothing on the class path
+         * has either — Forge's {@code net.minecraftforge.fml.Logging}, which
+         * the Forge API jar's {@code ForgeConfigSpec} reads a marker from. The
+         * only alternative is a stand-in invented on demand, which has no
+         * members at all.
+         */
+        @Override
+        public boolean isAbsent(String owner, TransformContext context) {
+            return resolve(owner) == null && !context.classExists().test(owner);
         }
 
         @Override
@@ -1370,6 +1622,16 @@ public final class MissingMemberTransformer implements Transformer {
         @Override
         public boolean isAssignable(String type, String ancestor) {
             return index.isSubtype(type, ancestor);
+        }
+
+        @Override
+        public Integer methodAccess(String owner, String name, String descriptor) {
+            return index.methodAccess(owner, name, descriptor);
+        }
+
+        @Override
+        public List<String> staticFactories(String owner, String parameters) {
+            return index.staticFactories(owner, parameters);
         }
     }
 }

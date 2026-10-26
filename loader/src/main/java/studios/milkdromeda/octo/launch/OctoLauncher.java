@@ -51,6 +51,7 @@ import studios.milkdromeda.octo.transform.MissingClassTransformer;
 import studios.milkdromeda.octo.transform.MissingMemberTransformer;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.TransformPipeline;
+import studios.milkdromeda.octo.transform.Transformer;
 import studios.milkdromeda.octo.util.Failures;
 import studios.milkdromeda.octo.util.OctoLog;
 
@@ -280,6 +281,15 @@ public final class OctoLauncher {
         apiLibraries = LoaderApiLibraries.resolve(context, mods);
         apiLibraries.forEach(classLoader::addLibrary);
 
+        // The API jars expect the game their installer patched; what they
+        // publish about that shape is applied before the game loads a class.
+        apiPatches = LoaderApiPatches.read(apiLibraries);
+        Transformer rebaser = apiPatches.rebaser();
+
+        if (rebaser != null) {
+            classLoader.addGlobalTransformer(rebaser);
+        }
+
         // All of these rewrite the game itself on behalf of the mods, so they are
         // installed before a single class is loaded and apply to every jar —
         // including the mixin configuration plugins mixin loads during its own
@@ -348,10 +358,16 @@ public final class OctoLauncher {
         // Not a failure, but the most useful thing in the log for anyone working
         // on Octo: the exact list of API this mod folder wanted and did not find.
         if (apiGaps != null && !apiGaps.gaps().isEmpty()) {
-            LOG.warn("{} loader API member(s) are not implemented and returned defaults:", apiGaps.gaps().size());
+            // Some of these were reached in another shape — static where it was
+            // an instance method, a class where it was an interface — and some
+            // answered a default; the line logged for each when it happened
+            // says which.
+            LOG.warn("{} loader API member(s) mods asked for are not in Octo as they asked, and were repaired "
+                    + "or answered with a default:", apiGaps.gaps().size());
             apiGaps.gaps().forEach(gap -> LOG.warn("  {}", gap));
             record(LoadingReport.Severity.WARNING, "Octo",
-                    apiGaps.gaps().size() + " loader API member(s) are not implemented yet and returned defaults",
+                    apiGaps.gaps().size() + " loader API member(s) were not in Octo as mods asked for them, "
+                            + "and were repaired or answered with a default",
                     String.join(System.lineSeparator(), apiGaps.gaps()));
         }
 
@@ -383,7 +399,10 @@ public final class OctoLauncher {
         }
 
         if (gameGaps != null && !gameGaps.gaps().isEmpty()) {
-            LOG.info("{} game member(s) mods from other versions asked for do not exist here and were bypassed:",
+            // Mods from other versions and the loader API jars, which expect a
+            // game their installer patched; what each one was answered with —
+            // the member's new shape, or a default — is on its own line above.
+            LOG.info("{} game member(s) asked for are not here as asked, and were redirected or bypassed:",
                     gameGaps.gaps().size());
             gameGaps.gaps().forEach(gap -> LOG.info("  {}", gap));
         }
@@ -717,6 +736,9 @@ public final class OctoLauncher {
     /** The NeoForge and Forge API jars fetched for this launch. */
     private List<Path> apiLibraries = List.of();
 
+    /** What those jars expect of the game, applied to it. */
+    private LoaderApiPatches apiPatches = LoaderApiPatches.NONE;
+
     /** What translated mods called that this game does not have, collected over the launch. */
     private MissingMemberTransformer gameGaps;
 
@@ -787,7 +809,8 @@ public final class OctoLauncher {
     }
 
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
-        AccessRules rules = AccessRuleLoader.collect(mods);
+        AccessRules rules = AccessRules.builder().merge(AccessRuleLoader.collect(mods))
+                .merge(apiPatches.accessRules()).build();
 
         if (!rules.isEmpty()) {
             classLoader.addGlobalTransformer(new AccessRuleTransformer(rules));
@@ -804,7 +827,8 @@ public final class OctoLauncher {
      */
     private void installMixins(List<LoadedMod> mods, OctoClassLoader classLoader) {
         try {
-            classLoader.installWeaver(MixinSupport.bootstrap(classLoader, mods, context.side()));
+            classLoader.installWeaver(MixinSupport.bootstrap(classLoader, mods, context.side(),
+                    apiPatches.mixinConfigs()));
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             OctoLog.detail(e);

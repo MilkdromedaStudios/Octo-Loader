@@ -17,6 +17,11 @@
 
   "classes": [
     {
+      "name": "com/mojang/serialization/DataResult$PartialResult",
+      "alternatives": ["com/mojang/serialization/DataResult$Error"],
+      "note": "DataFixerUpper 7 (Minecraft 1.20.5) turned DataResult into an interface whose failure case is DataResult.Error; it carries the same message() and its partial value as partialValue()"
+    },
+    {
       "name": "net/minecraft/client/gui/LayeredDraw$Layer",
       "alternatives": ["net/minecraft/client/gui/LayeredDrawer$Layer"],
       "stub": "interface",
@@ -91,6 +96,12 @@
   ],
 
   "methods": [
+    {
+      "owner": "com/mojang/serialization/DataResult$Error",
+      "name": "partial",
+      "alternatives": ["partialValue"],
+      "note": "DataResult.PartialResult.partial() became DataResult.Error.partialValue()"
+    },
     {
       "owner": "net/fabricmc/fabric/api/networking/v1/PayloadTypeRegistry",
       "name": "playS2C",

@@ -81,6 +81,11 @@ public final class ModList {
         return ModFileInfo.of(modId);
     }
 
+    /** What every loaded mod's classes said about themselves; see {@code ScanData}. */
+    public List<net.minecraftforge.forgespi.language.ModFileScanData> getAllScanData() {
+        return studios.milkdromeda.octo.bridge.forge.ScanData.allForge();
+    }
+
     public void forEachModContainer(BiConsumer<String, ModContainer> action) {
         getModIds().forEach(id -> action.accept(id, ForgeBuses.forgeContainerFor(id)));
     }

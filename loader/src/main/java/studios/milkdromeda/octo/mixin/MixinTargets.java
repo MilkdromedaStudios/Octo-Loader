@@ -80,7 +80,12 @@ public final class MixinTargets implements Transformer {
             "Lcom/llamalad7/mixinextras/injector/ModifyReceiver;",
             "Lcom/llamalad7/mixinextras/injector/WrapWithCondition;",
             "Lcom/llamalad7/mixinextras/injector/v2/WrapWithCondition;",
-            "Lcom/llamalad7/mixinextras/injector/wrapoperation/WrapOperation;");
+            "Lcom/llamalad7/mixinextras/injector/wrapoperation/WrapOperation;",
+            "Lcom/llamalad7/mixinextras/injector/wrapmethod/WrapMethod;");
+
+    private static final String OVERWRITE = "Lorg/spongepowered/asm/mixin/Overwrite;";
+    private static final Set<String> SHADOW_COMPANIONS = Set.of(SHADOW, "Lorg/spongepowered/asm/mixin/Final;",
+            "Lorg/spongepowered/asm/mixin/Mutable;");
 
     /** How far up a target's superclasses to look for an inherited member. */
     private static final int MAX_HIERARCHY_DEPTH = 16;
@@ -188,8 +193,7 @@ public final class MixinTargets implements Transformer {
         List<Member> added = new ArrayList<>();
 
         for (MethodNode method : mixin.methods) {
-            if (!method.name.startsWith("<") && annotation(method.visibleAnnotations, SHADOW) == null
-                    && annotation(method.invisibleAnnotations, SHADOW) == null) {
+            if (!method.name.startsWith("<") && addsToTarget(method)) {
                 added.add(new Member(method.name, method.desc));
             }
         }
@@ -228,6 +232,26 @@ public final class MixinTargets implements Transformer {
     }
 
     // ------------------------------------------------------------------ targets
+
+    /**
+     * Whether a mixin method arrives in the target under its own name. A
+     * shadow is the target's already; an injector's handler is merged under a
+     * generated name, and is very often named after the method it injects
+     * into — Collective's {@code withConfirmedWarning} handler counted as the
+     * target's {@code withConfirmedWarning}, and its injector was aimed at
+     * itself.
+     */
+    private static boolean addsToTarget(MethodNode method) {
+        for (AnnotationNode annotation : allAnnotations(method)) {
+            if (annotation.desc.equals(SHADOW) || annotation.desc.equals(OVERWRITE)
+                    || annotation.desc.equals(ACCESSOR) || annotation.desc.equals(INVOKER)
+                    || INJECTORS.contains(annotation.desc)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static boolean isPseudo(ClassNode mixin) {
         return annotation(mixin.invisibleAnnotations, PSEUDO) != null
@@ -648,8 +672,36 @@ public final class MixinTargets implements Transformer {
             }
         }
 
+        if (candidates.isEmpty()) {
+            return addField(className, field, wanted, context);
+        }
+
         return addAliases(shadow, candidates, context, className,
                 "shadowed field " + wanted + " is not in this version");
+    }
+
+    /**
+     * Turns a shadow of a field the target does not have into a field the
+     * mixin adds to it.
+     *
+     * <p>A {@code @Shadow} mixin cannot locate is an {@code InvalidMixinException}
+     * for the whole mixin. The fields that go missing are mostly ones a loader's
+     * patches gave the game — Forge's {@code confirmedExperimentalWarning} on
+     * {@code PrimaryLevelData} — and the mixin's own code is what reads and
+     * writes them. Added to the target as an ordinary field, it is a field that
+     * code can use, and the rest of the mixin applies.
+     */
+    private boolean addField(String className, FieldNode field, String wanted, TransformContext context) {
+        if (field.visibleAnnotations != null) {
+            field.visibleAnnotations.removeIf(annotation -> SHADOW_COMPANIONS.contains(annotation.desc));
+        }
+
+        if (field.invisibleAnnotations != null) {
+            field.invisibleAnnotations.removeIf(annotation -> SHADOW_COMPANIONS.contains(annotation.desc));
+        }
+
+        note(context, className, "shadowed field " + wanted + " is not in this version, so the mixin adds it");
+        return true;
     }
 
     private boolean adaptShadowMethod(String className, MethodNode method, List<Target> targets,

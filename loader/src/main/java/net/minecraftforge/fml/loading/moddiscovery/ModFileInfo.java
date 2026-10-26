@@ -46,6 +46,11 @@ public final class ModFileInfo implements IModFileInfo {
     }
 
     @Override
+    public ModFile getFile() {
+        return new ModFile(this);
+    }
+
+    @Override
     public String getFileName() {
         return ModInfos.fileNameOf(modId);
     }

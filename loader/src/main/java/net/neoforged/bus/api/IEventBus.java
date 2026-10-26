@@ -30,4 +30,15 @@ public interface IEventBus {
             Consumer<T> consumer);
 
     <T extends Event> T post(T event);
+
+    default <T extends Event> void addListener(EventPriority priority, Class<T> eventType, Consumer<T> consumer) {
+        addListener(priority, false, eventType, consumer);
+    }
+
+    /**
+     * Opens a bus built with {@code BusBuilder.startShutdown()}. Octo's buses
+     * deliver from the moment they exist, so there is nothing to open.
+     */
+    default void start() {
+    }
 }

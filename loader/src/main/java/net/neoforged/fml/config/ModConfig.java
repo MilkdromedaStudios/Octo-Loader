@@ -48,7 +48,17 @@ public final class ModConfig {
         /** Server-only settings, kept with the world. */
         SERVER,
         /** Read before the game starts and never reloaded. */
-        STARTUP;
+        STARTUP,
+        /**
+         * NeoForge 26's grouping of the types whose values the server sends to
+         * clients. Declared after the others so their ordinals do not move;
+         * NeoForge's own config classes build {@code EnumSet}s of these, and a
+         * constant that is not here was a null in that set and a crash in every
+         * mod with a config.
+         */
+        SYNCED,
+        /** NeoForge 26's grouping of the types that stay on the machine that reads them. */
+        LOCAL;
 
         public String extension() {
             return name().toLowerCase(Locale.ROOT);

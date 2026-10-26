@@ -261,6 +261,26 @@ public final class ClassRestorer {
             this.jar = jar;
             this.names = names;
             names.classes().forEach((obf, named) -> obfuscatedByName.putIfAbsent(named, obf));
+
+            // A removed inner class of a surviving outer one is spelled two ways
+            // by the time a mod asks for it. Translated through intermediary it
+            // keeps its old name, ResourceLocation$Serializer; translated from an
+            // old release's Mojang names it moves with its outer class, as
+            // Identifier$Serializer. Both are the same old class.
+            names.classes().forEach((obf, named) -> {
+                int obfDollar = obf.indexOf('$');
+                int namedDollar = named.indexOf('$');
+
+                if (obfDollar <= 0 || namedDollar <= 0) {
+                    return;
+                }
+
+                String outerNow = names.classes().get(obf.substring(0, obfDollar));
+
+                if (outerNow != null && !outerNow.equals(named.substring(0, namedDollar))) {
+                    obfuscatedByName.putIfAbsent(outerNow + named.substring(namedDollar), obf);
+                }
+            });
         }
 
         synchronized byte[] restore(String internalName) {
@@ -277,8 +297,49 @@ public final class ClassRestorer {
             }
 
             ClassWriter writer = new ClassWriter(0);
-            new ClassReader(original).accept(new ClassRemapper(writer, names.remapper(this::parentsOf)), 0);
+            new ClassReader(original).accept(new ClassRemapper(writer, asked(obf, internalName)), 0);
             return writer.toByteArray();
+        }
+
+        /**
+         * Today's names, except that the class itself is called what the mod
+         * asked for: a class defined under one name and declaring another is
+         * a {@code NoClassDefFoundError}.
+         */
+        private org.objectweb.asm.commons.Remapper asked(String obf, String internalName) {
+            org.objectweb.asm.commons.Remapper base = names.remapper(this::parentsOf);
+
+            return new org.objectweb.asm.commons.Remapper() {
+                @Override
+                public String map(String name) {
+                    return name.equals(obf) ? internalName : base.map(name);
+                }
+
+                @Override
+                public String mapMethodName(String owner, String name, String descriptor) {
+                    return base.mapMethodName(owner, name, descriptor);
+                }
+
+                @Override
+                public String mapFieldName(String owner, String name, String descriptor) {
+                    return base.mapFieldName(owner, name, descriptor);
+                }
+
+                @Override
+                public String mapInvokeDynamicMethodName(String name, String descriptor) {
+                    return base.mapInvokeDynamicMethodName(name, descriptor);
+                }
+
+                @Override
+                public String mapRecordComponentName(String owner, String name, String descriptor) {
+                    return base.mapRecordComponentName(owner, name, descriptor);
+                }
+
+                @Override
+                public Object mapValue(Object value) {
+                    return value instanceof String ? base.mapValue(value) : super.mapValue(value);
+                }
+            };
         }
 
         private byte[] read(String obf) {
