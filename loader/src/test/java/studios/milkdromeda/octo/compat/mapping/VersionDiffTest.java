@@ -89,4 +89,27 @@ class VersionDiffTest {
         assertFalse(VersionDiff.related("LONG_JUMPING_DIMENSIONS", "BABY_DIMENSIONS"));
         assertFalse(VersionDiff.related("getHealth", "getArmor"));
     }
+
+    @Test
+    @DisplayName("a name kept for a new return type sends old callers to where the old result went")
+    void reusedNamesAreFollowed() {
+        String registry = "net/minecraft/core/Registry";
+        String id = "(Lnet/minecraft/resources/Identifier;)";
+        String key = "(Lnet/minecraft/resources/ResourceKey;)Ljava/lang/Object;";
+        // getValue(ResourceKey) is already there, linked by intermediary; only
+        // the Identifier one is new.
+        Map<String, Shape> old = Map.of(registry, shape(registry, List.of(),
+                List.of(method("getValue", key), method("get", id + "Ljava/lang/Object;"),
+                        method("tick", "(Lnet/minecraft/world/level/Level;)V"))));
+        Map<String, Shape> current = Map.of(registry, shape(registry, List.of(),
+                List.of(method("getValue", key), method("get", id + "Ljava/util/Optional;"),
+                        method("getValue", id + "Ljava/lang/Object;"),
+                        method("tick", "(Lnet/minecraft/server/level/ServerLevel;)V"),
+                        method("tickClient", "(Lnet/minecraft/world/level/Level;)V"))));
+        MappingSet renames = VersionDiff.between(old, current, "test");
+
+        assertEquals("getValue", renames.mapMethod(registry, "get", id + "Ljava/lang/Object;"));
+        assertEquals("tick", renames.mapMethod(registry, "tick", "(Lnet/minecraft/world/level/Level;)V"),
+                "a name kept with other arguments is an overload, not a rename");
+    }
 }

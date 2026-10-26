@@ -45,6 +45,7 @@ import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
+import studios.milkdromeda.octo.transform.ProbeRewriter;
 import studios.milkdromeda.octo.transform.ClassRelinker;
 import studios.milkdromeda.octo.transform.GameExitTransformer;
 import studios.milkdromeda.octo.transform.MemberIndex;
@@ -715,6 +716,12 @@ public final class OctoLauncher {
             if (!context.compat().strict()) {
                 classLoader.addGlobalTransformer(new CallbackGuard());
             }
+        }
+
+        // A mod asking whether a class exists gets told the truth about
+        // stand-ins, so it does not take one for another mod being installed.
+        if (context.compat().stubMissingApi()) {
+            classLoader.addGlobalTransformer(new ProbeRewriter());
         }
 
         MemberIndex index = new MemberIndex(classLoader::rawClassBytes);

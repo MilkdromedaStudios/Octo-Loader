@@ -1,6 +1,8 @@
 package studios.milkdromeda.octo.bridge.forge;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.util.function.Function;
 
 import net.minecraftforge.eventbus.api.bus.BusGroup;
 import net.minecraftforge.eventbus.api.bus.CancellableEventBus;
@@ -72,6 +74,55 @@ public final class LiveStandIns {
     }
 
     /**
+     * A Fabric API event for a callback Fabric API no longer has:
+     * {@code HudRenderCallback.EVENT}, which 26.x replaced with
+     * {@code HudElementRegistry}. Mods register on these in their initialisers,
+     * so a null field was an initialiser that threw and a mod without its
+     * client half; an event that takes the registration lets the rest of the
+     * initialiser run. Made by Fabric API's own factory, so it is a real
+     * {@code Event} whose invoker calls whatever was registered.
+     *
+     * @return the event, or {@code null} without Fabric API
+     */
+    public static Object fabricEvent(Class<?> owner) {
+        try {
+            Class<?> factory = Class.forName("net.fabricmc.fabric.api.event.EventFactory", true,
+                    owner.getClassLoader());
+            Function<Object[], Object> invokers = listeners -> invoker(owner, listeners);
+            return factory.getMethod("createArrayBacked", Class.class, Function.class).invoke(null, owner, invokers);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.debug("no Fabric event for {}: {}", owner.getName(), e.toString());
+            return null;
+        }
+    }
+
+    /** Calls every listener in turn, answering with the last one's result. */
+    private static Object invoker(Class<?> owner, Object[] listeners) {
+        if (!owner.isInterface()) {
+            return null;
+        }
+
+        return Proxy.newProxyInstance(owner.getClassLoader(), new Class<?>[] { owner }, (proxy, method, arguments) -> {
+            if (method.getDeclaringClass() == Object.class) {
+                return objectMethod(proxy, method.getName(), arguments, owner);
+            }
+
+            Object result = null;
+
+            for (Object listener : listeners) {
+                try {
+                    result = method.invoke(listener, arguments);
+                } catch (InvocationTargetException e) {
+                    throw e.getCause();
+                }
+            }
+
+            return result != null ? result : defaultFor(method.getReturnType());
+        });
+    }
+
+    /**
      * An object of an interface type that does nothing, or null for anything
      * else — what a call a translated mod makes into something this version no
      * longer has hands back, so the call after it does not fail on a null.
@@ -95,27 +146,35 @@ public final class LiveStandIns {
         return (T) Proxy.newProxyInstance(loader, new Class<?>[] { type },
                 (proxy, method, arguments) -> {
                     if (method.getDeclaringClass() == Object.class) {
-                        return switch (method.getName()) {
-                            case "hashCode" -> System.identityHashCode(proxy);
-                            case "equals" -> proxy == arguments[0];
-                            default -> "octo silent " + type.getSimpleName();
-                        };
+                        return objectMethod(proxy, method.getName(), arguments, type);
                     }
 
                     Class<?> returned = method.getReturnType();
 
-                    if (returned == boolean.class) {
-                        return false;
-                    }
-
-                    if (returned.isPrimitive() && returned != void.class) {
-                        return returned == long.class ? 0L : returned == double.class ? 0d
-                                : returned == float.class ? 0f : returned == char.class ? (char) 0
-                                : returned == byte.class ? (byte) 0 : returned == short.class ? (short) 0 : 0;
-                    }
-
                     // Builders and buses hand themselves back to be chained.
-                    return returned.isInstance(proxy) ? proxy : null;
+                    return returned.isInstance(proxy) ? proxy : defaultFor(returned);
                 });
+    }
+
+    private static Object objectMethod(Object proxy, String name, Object[] arguments, Class<?> type) {
+        return switch (name) {
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "equals" -> proxy == arguments[0];
+            default -> "octo silent " + type.getSimpleName();
+        };
+    }
+
+    private static Object defaultFor(Class<?> returned) {
+        if (returned == boolean.class) {
+            return false;
+        }
+
+        if (returned.isPrimitive() && returned != void.class) {
+            return returned == long.class ? 0L : returned == double.class ? 0d
+                    : returned == float.class ? 0f : returned == char.class ? (char) 0
+                    : returned == byte.class ? (byte) 0 : returned == short.class ? (short) 0 : 0;
+        }
+
+        return null;
     }
 }

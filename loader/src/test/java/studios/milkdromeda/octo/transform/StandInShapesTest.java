@@ -224,4 +224,54 @@ class StandInShapesTest {
             studios.milkdromeda.octo.runtime.OctoRuntime.reset();
         }
     }
+
+    /** Jade's {@code HudRenderCallback.EVENT.register((graphics, delta) -> ...)}, the lambda half of it. */
+    private static byte[] lambdaUser() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Hud", null, "java/lang/Object", null);
+        String body = "(Ljava/lang/Object;F)V";
+
+        MethodVisitor lambda = writer.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                "lambda$init$0", body, null, null);
+        lambda.visitCode();
+        lambda.visitInsn(Opcodes.RETURN);
+        lambda.visitMaxs(0, 0);
+        lambda.visitEnd();
+
+        MethodVisitor callback = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "callback",
+                "()Ljava/lang/Object;", null, null);
+        callback.visitCode();
+        callback.visitInvokeDynamicInsn("onHudRender", "()Lapi/HudCallback;",
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "java/lang/invoke/LambdaMetafactory",
+                        "metafactory", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                                + "Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;"
+                                + "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)"
+                                + "Ljava/lang/invoke/CallSite;", false),
+                org.objectweb.asm.Type.getMethodType(body),
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "mod/Hud", "lambda$init$0", body, false),
+                org.objectweb.asm.Type.getMethodType(body));
+        callback.visitInsn(Opcodes.ARETURN);
+        callback.visitMaxs(0, 0);
+        callback.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a missing type a lambda is made for is an interface with the lambda's method")
+    void lambdaTargetsAreInterfaces() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        byte[] mod = lambdaUser();
+        phantoms.observe(mod, name -> !name.equals("api/HudCallback"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Hud", mod);
+        Object callback = loader.loadClass("mod.Hud").getMethod("callback").invoke(null);
+        Class<?> type = loader.loadClass("api.HudCallback");
+
+        assertTrue(type.isInterface());
+        assertTrue(type.isInstance(callback));
+        type.getMethod("onHudRender", Object.class, float.class).invoke(callback, "graphics", 1.0f);
+    }
 }

@@ -200,7 +200,7 @@ public final class MappingProvider {
             return Optional.empty();
         }
 
-        String key = "mojang-" + release + "-to-" + gameVersion + "-" + side;
+        String key = "mojang-" + release + "-to-" + gameVersion + "-" + side + "-v2";
         return composed.computeIfAbsent(key, ignored -> {
             Path file = cache.resolve(key + ".octomap");
 
@@ -222,8 +222,13 @@ public final class MappingProvider {
 
             try {
                 long started = System.nanoTime();
-                MappingSet renames = VersionDiff.between(VersionDiff.readObfuscated(oldJar.get(), names.get()),
-                        VersionDiff.readNamed(gameJars), "mojang " + release + "->" + gameVersion);
+                Optional<MappingSet> translated = release.equals(LATEST_INTERMEDIARY) ? Optional.empty()
+                        : officialToCurrent(release);
+                Map<String, VersionDiff.Shape> old = translated.isPresent()
+                        ? VersionDiff.readThrough(oldJar.get(), translated.get().remapper())
+                        : VersionDiff.readObfuscated(oldJar.get(), names.get());
+                MappingSet renames = VersionDiff.between(old, VersionDiff.readNamed(gameJars),
+                        "mojang " + release + "->" + gameVersion);
                 LOG.info("found {} member rename(s) between Minecraft {} and {} in {} ms", renames.size(),
                         release, gameVersion, (System.nanoTime() - started) / 1_000_000);
                 write(file, renames);

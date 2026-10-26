@@ -156,4 +156,53 @@ class CallbackGuardTest {
         assertTrue(CallbackGuard.isCallback(LAMBDA, "lambda$x$0"));
         assertFalse(CallbackGuard.isCallback(Opcodes.ACC_PRIVATE, "lambda$x$0"));
     }
+
+    /** {@code register()} hands out {@code References::onTick} as a Runnable; {@code onTick} throws. */
+    private static byte[] references() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/References", null, "java/lang/Object", null);
+
+        MethodVisitor onTick = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "onTick", "()V", null,
+                null);
+        onTick.visitCode();
+        throwing(onTick, "java/lang/NullPointerException");
+        onTick.visitMaxs(0, 0);
+        onTick.visitEnd();
+
+        MethodVisitor register = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "register",
+                "()Ljava/lang/Runnable;", null, null);
+        register.visitCode();
+        register.visitInvokeDynamicInsn("run", "()Ljava/lang/Runnable;",
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "java/lang/invoke/LambdaMetafactory",
+                        "metafactory", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                                + "Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;"
+                                + "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)"
+                                + "Ljava/lang/invoke/CallSite;", false),
+                org.objectweb.asm.Type.getMethodType("()V"),
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "mod/References", "onTick", "()V", false),
+                org.objectweb.asm.Type.getMethodType("()V"));
+        register.visitInsn(Opcodes.ARETURN);
+        register.visitMaxs(0, 0);
+        register.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a method reference handed out as a callback is guarded, the method itself is not")
+    void methodReferencesAreGuarded() throws Throwable {
+        byte[] guarded = new CallbackGuard().transform("mod/References", references(),
+                TransformContext.of(null, name -> true));
+        Class<?> type = new ClassLoader(CallbackGuardTest.class.getClassLoader()) {
+            Class<?> define() {
+                return defineClass("mod.References", guarded, 0, guarded.length);
+            }
+        }.define();
+
+        Runnable callback = (Runnable) type.getMethod("register").invoke(null);
+        callback.run();
+        assertThrows(NullPointerException.class, () -> call(type, "onTick", new Class<?>[0]),
+                "a direct call still sees what the method throws");
+    }
 }

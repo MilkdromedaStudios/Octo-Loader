@@ -21,6 +21,7 @@ import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.runtime.LoadedMod;
 import studios.milkdromeda.octo.transform.PhantomClasses;
+import studios.milkdromeda.octo.transform.Probes;
 import studios.milkdromeda.octo.transform.TransformContext;
 import studios.milkdromeda.octo.transform.TransformPipeline;
 import studios.milkdromeda.octo.transform.Transformer;
@@ -41,7 +42,7 @@ import studios.milkdromeda.octo.util.OctoLog;
  * are delegated to the parent so that every mod shares one
  * {@code FabricLoader}, one {@code ModList}, and one runtime.
  */
-public final class OctoClassLoader extends URLClassLoader {
+public final class OctoClassLoader extends URLClassLoader implements Probes.StandIns {
     private static final OctoLog LOG = OctoLog.of(OctoClassLoader.class);
 
     static {
@@ -441,6 +442,16 @@ public final class OctoClassLoader extends URLClassLoader {
             LOG.info("standing in for missing class {}", name);
             return phantoms.generate(internalName);
         });
+    }
+
+    /**
+     * Whether a class is one of this loader's stand-ins rather than the real
+     * thing, for {@link studios.milkdromeda.octo.transform.Probes} to answer
+     * a mod asking whether that class exists.
+     */
+    @Override
+    public boolean isStandIn(Class<?> type) {
+        return type.getClassLoader() == this && phantomCache.containsKey(type.getName().replace('.', '/'));
     }
 
     /**

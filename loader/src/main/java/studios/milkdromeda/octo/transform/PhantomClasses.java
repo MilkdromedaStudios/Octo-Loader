@@ -10,6 +10,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -311,6 +312,35 @@ public final class PhantomClasses {
 
                         specFor(owner).fields.add(new Member(name, descriptor,
                                 opcode == Opcodes.GETSTATIC || opcode == Opcodes.PUTSTATIC));
+                    }
+
+                    /**
+                     * A lambda for a missing type makes that type an interface
+                     * with the lambda's method: LambdaMetafactory refuses a
+                     * class, and Jade's HudRenderCallback lambda, a type
+                     * Fabric API for 26.x no longer has, took Jade's client
+                     * initialiser down with a stand-in that was one.
+                     */
+                    @Override
+                    public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrap,
+                            Object... arguments) {
+                        Type made = Type.getReturnType(descriptor);
+
+                        if (!bootstrap.getOwner().equals("java/lang/invoke/LambdaMetafactory")
+                                || made.getSort() != Type.OBJECT || !missing.test(made.getInternalName())
+                                || arguments.length == 0 || !(arguments[0] instanceof Type method)) {
+                            return;
+                        }
+
+                        Spec spec = specFor(made.getInternalName());
+                        spec.isInterface = true;
+                        spec.methods.add(new Member(name, method.getDescriptor(), false));
+
+                        for (Type argument : method.getArgumentTypes()) {
+                            noteSignatureType(argument);
+                        }
+
+                        noteSignatureType(method.getReturnType());
                     }
 
                     @Override

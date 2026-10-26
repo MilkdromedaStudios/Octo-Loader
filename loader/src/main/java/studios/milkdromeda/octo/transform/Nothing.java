@@ -80,6 +80,13 @@ final class Nothing {
             // 1.8 to 1.12's MinecraftForge.EVENT_BUS, which Forge 66 has no
             // field for: a bus that takes registrations, so the mod goes on.
             case "net/minecraftforge/fml/common/eventhandler/EventBus" -> construct(visitor, type.getInternalName());
+            // A Fabric API callback that is gone, HudRenderCallback.EVENT on 26.x.
+            case "net/fabricmc/fabric/api/event/Event" -> {
+                visitor.visitLdcInsn(Type.getObjectType(owner));
+                visitor.visitMethodInsn(Opcodes.INVOKESTATIC, LIVE, "fabricEvent",
+                        "(Ljava/lang/Class;)Ljava/lang/Object;", false);
+                visitor.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
+            }
             default -> {
                 return false;
             }

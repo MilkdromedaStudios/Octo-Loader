@@ -146,6 +146,18 @@
       "name": "entries",
       "alternatives": ["entries", "details"],
       "note": "the crash report's detail map; mixins reach it through an accessor, and a field of that exact type is unique on the class, so it is found even under a name nobody listed here"
+    },
+    {
+      "owner": "com/mojang/blaze3d/platform/InputConstants$Type",
+      "name": "KEYSYM",
+      "alternatives": ["KEYBOARD"],
+      "note": "26.x's SDL3 input has one keyboard input type where GLFW had key symbols and scan codes; every mod's key binding is created through one of them"
+    },
+    {
+      "owner": "com/mojang/blaze3d/platform/InputConstants$Type",
+      "name": "SCANCODE",
+      "alternatives": ["KEYBOARD"],
+      "note": "the other half of the same merge"
     }
   ]
 }
