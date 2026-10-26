@@ -60,6 +60,8 @@ public final class MissingMemberTransformer implements Transformer {
     private static final OctoLog LOG = OctoLog.of(MissingMemberTransformer.class);
     private static final String REGISTRIES = "net/minecraft/core/registries/Registries";
     private static final String RESOURCE_KEY = "Lnet/minecraft/resources/ResourceKey;";
+    private static final String BUILT_IN_REGISTRIES = "net/minecraft/core/registries/BuiltInRegistries";
+    private static final String REGISTRY = "Lnet/minecraft/core/Registry;";
 
     /**
      * The packages whose contents are Octo's to implement.
@@ -93,6 +95,11 @@ public final class MissingMemberTransformer implements Transformer {
     interface Lookup {
         /** Whether calls on this owner are this instance's business at all. */
         boolean guards(String owner);
+
+        /** A class's superclass, or {@code null} when it cannot be seen. */
+        default String superName(String owner) {
+            return null;
+        }
 
         /** @return whether the method exists, or {@code null} when that cannot be told */
         Boolean hasMethod(String owner, String name, String descriptor);
@@ -241,6 +248,7 @@ public final class MissingMemberTransformer implements Transformer {
         ClassReader reader = new ClassReader(bytes);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
         Rewriter rewriter = new Rewriter(writer, context, className);
+        rewriter.declare(reader);
         reader.accept(rewriter, 0);
         return rewriter.changed ? writer.toByteArray() : bytes;
     }
@@ -322,10 +330,72 @@ public final class MissingMemberTransformer implements Transformer {
         private final List<Bridge> bridges = new java.util.ArrayList<>();
         boolean changed;
 
+        /** The methods this class declares itself, its superclass and its interfaces. */
+        private final Set<String> declared = new java.util.HashSet<>();
+        private String superName;
+        private String[] interfaces = new String[0];
+
         Rewriter(ClassVisitor delegate, TransformContext context, String className) {
             super(Opcodes.ASM9, delegate);
             this.context = context;
             this.className = className;
+        }
+
+        void declare(ClassReader reader) {
+            superName = reader.getSuperName();
+            interfaces = reader.getInterfaces();
+            reader.accept(new ClassVisitor(Opcodes.ASM9) {
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
+                        String[] exceptions) {
+                    declared.add(name + descriptor);
+                    return null;
+                }
+            }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        }
+
+        /**
+         * The game class a call on this mod's own class really reaches, when
+         * the mod never declares the method and the game no longer has it.
+         * Create calls {@code simpleCodec}, a static it inherited from
+         * {@code BlockBehaviour}, as {@code SchematicTableBlock.simpleCodec};
+         * 26.x dropped it, and since the call names Create's own class it went
+         * past the bypass and failed the block's static initialiser.
+         *
+         * @return that game class, or {@code null} when the call is the mod's own business
+         */
+        private String inheritedGap(String owner, String name, String descriptor) {
+            if (!owner.equals(className) || declared.contains(name + descriptor) || superName == null) {
+                return null;
+            }
+
+            String ancestor = superName;
+
+            // Up through the mod's own classes to the first of the game's.
+            for (int depth = 0; ancestor != null && depth < 16 && isOwnClass(context, ancestor); depth++) {
+                if (!Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor))) {
+                    return null;
+                }
+
+                ancestor = lookup.superName(ancestor);
+            }
+
+            // Only a gap in the game: the JDK's classes, and the libraries a mod
+            // brings, are not this bypass's to second-guess.
+            if (ancestor == null || !(ancestor.startsWith("net/minecraft/") || ancestor.startsWith("com/mojang/"))
+                    || !lookup.guards(ancestor)) {
+                return null;
+            }
+
+            // A default method from one of the class's interfaces answers it too:
+            // Registrate's builders inherit setData that way.
+            for (String iface : interfaces) {
+                if (!Boolean.FALSE.equals(lookup.hasMethod(iface, name, descriptor))) {
+                    return null;
+                }
+            }
+
+            return Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor)) ? ancestor : null;
         }
 
         @Override
@@ -590,6 +660,14 @@ public final class MissingMemberTransformer implements Transformer {
                     if (opcode == Opcodes.INVOKESPECIAL && name.equals("<init>")) {
                         constructor(owner, descriptor);
                         return;
+                    }
+
+                    if (opcode != Opcodes.INVOKESPECIAL && name.charAt(0) != '<') {
+                        String inherited = inheritedGap(owner, name, descriptor);
+
+                        if (inherited != null) {
+                            owner = inherited;
+                        }
                     }
 
                     // A super call is part of the class's own shape, and is
@@ -1061,6 +1139,20 @@ public final class MissingMemberTransformer implements Transformer {
                                 "(Lnet/minecraft/resources/Identifier;)Lnet/minecraft/resources/ResourceKey;", false);
                         changed = true;
                         record(context, owner, name, className, "that registry is gone, so a key of its name stands in");
+                        return;
+                    }
+
+                    // And a registry this version dropped, read from
+                    // BuiltInRegistries: an empty one of its name stands in.
+                    if (opcode == Opcodes.GETSTATIC && owner.equals(BUILT_IN_REGISTRIES) && descriptor.equals(REGISTRY)) {
+                        delegate.visitLdcInsn(name.toLowerCase(java.util.Locale.ROOT));
+                        delegate.visitLdcInsn(Type.getObjectType("net/minecraft/core/Registry"));
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/forge/LiveStandIns",
+                                "detachedRegistry", "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;", false);
+                        delegate.visitTypeInsn(Opcodes.CHECKCAST, "net/minecraft/core/Registry");
+                        changed = true;
+                        record(context, owner, name, className, "that registry is gone, so an empty one of its name "
+                                + "stands in");
                         return;
                     }
 
@@ -1600,6 +1692,12 @@ public final class MissingMemberTransformer implements Transformer {
 
         IndexLookup(MemberIndex index) {
             this.index = index;
+        }
+
+        @Override
+        public String superName(String owner) {
+            MemberIndex.Shape shape = index.shape(owner);
+            return shape == null ? null : shape.superName();
         }
 
         /**

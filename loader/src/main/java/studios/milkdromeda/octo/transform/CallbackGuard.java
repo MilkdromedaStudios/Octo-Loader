@@ -54,7 +54,13 @@ public final class CallbackGuard implements Transformer {
         /** Returns its first argument: the value it was asked to modify. */
         FIRST_ARGUMENT,
         /** Returns true: the guarded call goes ahead. */
-        TRUE
+        TRUE,
+        /**
+         * Returns the last argument of its own result type: a lambda like
+         * {@code builder -> builder.persistent(codec)} hands the builder on
+         * unchanged rather than a null the caller then calls a method on.
+         */
+        SAME_TYPE_ARGUMENT
     }
 
     private static final Set<String> RETURNING_INJECTORS = Set.of(
@@ -113,10 +119,12 @@ public final class CallbackGuard implements Transformer {
 
                 // Interfaces may hold the private bridges only from Java 9 on.
                 if (!isInterface[0] || version[0] >= Opcodes.V9) {
-                    delegate = new BridgingReferences(delegate, className, bridges);
+                    delegate = new BridgingReferences(delegate, className, isInterface[0], bridges);
                 }
 
-                Fallback fallback = isCallback(access, name) ? Fallback.DEFAULT
+                Fallback fallback = isCallback(access, name)
+                        ? sameTypeSlot(descriptor, (access & Opcodes.ACC_STATIC) != 0) >= 0
+                                ? Fallback.SAME_TYPE_ARGUMENT : Fallback.DEFAULT
                         : handlers.get(name + descriptor);
 
                 if (fallback == null || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
@@ -153,11 +161,14 @@ public final class CallbackGuard implements Transformer {
         private static final String METAFACTORY = "java/lang/invoke/LambdaMetafactory";
 
         private final String owner;
+        private final boolean ownerIsInterface;
         private final Map<Handle, Handle> bridges;
 
-        BridgingReferences(MethodVisitor delegate, String owner, Map<Handle, Handle> bridges) {
+        BridgingReferences(MethodVisitor delegate, String owner, boolean ownerIsInterface,
+                Map<Handle, Handle> bridges) {
             super(Opcodes.ASM9, delegate);
             this.owner = owner;
+            this.ownerIsInterface = ownerIsInterface;
             this.bridges = bridges;
         }
 
@@ -165,8 +176,9 @@ public final class CallbackGuard implements Transformer {
         public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrap, Object... arguments) {
             if (bootstrap.getOwner().equals(METAFACTORY) && bootstrap.getName().equals("metafactory")
                     && arguments.length == 3 && arguments[1] instanceof Handle target && isBridgeable(target)) {
+                // A bridge in an interface is an interface method, and its handle has to say so.
                 Handle bridge = bridges.computeIfAbsent(target, ignored -> new Handle(Opcodes.H_INVOKESTATIC, owner,
-                        "lambda$octo$reference$" + bridges.size(), bridgeDescriptor(target), false));
+                        "lambda$octo$reference$" + bridges.size(), bridgeDescriptor(target), ownerIsInterface));
                 arguments = new Object[] { arguments[0], bridge, arguments[2] };
             }
 
@@ -229,6 +241,35 @@ public final class CallbackGuard implements Transformer {
     }
 
     /**
+     * Wraps one method of a class in the guard: when it fails, it is reported
+     * once and returns its type's default.
+     */
+    public static byte[] guardMethod(byte[] bytes, String className, String name, String descriptor) {
+        ClassReader reader = new ClassReader(bytes);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        boolean[] changed = { false };
+
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String method, String desc, String signature,
+                    String[] exceptions) {
+                MethodVisitor delegate = super.visitMethod(access, method, desc, signature, exceptions);
+
+                if (delegate == null || !method.equals(name) || !desc.equals(descriptor)
+                        || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
+                    return delegate;
+                }
+
+                changed[0] = true;
+                return new Guarded(delegate, desc, (access & Opcodes.ACC_STATIC) != 0, Fallback.DEFAULT,
+                        className.replace('/', '.') + "." + method);
+            }
+        }, 0);
+
+        return changed[0] ? writer.toByteArray() : bytes;
+    }
+
+    /**
      * The mixin handlers in a class, by name and descriptor, each with what it
      * gives back when it fails; empty for anything that is not a mixin.
      */
@@ -283,6 +324,28 @@ public final class CallbackGuard implements Transformer {
         return null;
     }
 
+    /** The local slot of the last parameter of the method's own result type, or -1. */
+    static int sameTypeSlot(String descriptor, boolean isStatic) {
+        Type returned = Type.getReturnType(descriptor);
+
+        if (returned.getSort() == Type.VOID) {
+            return -1;
+        }
+
+        int slot = isStatic ? 0 : 1;
+        int found = -1;
+
+        for (Type argument : Type.getArgumentTypes(descriptor)) {
+            if (argument.equals(returned)) {
+                found = slot;
+            }
+
+            slot += argument.getSize();
+        }
+
+        return found;
+    }
+
     /** A lambda body: synthetic, named by javac, with code. */
     static boolean isCallback(int access, String name) {
         return name.startsWith("lambda$") && (access & Opcodes.ACC_SYNTHETIC) != 0
@@ -295,6 +358,8 @@ public final class CallbackGuard implements Transformer {
         private final boolean isStatic;
         private final Fallback fallback;
         private final String site;
+        /** The argument handed back, or -1. */
+        private final int returnSlot;
         private final Label start = new Label();
         private final Label end = new Label();
         private final Label handler = new Label();
@@ -305,6 +370,11 @@ public final class CallbackGuard implements Transformer {
             this.isStatic = isStatic;
             this.fallback = fallback;
             this.site = site;
+            this.returnSlot = switch (fallback) {
+                case FIRST_ARGUMENT -> isStatic ? 0 : 1;
+                case SAME_TYPE_ARGUMENT -> sameTypeSlot(descriptor, isStatic);
+                default -> -1;
+            };
         }
 
         @Override
@@ -323,19 +393,27 @@ public final class CallbackGuard implements Transformer {
             // Only the argument handed back is declared, if any: javac never
             // stores anything else in a parameter's slot, so that much holds
             // at every instruction of the body, and the rest is left unsaid.
-            Object[] locals = fallback == Fallback.FIRST_ARGUMENT
-                    ? isStatic ? new Object[] { frameType(returnType) }
-                            : new Object[] { Opcodes.TOP, frameType(returnType) }
-                    : new Object[0];
+            Object[] locals = new Object[Math.max(returnSlot + 1, 0)];
+
+            for (int i = 0; i < returnSlot; i++) {
+                locals[i] = Opcodes.TOP;
+            }
+
+            if (returnSlot >= 0) {
+                locals[returnSlot] = frameType(returnType);
+            }
+
             super.visitFrame(Opcodes.F_FULL, locals.length, locals, 1, new Object[] { "java/lang/Throwable" });
             super.visitLdcInsn(site);
             super.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/transform/GapBridge", "contain",
                     "(Ljava/lang/Throwable;Ljava/lang/String;)V", false);
 
-            switch (fallback) {
-                case FIRST_ARGUMENT -> super.visitVarInsn(returnType.getOpcode(Opcodes.ILOAD), isStatic ? 0 : 1);
-                case TRUE -> super.visitInsn(Opcodes.ICONST_1);
-                default -> Nothing.push(mv, returnType);
+            if (returnSlot >= 0) {
+                super.visitVarInsn(returnType.getOpcode(Opcodes.ILOAD), returnSlot);
+            } else if (fallback == Fallback.TRUE) {
+                super.visitInsn(Opcodes.ICONST_1);
+            } else {
+                Nothing.push(mv, returnType);
             }
 
             super.visitInsn(returnType.getOpcode(Opcodes.IRETURN));

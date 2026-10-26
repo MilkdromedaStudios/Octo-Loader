@@ -97,6 +97,39 @@ public final class LiveStandIns {
         }
     }
 
+    private static final java.util.Map<String, Object> DETACHED = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * An empty registry under the name of one this game no longer has:
+     * {@code BuiltInRegistries.FEATURE}, which 26.x replaced with a registry
+     * of codecs. Create opens a DeferredRegister on it in a static
+     * initialiser, and a null there was a mod that never constructed. The
+     * registry is real and stays empty; nothing put in it reaches the game.
+     * One per name, so every mod asking for it gets the same one.
+     *
+     * @param context a class of the game's, for its loader
+     * @return the registry, or {@code null} if one could not be made
+     */
+    public static Object detachedRegistry(String name, Class<?> context) {
+        return DETACHED.computeIfAbsent(name, ignored -> {
+            try {
+                ClassLoader loader = context.getClassLoader();
+                Class<?> identifier = Class.forName("net.minecraft.resources.Identifier", true, loader);
+                Class<?> resourceKey = Class.forName("net.minecraft.resources.ResourceKey", true, loader);
+                Class<?> lifecycle = Class.forName("com.mojang.serialization.Lifecycle", true, loader);
+                Class<?> registry = Class.forName("net.minecraft.core.MappedRegistry", true, loader);
+                Object id = identifier.getMethod("withDefaultNamespace", String.class).invoke(null, name);
+                Object key = resourceKey.getMethod("createRegistryKey", identifier).invoke(null, id);
+                Object stable = lifecycle.getMethod("stable").invoke(null);
+                return registry.getConstructor(resourceKey, lifecycle).newInstance(key, stable);
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                LOG.debug("no stand-in registry for {}: {}", name, e.toString());
+                return null;
+            }
+        });
+    }
+
     /** Calls every listener in turn, answering with the last one's result. */
     private static Object invoker(Class<?> owner, Object[] listeners) {
         if (!owner.isInterface()) {

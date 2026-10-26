@@ -121,4 +121,18 @@ class VersionDiffTest {
         assertFalse(MappingProvider.isSourceName("$VALUES"));
         assertTrue(MappingProvider.isSourceName("getCookingProgress"));
     }
+
+    @Test
+    @DisplayName("a rename reaches a mod's subclass, but a lambda of the parent's never reaches the mod's lambda")
+    void lambdasAreNotInherited() {
+        MappingSet names = MappingSet.builder("test")
+                .mapMethod("game/Block", "lambda$static$3", "()V", "lambda$static$7")
+                .mapMethod("game/Block", "getCloneItemStack", "()V", "getCloneItem")
+                .build();
+        org.objectweb.asm.commons.Remapper remapper = names.remapper(owner ->
+                owner.equals("mod/TankBlock") ? List.of("game/Block") : List.of());
+
+        assertEquals("getCloneItem", remapper.mapMethodName("mod/TankBlock", "getCloneItemStack", "()V"));
+        assertEquals("lambda$static$3", remapper.mapMethodName("mod/TankBlock", "lambda$static$3", "()V"));
+    }
 }

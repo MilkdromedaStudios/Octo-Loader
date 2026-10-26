@@ -425,6 +425,43 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
                 new ProtectionDomain(new CodeSource(null, (Certificate[]) null), null, this, null));
     }
 
+    /**
+     * A class added back from an older release, as it will be defined, for
+     * whatever reads classes rather than loading them: a translated class
+     * returning one has to be checked against what it is now, not what it was.
+     */
+    private byte[] restoredBytes(String internalName) {
+        ClassRestorer current = restorer;
+        Transformer repair = restoredRepair;
+
+        if (current == null || !(phantoms.canGenerate(internalName) || current.isNamedByRestored(internalName))) {
+            return null;
+        }
+
+        try {
+            byte[] bytes = current.restore(internalName);
+            return bytes == null || repair == null ? bytes
+                    : repair.transform(internalName, bytes, TransformContext.of(null, this::classExists));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** A planned stand-in as it will be defined, for the same readers. */
+    private byte[] standInBytes(String internalName) {
+        if (!compat.stubMissingApi() || !phantoms.canGenerate(internalName)) {
+            return null;
+        }
+
+        byte[] cached = phantomCache.get(internalName);
+
+        try {
+            return cached != null ? cached : phantoms.generate(internalName);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private void definePackageFor(String className, URL jar) {
         int lastDot = className.lastIndexOf('.');
 
@@ -493,6 +530,11 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         phantoms.observe(bytes, this::classExists, OctoClassLoader::isStandInPackage);
     }
 
+    private static boolean isExceptionName(String internalName) {
+        return internalName.endsWith("Exception") || internalName.endsWith("Error")
+                || internalName.endsWith("Throwable");
+    }
+
     private static boolean isStandInPackage(String internalName) {
         for (String prefix : STAND_IN_PACKAGES) {
             if (internalName.startsWith(prefix)) {
@@ -541,7 +583,9 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
             if (internalName.startsWith(prefix)) {
                 LOG.warn("Octo does not implement {}; standing in for it so the mod can still load",
                         internalName.replace('/', '.'));
-                return phantoms.declareInterface(internalName);
+                // An exception is caught and thrown, which only a Throwable can be.
+                return isExceptionName(internalName) ? phantoms.declareThrowable(internalName)
+                        : phantoms.declareInterface(internalName);
             }
         }
 
@@ -570,7 +614,8 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         }
 
         if (resource == null) {
-            return null;
+            byte[] restored = restoredBytes(internalName);
+            return restored != null ? restored : standInBytes(internalName);
         }
 
         byte[] bytes;

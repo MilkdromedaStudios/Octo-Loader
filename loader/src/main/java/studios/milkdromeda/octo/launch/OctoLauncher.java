@@ -24,6 +24,7 @@ import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.api.Equivalents;
 import studios.milkdromeda.octo.compat.mapping.MappingProvider;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
+import studios.milkdromeda.octo.bridge.forge.NeoRegistration;
 import studios.milkdromeda.octo.discovery.Discovery;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
 import studios.milkdromeda.octo.hook.GameHooks;
@@ -47,7 +48,13 @@ import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
+import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
+import studios.milkdromeda.octo.transform.RegistrationIds;
+import studios.milkdromeda.octo.transform.RegistrateSupport;
 import studios.milkdromeda.octo.transform.FinalOverrides;
+import studios.milkdromeda.octo.transform.StaticInitGuard;
+import studios.milkdromeda.octo.transform.SupertypeFit;
+import studios.milkdromeda.octo.transform.VerifierFit;
 import studios.milkdromeda.octo.transform.ProbeRewriter;
 import studios.milkdromeda.octo.transform.ClassRelinker;
 import studios.milkdromeda.octo.transform.GameExitTransformer;
@@ -314,6 +321,10 @@ public final class OctoLauncher {
         apiLibraries = LoaderApiLibraries.resolve(context, mods);
         apiLibraries.forEach(classLoader::addLibrary);
 
+        if (!apiLibraries.isEmpty() && !context.compat().strict()) {
+            classLoader.addGlobalTransformer(new RegistrationEntryGuard());
+        }
+
         // The API jars expect the game their installer patched; what they
         // publish about that shape is applied before the game loads a class.
         apiPatches = LoaderApiPatches.read(apiLibraries);
@@ -352,6 +363,12 @@ public final class OctoLauncher {
             reportBootstrap(GameBootstrap.run(classLoader));
 
             construct(mods, classLoader);
+
+            // NeoForge registers between constructing mods and setting them
+            // up; that is when every DeferredRegister puts its content in.
+            if (!apiLibraries.isEmpty() && mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE)) {
+                NeoRegistration.run(classLoader);
+            }
 
             // The client phases belong inside the game's own construction, so
             // they are handed to the hook when the hook can reach them.
@@ -762,7 +779,15 @@ public final class OctoLauncher {
         classLoader.addGlobalTransformer(gameGaps);
 
         if (translated) {
+            classLoader.addGlobalTransformer(new RegistrationIds());
+            classLoader.addGlobalTransformer(new RegistrateSupport());
             classLoader.addGlobalTransformer(new FinalOverrides(index));
+            classLoader.addGlobalTransformer(new SupertypeFit(index, false));
+            classLoader.addGlobalTransformer(new VerifierFit(index, false));
+
+            if (!context.compat().strict()) {
+                classLoader.addGlobalTransformer(new StaticInitGuard());
+            }
         }
 
         // Then the classes that are gone outright: added back from the release
@@ -773,7 +798,24 @@ public final class OctoLauncher {
                     context.octoDir().resolve("cache").resolve("restored"));
 
             if (restorer != null) {
-                classLoader.installRestorer(restorer, gameGaps);
+                Transformer fit = new SupertypeFit(index, true);
+                Transformer verify = new VerifierFit(index, true);
+                Transformer bypass = gameGaps;
+                classLoader.installRestorer(restorer, new Transformer() {
+                    @Override
+                    public String name() {
+                        return "restored-repair";
+                    }
+
+                    @Override
+                    public byte[] transform(String className, byte[] bytes,
+                            studios.milkdromeda.octo.transform.TransformContext context) {
+                        return verify.transform(className,
+                                bypass.transform(className, fit.transform(className, bytes, context), context),
+                                context);
+                    }
+                });
+                index.forgetAbsent();
                 LOG.debug("classes gone since {} can be added back", restorer.releases());
             }
         }

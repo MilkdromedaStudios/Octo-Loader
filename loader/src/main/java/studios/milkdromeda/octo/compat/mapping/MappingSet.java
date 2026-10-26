@@ -476,7 +476,11 @@ public final class MappingSet {
         }
 
         private String inherited(String owner, String name, String descriptor, boolean method, Set<String> seen) {
-            if (owner == null || !seen.add(owner) || seen.size() > 64) {
+            // A name the compiler made is private to the class that has it:
+            // Block's lambda$static$3 renumbered says nothing about the
+            // lambda$static$3 of a mod's block, and following it there gave
+            // Create's FluidTankBlock two methods of one name.
+            if (owner == null || name.indexOf('$') >= 0 || !seen.add(owner) || seen.size() > 64) {
                 return null;
             }
 

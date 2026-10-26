@@ -57,7 +57,7 @@ public final class ClassRestorer {
     private static final OctoLog LOG = OctoLog.of(ClassRestorer.class);
 
     /** Bumped whenever restored classes are written differently, so old copies are not reused. */
-    private static final String FORMAT = "1";
+    private static final String FORMAT = "2";
 
     private static final List<String> GAME_PACKAGES = List.of("net/minecraft/", "com/mojang/");
     private static final List<String> CLIENT_PACKAGES = List.of(
@@ -198,6 +198,51 @@ public final class ClassRestorer {
         return out;
     }
 
+    /**
+     * A restored class is there for mods, so it is as open as they found it:
+     * public, with every member that was not private public too. In the
+     * release a mod was built for, its loader's access transformers had often
+     * opened it already — Create's track materials build an
+     * {@code Ingredient.TagValue}, which NeoForge made public and vanilla
+     * never did, and restored as vanilla had it, that was an
+     * IllegalAccessError.
+     */
+    static final class Opened extends ClassVisitor {
+        Opened(ClassVisitor delegate) {
+            super(Opcodes.ASM9, delegate);
+        }
+
+        private static int open(int access) {
+            return (access & Opcodes.ACC_PRIVATE) != 0 ? access
+                    : (access & ~Opcodes.ACC_PROTECTED) | Opcodes.ACC_PUBLIC;
+        }
+
+        @Override
+        public void visit(int version, int access, String name, String signature, String superName,
+                String[] interfaces) {
+            super.visit(version, (access & ~(Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC,
+                    name, signature, superName, interfaces);
+        }
+
+        @Override
+        public void visitInnerClass(String name, String outerName, String innerName, int access) {
+            super.visitInnerClass(name, outerName, innerName,
+                    (access & ~(Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC);
+        }
+
+        @Override
+        public org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String descriptor,
+                String signature, String[] exceptions) {
+            return super.visitMethod(open(access), name, descriptor, signature, exceptions);
+        }
+
+        @Override
+        public org.objectweb.asm.FieldVisitor visitField(int access, String name, String descriptor,
+                String signature, Object value) {
+            return super.visitField(open(access), name, descriptor, signature, value);
+        }
+    }
+
     private Path cachedCopy(String release, String internalName) {
         return cache.resolve(release + "-v" + FORMAT).resolve(internalName + ".class");
     }
@@ -297,7 +342,7 @@ public final class ClassRestorer {
             }
 
             ClassWriter writer = new ClassWriter(0);
-            new ClassReader(original).accept(new ClassRemapper(writer, asked(obf, internalName)), 0);
+            new ClassReader(original).accept(new ClassRemapper(new Opened(writer), asked(obf, internalName)), 0);
             return writer.toByteArray();
         }
 

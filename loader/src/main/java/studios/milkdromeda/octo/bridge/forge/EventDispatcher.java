@@ -30,6 +30,25 @@ final class EventDispatcher {
             boolean receiveCancelled) {
     }
 
+    /**
+     * Whether a cast failure is the listener turning the event down, rather
+     * than something failing inside it. The first is raised by the adapter
+     * the JVM made for the lambda, before any of the mod's code runs; a
+     * cast that fails deeper — inside Registrate registering all of Create's
+     * blocks, say — is a real failure and must not pass for a decline.
+     */
+    static boolean isDecline(ClassCastException e) {
+        StackTraceElement[] trace = e.getStackTrace();
+
+        if (trace.length == 0) {
+            return true;
+        }
+
+        String thrower = trace[0].getClassName();
+        return thrower.contains("$$Lambda") || thrower.startsWith("studios.milkdromeda.octo.")
+                || thrower.startsWith("java.lang.invoke.");
+    }
+
     /** Scans an object (or class, for statics) for annotated listener methods. */
     void register(Object target, Class<? extends java.lang.annotation.Annotation> annotation) {
         Class<?> type = target instanceof Class<?> asClass ? asClass : target.getClass();
@@ -108,15 +127,21 @@ final class EventDispatcher {
                     listener.method().invoke(listener.target(), event);
                 }
             } catch (ClassCastException e) {
-                // A listener added without naming its event type: generics are
-                // erased, so the only way to know it does not want this event is
-                // for its own cast to reject it.
-                LOG.trace("{}: listener declined {}", modId, event.getClass().getSimpleName());
+                if (isDecline(e)) {
+                    // A listener added without naming its event type: generics
+                    // are erased, so the only way to know it does not want this
+                    // event is for its own cast to reject it.
+                    LOG.trace("{}: listener declined {}", modId, event.getClass().getSimpleName());
+                } else {
+                    LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(),
+                            Failures.describe(e));
+                    OctoLog.detail(e);
+                }
             } catch (Throwable e) {
                 Failures.rethrowIfFatal(e);
                 Throwable cause = Failures.unwrap(e);
 
-                if (cause instanceof ClassCastException) {
+                if (cause instanceof ClassCastException cast && isDecline(cast)) {
                     continue;
                 }
 

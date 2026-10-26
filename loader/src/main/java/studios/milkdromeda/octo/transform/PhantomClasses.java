@@ -66,6 +66,8 @@ public final class PhantomClasses {
         private boolean isInterface;
         private boolean instantiated;
         private boolean extended;
+        /** Caught or thrown, so it has to be a Throwable. */
+        private boolean throwable;
 
         Spec(String internalName) {
             this.internalName = internalName;
@@ -76,7 +78,7 @@ public final class PhantomClasses {
         }
 
         public boolean isInterface() {
-            return isInterface && !instantiated && !extended;
+            return isInterface && !instantiated && !extended && !throwable;
         }
 
         public Set<Member> methods() {
@@ -363,6 +365,16 @@ public final class PhantomClasses {
                     }
 
                     @Override
+                    public void visitTryCatchBlock(org.objectweb.asm.Label start, org.objectweb.asm.Label end,
+                            org.objectweb.asm.Label handler, String type) {
+                        if (type != null && missing.test(type)) {
+                            Spec spec = specFor(type);
+                            spec.throwable = true;
+                            spec.realSupertypes.add("java/lang/RuntimeException");
+                        }
+                    }
+
+                    @Override
                     public void visitTypeInsn(int opcode, String type) {
                         if (missing.test(type)) {
                             Spec spec = specFor(type);
@@ -488,6 +500,19 @@ public final class PhantomClasses {
      * {@code IncompatibleClassChangeError}. Both are worse than the
      * {@code NoClassDefFoundError} they replaced, because they arrive later.
      */
+    /**
+     * Declares an exception nobody planned for: a class extending
+     * {@code RuntimeException}. NeoForge's {@code CommonHooks} catches FML's
+     * {@code CyclePresentException}, and a catch type that is not a
+     * Throwable fails the whole class's verification.
+     */
+    public Spec declareThrowable(String internalName) {
+        Spec spec = declareClass(internalName);
+        spec.throwable = true;
+        spec.realSupertypes.add("java/lang/RuntimeException");
+        return spec;
+    }
+
     public Spec declareClass(String internalName) {
         Spec spec = specFor(internalName);
         spec.isInterface = false;

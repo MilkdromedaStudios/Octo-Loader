@@ -300,6 +300,15 @@ public final class MemberIndex {
         return out;
     }
 
+    /**
+     * Forgets the classes found missing, once something can supply them that
+     * could not before: classes added back from an older release become
+     * readable when the restorer is installed.
+     */
+    public void forgetAbsent() {
+        shapes.values().removeIf(shape -> shape == ABSENT);
+    }
+
     /** @return the class's shape, or {@code null} when nothing has it */
     public Shape shape(String internalName) {
         if (internalName == null || internalName.isEmpty() || internalName.charAt(0) == '[') {
