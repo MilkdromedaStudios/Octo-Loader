@@ -17,6 +17,11 @@
 
   "classes": [
     {
+      "name": "net/minecraft/world/level/block/state/properties/DirectionProperty",
+      "alternatives": ["net/minecraft/world/level/block/state/properties/EnumProperty"],
+      "note": "since 1.21.2 a property of directions is an EnumProperty<Direction>, and BlockStateProperties.FACING is declared as one; the old class cannot be added back, since it extended EnumProperty, which is final now, and its create(...) factories are answered by Shims"
+    },
+    {
       "name": "com/mojang/serialization/DataResult$PartialResult",
       "alternatives": ["com/mojang/serialization/DataResult$Error"],
       "note": "DataFixerUpper 7 (Minecraft 1.20.5) turned DataResult into an interface whose failure case is DataResult.Error; it carries the same message() and its partial value as partialValue()"

@@ -112,4 +112,13 @@ class VersionDiffTest {
         assertEquals("tick", renames.mapMethod(registry, "tick", "(Lnet/minecraft/world/level/Level;)V"),
                 "a name kept with other arguments is an overload, not a rename");
     }
+
+    @Test
+    @DisplayName("names the compiler made are never renamed by name alone")
+    void compilerNamesStayPerClass() {
+        assertFalse(MappingProvider.isSourceName("lambda$static$50"));
+        assertFalse(MappingProvider.isSourceName("access$000"));
+        assertFalse(MappingProvider.isSourceName("$VALUES"));
+        assertTrue(MappingProvider.isSourceName("getCookingProgress"));
+    }
 }

@@ -274,4 +274,92 @@ class StandInShapesTest {
         assertTrue(type.isInstance(callback));
         type.getMethod("onHudRender", Object.class, float.class).invoke(callback, "graphics", 1.0f);
     }
+
+    /** Create's {@code handler.getClass()} and a {@code hashCode()} on a NeoForge IItemHandler. */
+    private static byte[] objectMethodUser() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Inventory", null, "java/lang/Object", null);
+
+        MethodVisitor describe = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "describe",
+                "(Lapi/ItemHandler;)Ljava/lang/Object;", null, null);
+        describe.visitCode();
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEINTERFACE, "api/ItemHandler", "hashCode", "()I", true);
+        describe.visitInsn(Opcodes.POP);
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEINTERFACE, "api/ItemHandler", "getSlots", "()I", true);
+        describe.visitInsn(Opcodes.POP);
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "api/ItemHandler", "getClass", "()Ljava/lang/Class;", false);
+        describe.visitInsn(Opcodes.ARETURN);
+        describe.visitMaxs(0, 0);
+        describe.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("Object's own methods called on a missing type are left to Object, so the stand-in loads")
+    void objectMethodsAreInherited() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        byte[] mod = objectMethodUser();
+        phantoms.observe(mod, name -> !name.equals("api/ItemHandler"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Inventory", mod);
+        Class<?> handler = loader.loadClass("api.ItemHandler");
+
+        assertTrue(handler.isInterface());
+        assertNotNull(handler.getMethod("getSlots"));
+        assertTrue(java.util.Arrays.stream(handler.getDeclaredMethods())
+                .noneMatch(method -> method.getName().equals("getClass") || method.getName().equals("hashCode")));
+    }
+
+    private static final String REAL_EVENT = "studios/milkdromeda/octo/transform/RealEvent";
+
+    /** Create's {@code bus.post(new BlockEvent.BreakEvent(...))}, with the event type gone. */
+    private static byte[] eventPoster() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Wrench", null, "java/lang/Object", null);
+
+        MethodVisitor post = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "post", "()Z", null, null);
+        post.visitCode();
+        post.visitTypeInsn(Opcodes.NEW, "api/BreakEvent");
+        post.visitInsn(Opcodes.DUP);
+        post.visitLdcInsn("broken");
+        post.visitMethodInsn(Opcodes.INVOKESPECIAL, "api/BreakEvent", "<init>", "(Ljava/lang/String;)V", false);
+        post.visitInsn(Opcodes.DUP);
+        post.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "api/BreakEvent", "isCanceled", "()Z", false);
+        post.visitInsn(Opcodes.POP);
+        post.visitMethodInsn(Opcodes.INVOKESTATIC, REAL_EVENT, "post", "(L" + REAL_EVENT + ";)Z", false);
+        post.visitInsn(Opcodes.IRETURN);
+        post.visitMaxs(0, 0);
+        post.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a stand-in handed to a method taking a real class extends it, keeping what that class does")
+    void realSupertypesAreExtended() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        phantoms.useRealClasses(name -> {
+            try (java.io.InputStream in = StandInShapesTest.class.getClassLoader().getResourceAsStream(name + ".class")) {
+                return in == null ? null : in.readAllBytes();
+            } catch (java.io.IOException e) {
+                return null;
+            }
+        });
+        byte[] mod = eventPoster();
+        phantoms.observe(mod, name -> !name.equals("api/BreakEvent"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Wrench", mod);
+
+        assertEquals(true, loader.loadClass("mod.Wrench").getMethod("post").invoke(null),
+                "the stand-in is a RealEvent, so the real post took it and its real setCanceled ran");
+        assertEquals(RealEvent.class, loader.loadClass("api.BreakEvent").getSuperclass());
+    }
 }

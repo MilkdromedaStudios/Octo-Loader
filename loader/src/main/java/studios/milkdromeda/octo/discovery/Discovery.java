@@ -64,6 +64,11 @@ public final class Discovery {
     private final List<ModCandidate> candidates = new ArrayList<>();
     private final List<Inspection> inspections = new ArrayList<>();
     private final List<Path> libraries = new ArrayList<>();
+    private final List<Library> owned = new ArrayList<>();
+
+    /** A jar a mod bundles that is not a mod, and the id of the mod that bundles it. */
+    public record Library(Path jar, String owner) {
+    }
 
     Discovery(List<Path> directories) {
         this.directories = List.copyOf(directories);
@@ -124,8 +129,19 @@ public final class Discovery {
         inspections.add(new Inspection(file, Verdict.ACCEPTED, nested, "", modIds));
     }
 
+    /**
+     * The same jars with the mod each came in. A library is compiled against
+     * the same Minecraft as the mod that ships it, so a mod rebuilt for this
+     * one takes its libraries along: Registrate, inside Create for 1.21.1,
+     * still named 1.21.1's game.
+     */
+    public List<Library> ownedLibraries() {
+        return List.copyOf(owned);
+    }
+
     void library(Path file, String owner) {
         libraries.add(file);
+        owned.add(new Library(file, owner));
         inspections.add(new Inspection(file, Verdict.LIBRARY, true, owner, List.of()));
     }
 

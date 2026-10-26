@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.objectweb.asm.ClassReader;
+
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.report.LoadingReport;
@@ -94,6 +96,7 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         this.phantoms = phantoms;
         this.compat = compat;
         this.report = report;
+        phantoms.useRealClasses(this::rawClassBytes);
     }
 
     /** Attaches a mod's jar and the pipeline its classes must pass through. */
@@ -125,6 +128,15 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
      * dispatch. They pass through the game pipeline like any other class.
      */
     public void addLibrary(Path jar) {
+        addLibrary(jar, null, TransformPipeline.empty());
+    }
+
+    /**
+     * Attaches a library as part of the mod that bundles it, so whatever is
+     * done for that mod's own classes — the bypass for a mod from another
+     * version, the guards around its callbacks — is done for the library's.
+     */
+    public void addLibrary(Path jar, LoadedMod owner, TransformPipeline pipeline) {
         Path path = jar.toAbsolutePath().normalize();
 
         try {
@@ -132,6 +144,15 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
             LOG.debug("added the bundled library {} to the class path", path.getFileName());
         } catch (IOException e) {
             LOG.error("could not add the library {} to the class path: {}", path, e.toString());
+            return;
+        }
+
+        if (owner != null) {
+            modsByJar.put(key(path), owner);
+        }
+
+        if (!pipeline.isEmpty()) {
+            pipelinesByJar.put(key(path), pipeline);
         }
     }
 
@@ -347,6 +368,7 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         TransformContext context = TransformContext.of(mod, this::classExists);
         byte[] transformed = weave(globalPipeline.apply(internalName,
                 pipeline.apply(internalName, bytes, context), context), internalName, context);
+        planSuperclass(transformed);
 
         definePackageFor(name, jar);
 
@@ -442,6 +464,43 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
             LOG.info("standing in for missing class {}", name);
             return phantoms.generate(internalName);
         });
+    }
+
+    /**
+     * Plans the stand-in for a missing loader-API superclass before the class
+     * extending it is defined, which is when the JVM will ask for it.
+     *
+     * <p>Invented on demand, such a stand-in is an interface, since most of
+     * what mods take from a loader API is one, and a class whose superclass is
+     * an interface fails to load along with everything that touches it.
+     * Planned from the class extending it, it is a class, with the
+     * constructors that class's own constructors call.
+     */
+    private void planSuperclass(byte[] bytes) {
+        String superName;
+
+        try {
+            superName = new ClassReader(bytes).getSuperName();
+        } catch (RuntimeException e) {
+            return;
+        }
+
+        if (superName == null || phantoms.canGenerate(superName) || !isStandInPackage(superName)
+                || classExists(superName)) {
+            return;
+        }
+
+        phantoms.observe(bytes, this::classExists, OctoClassLoader::isStandInPackage);
+    }
+
+    private static boolean isStandInPackage(String internalName) {
+        for (String prefix : STAND_IN_PACKAGES) {
+            if (internalName.startsWith(prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

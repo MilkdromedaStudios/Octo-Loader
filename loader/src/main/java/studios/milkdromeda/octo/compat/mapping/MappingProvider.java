@@ -95,7 +95,7 @@ public final class MappingProvider {
      */
     public Optional<MappingSet> toCurrent(MappingNamespace namespace, String version) {
         String release = version == null || version.isBlank() ? LATEST_INTERMEDIARY : version;
-        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY;
+        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY + "-v2";
         return composed.computeIfAbsent(key, ignored -> compose(namespace, release, key));
     }
 
@@ -313,6 +313,11 @@ public final class MappingProvider {
         return Optional.of(builder.build());
     }
 
+    /** A name someone wrote, rather than one javac made: lambda$, access$, this$0, $VALUES. */
+    static boolean isSourceName(String name) {
+        return name.indexOf('$') < 0;
+    }
+
     /** intermediary to today's names, the newest table first and the mod's own version behind it. */
     private Optional<MappingSet> intermediaryToCurrent(String release) {
         Optional<Map<String, Map<String, String>>> latest = intermediaryToMojang(LATEST_INTERMEDIARY);
@@ -398,15 +403,18 @@ public final class MappingProvider {
 
         // A rename that is the same everywhere a name appears is safe to apply
         // without an owner, which is what reaches a member called through a
-        // mod's own subclass.
+        // mod's own subclass. Not a name the compiler made, though: a game
+        // class's lambda$static$50 renumbered to lambda$static$100 says nothing
+        // about a mod's lambda$static$50, and applied to Create's AllBlocks it
+        // made two methods of one name, a class the JVM would not load.
         methodRenames.forEach((named, targets) -> {
-            if (targets.size() == 1 && !targets.contains(named)) {
+            if (targets.size() == 1 && !targets.contains(named) && isSourceName(named)) {
                 builder.mapMethodGlobally(named, targets.iterator().next());
             }
         });
 
         fieldRenames.forEach((named, targets) -> {
-            if (targets.size() == 1 && !targets.contains(named)) {
+            if (targets.size() == 1 && !targets.contains(named) && isSourceName(named)) {
                 builder.mapFieldGlobally(named, targets.iterator().next());
             }
         });

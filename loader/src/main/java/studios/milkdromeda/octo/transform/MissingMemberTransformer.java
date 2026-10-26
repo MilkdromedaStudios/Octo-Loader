@@ -58,6 +58,8 @@ import studios.milkdromeda.octo.util.OctoLog;
  */
 public final class MissingMemberTransformer implements Transformer {
     private static final OctoLog LOG = OctoLog.of(MissingMemberTransformer.class);
+    private static final String REGISTRIES = "net/minecraft/core/registries/Registries";
+    private static final String RESOURCE_KEY = "Lnet/minecraft/resources/ResourceKey;";
 
     /**
      * The packages whose contents are Octo's to implement.
@@ -1043,6 +1045,24 @@ public final class MissingMemberTransformer implements Transformer {
                     }
 
                     Type type = Type.getType(descriptor);
+
+                    // A registry this version dropped: Create's armour materials
+                    // are put in a DeferredRegister for Registries.ARMOR_MATERIAL,
+                    // gone since 1.21.2, and NeoForge refuses a null key. A key
+                    // is only a name, so the name it had stands in; nothing is
+                    // ever registered under it, and the mod carries on.
+                    if (opcode == Opcodes.GETSTATIC && owner.equals(REGISTRIES) && descriptor.equals(RESOURCE_KEY)) {
+                        delegate.visitLdcInsn(name.toLowerCase(java.util.Locale.ROOT));
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/resources/Identifier",
+                                "withDefaultNamespace", "(Ljava/lang/String;)Lnet/minecraft/resources/Identifier;",
+                                false);
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/resources/ResourceKey",
+                                "createRegistryKey",
+                                "(Lnet/minecraft/resources/Identifier;)Lnet/minecraft/resources/ResourceKey;", false);
+                        changed = true;
+                        record(context, owner, name, className, "that registry is gone, so a key of its name stands in");
+                        return;
+                    }
 
                     switch (opcode) {
                         case Opcodes.GETSTATIC -> pushDefault(type, owner);
