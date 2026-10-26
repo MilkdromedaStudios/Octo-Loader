@@ -22,10 +22,8 @@ import studios.milkdromeda.octo.bridge.forge.ForgeBuses;
  * constructed at all — the class could not be loaded, so the constructor could
  * not be resolved, so nothing in the mod ran.
  *
- * <p>Everything answerable from Octo's runtime is answered properly. Config
- * registration is recorded rather than acted on: Octo has no TOML config system,
- * and a mod that registers a spec and then reads defaults from it behaves the
- * same either way.
+ * <p>Everything answerable from Octo's runtime is answered properly. A config
+ * is loaded from its TOML file as it is registered, so the spec answers.
  */
 public class ModContainer {
     private final String modId;
@@ -64,7 +62,9 @@ public class ModContainer {
     }
 
     public void registerConfig(ModConfig.Type type, IConfigSpec spec, String fileName) {
-        configs.put(type, new ModConfig(type, spec, modId, fileName));
+        ModConfig config = new ModConfig(type, spec, modId, fileName);
+        configs.put(type, config);
+        studios.milkdromeda.octo.bridge.forge.ConfigFiles.load(spec, config::getFullPath);
     }
 
     public Optional<ModConfig> getConfig(ModConfig.Type type) {

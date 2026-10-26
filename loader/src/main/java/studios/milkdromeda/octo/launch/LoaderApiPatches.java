@@ -62,6 +62,8 @@ public final class LoaderApiPatches {
      * subclasses of something of its own.
      */
     private static final String MAPPED_REGISTRY = "net/minecraft/core/MappedRegistry";
+    private static final String INTRUSIVE_CONSTRUCTOR =
+            "(Lnet/minecraft/resources/ResourceKey;Lcom/mojang/serialization/Lifecycle;Z)V";
 
     private static final Map<String, String> SUPERCLASSES = Map.of(
             "net/minecraft/core/MappedRegistry", "net/neoforged/neoforge/registries/BaseMappedRegistry",
@@ -324,8 +326,14 @@ public final class LoaderApiPatches {
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
                         String[] exceptions) {
                     MethodVisitor delegate = super.visitMethod(access, name, descriptor, signature, exceptions);
-                    return delegate == null || !name.equals("<init>") ? delegate
-                            : new SuperCall(delegate, superclass);
+
+                    if (delegate == null || !name.equals("<init>")) {
+                        return delegate;
+                    }
+
+                    MethodVisitor rebased = new SuperCall(delegate, superclass);
+                    return className.equals(MAPPED_REGISTRY) && descriptor.equals(INTRUSIVE_CONSTRUCTOR)
+                            ? new NotesIntrusive(rebased) : rebased;
                 }
 
                 @Override
@@ -439,6 +447,31 @@ public final class LoaderApiPatches {
      * {@code new Object()} elsewhere in the constructor is left alone, which is
      * why objects made with {@code NEW} are counted.
      */
+    /**
+     * Tells {@code Registries}, as each registry is finished, whether it was
+     * built to give its entries intrusive holders: a freeze forgets that, and
+     * a mod's registry unfrozen for registration needs it back. Create makes
+     * its contraption types in its {@code RegisterEvent} listener, each asking
+     * its own registry for a holder.
+     */
+    private static final class NotesIntrusive extends MethodVisitor {
+        NotesIntrusive(MethodVisitor delegate) {
+            super(Opcodes.ASM9, delegate);
+        }
+
+        @Override
+        public void visitInsn(int opcode) {
+            if (opcode == Opcodes.RETURN) {
+                super.visitVarInsn(Opcodes.ALOAD, 0);
+                super.visitVarInsn(Opcodes.ILOAD, 3);
+                super.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/forge/Registries",
+                        "built", "(Ljava/lang/Object;Z)V", false);
+            }
+
+            super.visitInsn(opcode);
+        }
+    }
+
     private static final class SuperCall extends MethodVisitor {
         private final String superclass;
         private int pendingObjects;

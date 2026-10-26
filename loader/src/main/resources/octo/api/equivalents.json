@@ -102,6 +102,12 @@
 
   "methods": [
     {
+      "owner": "net/minecraft/core/Direction",
+      "name": "getNormal",
+      "alternatives": ["getUnitVec3i"],
+      "note": "renamed in 1.21.5; Fabric's intermediary gave the new name a new id, so no published table connects the two, and 26.x has a getStep() of the same shape, so the jars alone cannot say which one it became. Create's water wheel and every rotating block ask it"
+    },
+    {
       "owner": "com/mojang/serialization/DataResult$Error",
       "name": "partial",
       "alternatives": ["partialValue"],

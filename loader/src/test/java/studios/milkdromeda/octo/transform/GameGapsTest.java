@@ -407,6 +407,117 @@ class GameGapsTest {
                 "an inner class may call its outer class's private constructor; nothing to repair");
     }
 
+    /** Each field read the way 1.21 compiled it: one {@code String} per weathering state. */
+    private static Class<?> copperReader(String... fields) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        for (String field : fields) {
+            MethodVisitor read = method(writer, field, "()Ljava/lang/Object;");
+            read.visitFieldInsn(Opcodes.GETSTATIC, "net/minecraft/octotest/Copper3", field, "Ljava/lang/String;");
+            read.visitInsn(Opcodes.ARETURN);
+            end(read);
+        }
+
+        writer.visitEnd();
+        return repaired(writer.toByteArray());
+    }
+
+    @Test
+    @DisplayName("a copper block that became one of a collection's weathering states is read from it")
+    void weatheringStatesAreReadFromTheirCollection() throws Exception {
+        Class<?> reader = copperReader("COPPER_BLOCK", "EXPOSED_COPPER", "WAXED_COPPER_BLOCK",
+                "WAXED_OXIDIZED_COPPER", "WEATHERED_CUT_COPPER", "WAXED_EXPOSED_CUT_COPPER", "COPPER_NOTHING");
+
+        assertEquals("copper", call(reader, "COPPER_BLOCK"));
+        assertEquals("exposed copper", call(reader, "EXPOSED_COPPER"), "EXPOSED_COPPER is COPPER_BLOCK's");
+        assertEquals("waxed copper", call(reader, "WAXED_COPPER_BLOCK"));
+        assertEquals("waxed oxidized copper", call(reader, "WAXED_OXIDIZED_COPPER"));
+        assertEquals("weathered cut copper", call(reader, "WEATHERED_CUT_COPPER"));
+        assertEquals("waxed exposed cut copper", call(reader, "WAXED_EXPOSED_CUT_COPPER"));
+        assertNull(call(reader, "COPPER_NOTHING"), "a field with no collection behind it still reads a default");
+    }
+
+    @Test
+    @DisplayName("a dyed block that became one of a collection's colours is read from it")
+    void coloursAreReadFromTheirCollection() throws Exception {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        for (String field : List.of("YELLOW_WOOL", "LIGHT_BLUE_WOOL", "RED_SHULKER_BOX", "RED_NOTHING")) {
+            MethodVisitor read = method(writer, field, "()Ljava/lang/Object;");
+            read.visitFieldInsn(Opcodes.GETSTATIC, "net/minecraft/octotest/Colours3", field, "Ljava/lang/String;");
+            read.visitInsn(Opcodes.ARETURN);
+            end(read);
+        }
+
+        writer.visitEnd();
+        Class<?> reader = repaired(writer.toByteArray());
+
+        assertEquals("yellow wool", call(reader, "YELLOW_WOOL"));
+        assertEquals("light blue wool", call(reader, "LIGHT_BLUE_WOOL"));
+        assertEquals("red box", call(reader, "RED_SHULKER_BOX"), "a shulker box is among the DYED_ ones");
+        assertNull(call(reader, "RED_NOTHING"));
+    }
+
+    @Test
+    @DisplayName("a field that was closed is reached through its accessor, or by reflection")
+    void closedFieldsAreReached() throws Exception {
+        String level = "net/minecraft/octotest/Level3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        MethodVisitor clientSide = method(writer, "clientSide", "()Ljava/lang/Object;");
+        clientSide.visitTypeInsn(Opcodes.NEW, level);
+        clientSide.visitInsn(Opcodes.DUP);
+        clientSide.visitInsn(Opcodes.ICONST_1);
+        clientSide.visitMethodInsn(Opcodes.INVOKESPECIAL, level, "<init>", "(Z)V", false);
+        clientSide.visitFieldInsn(Opcodes.GETFIELD, level, "isClientSide", "Z");
+        clientSide.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;",
+                false);
+        clientSide.visitInsn(Opcodes.ARETURN);
+        end(clientSide);
+
+        // level.age = 9; return level.age, with no accessor for either.
+        MethodVisitor age = method(writer, "age", "()Ljava/lang/Object;");
+        age.visitTypeInsn(Opcodes.NEW, level);
+        age.visitInsn(Opcodes.DUP);
+        age.visitInsn(Opcodes.ICONST_0);
+        age.visitMethodInsn(Opcodes.INVOKESPECIAL, level, "<init>", "(Z)V", false);
+        age.visitVarInsn(Opcodes.ASTORE, 0);
+        age.visitVarInsn(Opcodes.ALOAD, 0);
+        age.visitIntInsn(Opcodes.BIPUSH, 9);
+        age.visitFieldInsn(Opcodes.PUTFIELD, level, "age", "I");
+        age.visitVarInsn(Opcodes.ALOAD, 0);
+        age.visitFieldInsn(Opcodes.GETFIELD, level, "age", "I");
+        age.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+        age.visitInsn(Opcodes.ARETURN);
+        end(age);
+
+        MethodVisitor motd = method(writer, "motd", "()Ljava/lang/Object;");
+        motd.visitFieldInsn(Opcodes.GETSTATIC, level, "motd", "Ljava/lang/String;");
+        motd.visitInsn(Opcodes.ARETURN);
+        end(motd);
+
+        // Protected, read from a class that is no subclass.
+        MethodVisitor name = method(writer, "name", "()Ljava/lang/Object;");
+        name.visitTypeInsn(Opcodes.NEW, level);
+        name.visitInsn(Opcodes.DUP);
+        name.visitInsn(Opcodes.ICONST_0);
+        name.visitMethodInsn(Opcodes.INVOKESPECIAL, level, "<init>", "(Z)V", false);
+        name.visitFieldInsn(Opcodes.GETFIELD, level, "name", "Ljava/lang/String;");
+        name.visitInsn(Opcodes.ARETURN);
+        end(name);
+
+        writer.visitEnd();
+        Class<?> reader = repaired(writer.toByteArray());
+
+        assertEquals(true, call(reader, "clientSide"), "isClientSide() answers for the closed field");
+        assertEquals(9, call(reader, "age"), "with no accessor, the field is written and read by reflection");
+        assertEquals("hello", call(reader, "motd"), "a static field's static getter");
+        assertEquals("level", call(reader, "name"));
+    }
+
     @Test
     @DisplayName("a class nothing can build hands back null instead of throwing")
     void unbuildableIsNull() {

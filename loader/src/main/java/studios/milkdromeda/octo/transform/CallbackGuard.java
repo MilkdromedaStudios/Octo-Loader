@@ -245,6 +245,15 @@ public final class CallbackGuard implements Transformer {
      * once and returns its type's default.
      */
     public static byte[] guardMethod(byte[] bytes, String className, String name, String descriptor) {
+        return guardMethods(bytes, className, Set.of(name + descriptor));
+    }
+
+    /**
+     * Guards each of the class's methods named, by name and descriptor, the
+     * way a callback is: what it throws is contained, and it returns its
+     * type's default.
+     */
+    public static byte[] guardMethods(byte[] bytes, String className, Set<String> methods) {
         ClassReader reader = new ClassReader(bytes);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
         boolean[] changed = { false };
@@ -255,7 +264,7 @@ public final class CallbackGuard implements Transformer {
                     String[] exceptions) {
                 MethodVisitor delegate = super.visitMethod(access, method, desc, signature, exceptions);
 
-                if (delegate == null || !method.equals(name) || !desc.equals(descriptor)
+                if (delegate == null || !methods.contains(method + desc)
                         || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
                     return delegate;
                 }

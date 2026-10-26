@@ -31,9 +31,14 @@ import org.objectweb.asm.Opcodes;
  * {@code ItemStack} is then a call to something that exists.
  */
 public final class MemberIndex {
-    /** One class, as far as linking against it is concerned. */
+    /**
+     * One class, as far as linking against it is concerned.
+     *
+     * @param access each member's access flags, a method's under {@code name(descriptor)} and a
+     *               field's under {@code name:descriptor}
+     */
     public record Shape(String name, String superName, List<String> interfaces, boolean isInterface,
-            Set<String> methods, Set<String> fields, Set<String> staticMethods, Map<String, Integer> methodAccess) {
+            Set<String> methods, Set<String> fields, Set<String> staticMethods, Map<String, Integer> access) {
     }
 
     private static final Shape ABSENT = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
@@ -85,6 +90,32 @@ public final class MemberIndex {
     }
 
     /**
+     * The access flags of the field a read or write would reach: the nearest
+     * declaration up the hierarchy.
+     *
+     * @return the flags, or {@code null} when the field is not found
+     */
+    public Integer fieldAccess(String owner, String name, String descriptor) {
+        String key = name + ":" + descriptor;
+
+        for (String type = owner; type != null; ) {
+            Shape shape = shape(type);
+
+            if (shape == null) {
+                return null;
+            }
+
+            if (shape.fields().contains(key)) {
+                return shape.access().get(key);
+            }
+
+            type = shape.superName();
+        }
+
+        return null;
+    }
+
+    /**
      * The descriptors {@code owner} answers {@code name} with: its own and
      * everything it inherits, except for constructors, which are never
      * inherited.
@@ -131,7 +162,47 @@ public final class MemberIndex {
     public Integer methodAccess(String owner, String name, String descriptor) {
         String key = name + descriptor;
         Shape declaring = name.equals("<init>") ? shape(owner) : findMethodOwner(owner, key, new HashSet<>());
-        return declaring == null ? null : declaring.methodAccess().get(key);
+        return declaring == null ? null : declaring.access().get(key);
+    }
+
+    /**
+     * Whether {@code type}, a class above it or an interface of any of them
+     * that {@code declarer} accepts declares the method. Asked of a class's
+     * supertypes, it says whether a method of the class overrides one of, say,
+     * the game's.
+     */
+    public boolean isDeclaredFrom(String type, String name, String descriptor,
+            java.util.function.Predicate<String> declarer) {
+        return declaredIn(type, name + descriptor, declarer, new HashSet<>());
+    }
+
+    private boolean declaredIn(String type, String key, java.util.function.Predicate<String> declarer,
+            Set<String> seen) {
+        if (type == null || !seen.add(type)) {
+            return false;
+        }
+
+        Shape shape = shape(type);
+
+        if (shape == null) {
+            return false;
+        }
+
+        if (shape.methods().contains(key) && declarer.test(type)) {
+            return true;
+        }
+
+        if (declaredIn(shape.superName(), key, declarer, seen)) {
+            return true;
+        }
+
+        for (String iface : shape.interfaces()) {
+            if (declaredIn(iface, key, declarer, seen)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** The owner's own public static methods returning it with these parameters, in declaration order. */
@@ -146,7 +217,7 @@ public final class MemberIndex {
         String suffix = parameters + "L" + owner + ";";
 
         for (String method : shape.methods()) {
-            Integer access = shape.methodAccess().get(method);
+            Integer access = shape.access().get(method);
 
             if (access != null && (access & Opcodes.ACC_STATIC) != 0 && (access & Opcodes.ACC_PUBLIC) != 0
                     && method.endsWith(suffix) && method.indexOf('(') == method.length() - suffix.length()) {
@@ -357,7 +428,7 @@ public final class MemberIndex {
             Set<String> methods = new LinkedHashSet<>();
             Set<String> staticMethods = new LinkedHashSet<>();
             Set<String> fields = new LinkedHashSet<>();
-            Map<String, Integer> methodAccess = new java.util.HashMap<>();
+            Map<String, Integer> memberAccess = new java.util.HashMap<>();
             String[] header = new String[1];
             List<String> interfaces = new ArrayList<>();
             boolean[] isInterface = new boolean[1];
@@ -378,7 +449,7 @@ public final class MemberIndex {
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
                         String[] exceptions) {
                     methods.add(name + descriptor);
-                    methodAccess.put(name + descriptor, access);
+                    memberAccess.put(name + descriptor, access);
 
                     if ((access & Opcodes.ACC_STATIC) != 0) {
                         staticMethods.add(name + descriptor);
@@ -391,12 +462,13 @@ public final class MemberIndex {
                 public FieldVisitor visitField(int access, String name, String descriptor, String signature,
                         Object value) {
                     fields.add(name + ":" + descriptor);
+                    memberAccess.put(name + ":" + descriptor, access);
                     return null;
                 }
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
             return new Shape(internalName, header[0], List.copyOf(interfaces), isInterface[0], methods, fields,
-                    staticMethods, methodAccess);
+                    staticMethods, memberAccess);
         } catch (RuntimeException e) {
             return ABSENT;
         }
@@ -413,12 +485,12 @@ public final class MemberIndex {
             Set<String> methods = new LinkedHashSet<>();
             Set<String> staticMethods = new LinkedHashSet<>();
             Set<String> fields = new LinkedHashSet<>();
-            Map<String, Integer> methodAccess = new java.util.HashMap<>();
+            Map<String, Integer> memberAccess = new java.util.HashMap<>();
 
             for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
                 String key = method.getName() + org.objectweb.asm.Type.getMethodDescriptor(method);
                 methods.add(key);
-                methodAccess.put(key, method.getModifiers());
+                memberAccess.put(key, method.getModifiers());
 
                 if (java.lang.reflect.Modifier.isStatic(method.getModifiers())) {
                     staticMethods.add(key);
@@ -428,11 +500,13 @@ public final class MemberIndex {
             for (java.lang.reflect.Constructor<?> constructor : type.getDeclaredConstructors()) {
                 String key = "<init>" + org.objectweb.asm.Type.getConstructorDescriptor(constructor);
                 methods.add(key);
-                methodAccess.put(key, constructor.getModifiers());
+                memberAccess.put(key, constructor.getModifiers());
             }
 
             for (java.lang.reflect.Field field : type.getDeclaredFields()) {
-                fields.add(field.getName() + ":" + org.objectweb.asm.Type.getDescriptor(field.getType()));
+                String key = field.getName() + ":" + org.objectweb.asm.Type.getDescriptor(field.getType());
+                fields.add(key);
+                memberAccess.put(key, field.getModifiers());
             }
 
             List<String> interfaces = new ArrayList<>();
@@ -443,7 +517,7 @@ public final class MemberIndex {
 
             return new Shape(internalName, type.getSuperclass() == null ? null
                     : type.getSuperclass().getName().replace('.', '/'), interfaces, type.isInterface(), methods,
-                    fields, staticMethods, methodAccess);
+                    fields, staticMethods, memberAccess);
         } catch (ClassNotFoundException | LinkageError | RuntimeException e) {
             return ABSENT;
         }
