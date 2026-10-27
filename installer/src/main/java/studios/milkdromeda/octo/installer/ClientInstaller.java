@@ -245,6 +245,30 @@ public final class ClientInstaller {
                 .toList();
     }
 
+    /**
+     * The version to install for when none is named: the newest release
+     * installed, never a snapshot, pre-release or release candidate the
+     * player happens to have tried; one of those only when nothing else is
+     * installed.
+     */
+    public static String defaultVersion(Path gameDirectory) {
+        List<String> installed = installableVersions(gameDirectory);
+        return installed.stream().filter(id -> "release".equals(profileType(gameDirectory, id))).findFirst()
+                .orElse(installed.isEmpty() ? null : installed.get(0));
+    }
+
+    private static String profileType(Path gameDirectory, String id) {
+        Path profile = gameDirectory.resolve("versions").resolve(id).resolve(id + ".json");
+
+        try {
+            JsonElement parsed = JsonParser.parseString(Files.readString(profile, StandardCharsets.UTF_8));
+            return parsed.isJsonObject() && parsed.getAsJsonObject().has("type")
+                    ? parsed.getAsJsonObject().get("type").getAsString() : null;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     private static boolean isVanillaMinecraftVersion(Path gameDirectory, String id) {
         Path profile = gameDirectory.resolve("versions").resolve(id).resolve(id + ".json");
 

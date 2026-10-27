@@ -159,18 +159,16 @@ public final class LoaderApiLibraries {
             }
 
             Matcher matcher = Pattern.compile("<version>([^<]+)</version>").matcher(response.body());
-            String best = null;
+            List<String> versions = new ArrayList<>();
 
             while (matcher.find()) {
-                String version = matcher.group(1);
-
-                if (version.startsWith(prefix) && (best == null
-                        || Version.parse(version).compareTo(Version.parse(best)) > 0)) {
-                    best = version;
-                }
+                versions.add(matcher.group(1));
             }
 
-            return Optional.ofNullable(best);
+            Optional<String> best = pick(versions, prefix);
+            best.filter(LoaderApiLibraries::isPreRelease).ifPresent(version -> LOG.warn(
+                    "{} has no stable release for this Minecraft yet; using its pre-release {}", repository, version));
+            return best;
         } catch (IOException e) {
             LOG.debug("could not read {}: {}", repository, e.toString());
             return Optional.empty();
@@ -186,13 +184,34 @@ public final class LoaderApiLibraries {
         }
 
         try (Stream<Path> files = Files.list(cache)) {
-            return files.filter(file -> file.getFileName().toString().startsWith(name + "-" + prefix))
-                    .filter(file -> file.getFileName().toString().endsWith("-universal.jar"))
-                    .max(java.util.Comparator.comparing(file -> Version.parse(file.getFileName().toString()
-                            .substring(name.length() + 1).replace("-universal.jar", ""))));
+            List<String> versions = files.map(file -> file.getFileName().toString())
+                    .filter(file -> file.startsWith(name + "-" + prefix) && file.endsWith("-universal.jar"))
+                    .map(file -> file.substring(name.length() + 1, file.length() - "-universal.jar".length()))
+                    .toList();
+            return pick(versions, prefix).map(version -> cache.resolve(name + "-" + version + "-universal.jar"));
         } catch (IOException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * The newest of the versions for this Minecraft, a stable one wherever
+     * there is one: NeoForge publishes dozens of {@code -beta} builds for each
+     * release before its first stable one, and a pre-release is only taken
+     * when nothing stable exists yet.
+     */
+    static Optional<String> pick(List<String> versions, String prefix) {
+        java.util.Comparator<String> newest = java.util.Comparator.comparing(Version::parse);
+        List<String> matching = versions.stream().filter(version -> version.startsWith(prefix)).toList();
+        Optional<String> stable = matching.stream().filter(version -> !isPreRelease(version)).max(newest);
+        return stable.isPresent() ? stable : matching.stream().max(newest);
+    }
+
+    /** {@code 26.3.0.75-beta}, {@code 21.0.0-alpha.1+snapshot-3}, an {@code -rc} or a {@code -pre}. */
+    static boolean isPreRelease(String version) {
+        String lower = version.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("-alpha") || lower.contains("-beta") || lower.contains("-rc")
+                || lower.contains("-pre") || lower.contains("snapshot");
     }
 
     private static HttpRequest request(String url) {

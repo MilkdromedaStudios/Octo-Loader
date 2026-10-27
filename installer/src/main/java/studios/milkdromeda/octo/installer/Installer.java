@@ -38,16 +38,15 @@ public final class Installer {
                     String version = argument(arguments, "--mcVersion", null);
 
                     if (version == null) {
-                        List<String> installed = ClientInstaller.installableVersions(gameDirectory);
+                        version = ClientInstaller.defaultVersion(gameDirectory);
 
-                        if (installed.isEmpty()) {
+                        if (version == null) {
                             System.err.println("No Minecraft versions found in " + gameDirectory
                                     + ". Run the version you want once in the launcher first.");
                             return 1;
                         }
 
-                        version = installed.get(0);
-                        System.out.println("No --mcVersion given; using the newest installed: " + version);
+                        System.out.println("No --mcVersion given; using the newest release installed: " + version);
                     }
 
                     System.out.println("Installing Octo Loader " + VERSION + " for Minecraft " + version);

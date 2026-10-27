@@ -682,8 +682,29 @@ public final class MissingMemberTransformer implements Transformer {
                         }
                     }
 
-                    // A super call is part of the class's own shape, and is
-                    // never touched.
+                    // A super call to what nothing above the class has any
+                    // more: Create's block entities save through
+                    // super.saveAdditional(tag, registries), which no class up
+                    // to the game's BlockEntity declares since 1.21.6. The
+                    // game's part is done before the old method is reached
+                    // (ValueIoBridge), so the call is skipped.
+                    if (opcode == Opcodes.INVOKESPECIAL && name.charAt(0) != '<' && !owner.equals(className)
+                            && lookup.guards(owner) && Boolean.FALSE.equals(lookup.hasMethod(owner, name, descriptor))) {
+                        discard(Type.getArgumentTypes(descriptor), true);
+                        Type returned = Type.getReturnType(descriptor);
+
+                        if (returned.getSort() != Type.VOID) {
+                            pushResult(returned, owner);
+                        }
+
+                        changed = true;
+                        record(context, owner, name + descriptor, className,
+                                "nothing above the class has it any more, so the super call is skipped");
+                        return;
+                    }
+
+                    // Any other super call is part of the class's own shape,
+                    // and is never touched.
                     if (opcode == Opcodes.INVOKESPECIAL || name.charAt(0) == '<' || owner.equals(className)
                             || owner.charAt(0) == '[' || isOwnClass(context, owner) || !lookup.guards(owner)) {
                         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
