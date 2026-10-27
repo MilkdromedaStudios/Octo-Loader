@@ -439,6 +439,36 @@ class GameGapsTest {
     }
 
     @Test
+    @DisplayName("a super() call to a constructor the game's superclass no longer has builds it another way")
+    void goneSuperConstructorStillBuilds() throws Exception {
+        String custom = "net/minecraft/octotest/Custom3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, custom, null);
+
+        // super("misc"), compiled when Custom3 took a category.
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitLdcInsn("misc");
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, custom, "<init>", "(Ljava/lang/String;)V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        end(constructor);
+
+        MethodVisitor entry = method(writer, "entry", "()Ljava/lang/Object;");
+        entry.visitTypeInsn(Opcodes.NEW, CALLER);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, CALLER, "<init>", "()V", false);
+        entry.visitFieldInsn(Opcodes.GETFIELD, custom, "made", "Ljava/lang/String;");
+        entry.visitInsn(Opcodes.ARETURN);
+        end(entry);
+
+        writer.visitEnd();
+
+        assertEquals("made", call(repaired(writer.toByteArray()), "entry"),
+                "the superclass is built through the constructor it has, and the object is usable");
+    }
+
+    @Test
     @DisplayName("a super call to what nothing above has any more is skipped, with a default for its result")
     void goneSuperCallIsSkipped() throws Exception {
         String block = "net/minecraft/octotest/Block3";

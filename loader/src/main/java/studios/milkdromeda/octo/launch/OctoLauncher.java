@@ -49,6 +49,8 @@ import studios.milkdromeda.octo.transform.ByteScan;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
 import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
+import studios.milkdromeda.octo.transform.ExtensibleEnums;
+import studios.milkdromeda.octo.transform.ModPackHook;
 import studios.milkdromeda.octo.transform.RegistrationIds;
 import studios.milkdromeda.octo.transform.RegistrateSupport;
 import studios.milkdromeda.octo.transform.FinalOverrides;
@@ -56,6 +58,8 @@ import studios.milkdromeda.octo.transform.StaticInitGuard;
 import studios.milkdromeda.octo.transform.UnboundComponents;
 import studios.milkdromeda.octo.transform.OverrideGuard;
 import studios.milkdromeda.octo.transform.ValueIoBridge;
+import studios.milkdromeda.octo.transform.AbstractGaps;
+import studios.milkdromeda.octo.transform.RegistryLoadGuard;
 import studios.milkdromeda.octo.transform.SupertypeFit;
 import studios.milkdromeda.octo.transform.VerifierFit;
 import studios.milkdromeda.octo.transform.ProbeRewriter;
@@ -323,9 +327,19 @@ public final class OctoLauncher {
         // loader, which ships with the loader rather than as a mod.
         apiLibraries = LoaderApiLibraries.resolve(context, mods);
         apiLibraries.forEach(classLoader::addLibrary);
+        studios.milkdromeda.octo.bridge.ModPacks.libraries(apiLibraries);
 
         if (!apiLibraries.isEmpty() && !context.compat().strict()) {
             classLoader.addGlobalTransformer(new RegistrationEntryGuard());
+        }
+
+        if (apiLibraries.stream().anyMatch(jar -> jar.getFileName().toString().startsWith("neoforge-"))) {
+            classLoader.addGlobalTransformer(new ExtensibleEnums());
+        }
+
+        // Their data and assets, which only reach the game as packs.
+        if (mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE || mod.format() == ModFormat.FORGE)) {
+            classLoader.addGlobalTransformer(new ModPackHook());
         }
 
         // The API jars expect the game their installer patched; what they
@@ -786,6 +800,11 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new RegistrateSupport());
             classLoader.addGlobalTransformer(new UnboundComponents());
             classLoader.addGlobalTransformer(new ValueIoBridge(index));
+            classLoader.addGlobalTransformer(new AbstractGaps(index));
+
+            if (!context.compat().strict()) {
+                classLoader.addGlobalTransformer(new RegistryLoadGuard());
+            }
             classLoader.addGlobalTransformer(new FinalOverrides(index));
             classLoader.addGlobalTransformer(new SupertypeFit(index, false));
             classLoader.addGlobalTransformer(new VerifierFit(index, false));

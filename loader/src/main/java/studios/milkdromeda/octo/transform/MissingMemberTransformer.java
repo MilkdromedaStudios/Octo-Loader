@@ -824,8 +824,14 @@ public final class MissingMemberTransformer implements Transformer {
                     PendingNew made = pending.peek();
 
                     // No NEW waiting for this: a super() or this() call, which is
-                    // the class's own shape. A NEW of some other type: code this
-                    // cannot follow, left exactly as it is.
+                    // the class's own shape — unless the superclass is the
+                    // game's and no longer has the constructor. A NEW of some
+                    // other type: code this cannot follow, left exactly as it is.
+                    if (made == null && methodName.equals("<init>") && owner.equals(superName)
+                            && superConstructorGap(owner, descriptor)) {
+                        return;
+                    }
+
                     if (made == null || !made.type.equals(owner)) {
                         super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", descriptor, false);
                         return;
@@ -887,6 +893,71 @@ public final class MissingMemberTransformer implements Transformer {
                     changed = true;
                     record(context, owner, "<init>" + descriptor, className,
                             "it is built through a constructor this version has");
+                }
+
+                /**
+                 * A super() call to a constructor the game's superclass no
+                 * longer has: Create's {@code ItemCopyingRecipe} calls
+                 * {@code CustomRecipe(CraftingBookCategory)}, and 26.x's
+                 * {@code CustomRecipe} takes nothing. The constructor the
+                 * arguments still fit is called, or else the superclass's
+                 * simplest, with defaults for what it takes.
+                 *
+                 * @return whether the call was written
+                 */
+                private boolean superConstructorGap(String owner, String descriptor) {
+                    if (isOwnClass(context, owner) || !lookup.guards(owner)) {
+                        return false;
+                    }
+
+                    Boolean exists = lookup.hasMethod(owner, "<init>", descriptor);
+
+                    if (!Boolean.FALSE.equals(exists)) {
+                        return false;
+                    }
+
+                    String compatible = compatibleOverload(owner, "<init>", descriptor, false, false);
+
+                    if (compatible != null) {
+                        super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", compatible, false);
+                        changed = true;
+                        record(context, owner, "<init>" + descriptor, className, "it takes " + compatible + " now");
+                        return true;
+                    }
+
+                    String simplest = null;
+
+                    for (String candidate : lookup.overloads(owner, "<init>")) {
+                        Integer access = lookup.methodAccess(owner, "<init>", candidate);
+
+                        if (access == null || (access & Opcodes.ACC_PRIVATE) != 0
+                                || (access & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) == 0
+                                        && !packageOf(owner).equals(packageOf(className))) {
+                            continue;
+                        }
+
+                        if (simplest == null
+                                || Type.getArgumentTypes(candidate).length < Type.getArgumentTypes(simplest).length) {
+                            simplest = candidate;
+                        }
+                    }
+
+                    if (simplest == null) {
+                        return false;
+                    }
+
+                    // The arguments go; under them, the object being built stays.
+                    discard(Type.getArgumentTypes(descriptor), false);
+
+                    for (Type parameter : Type.getArgumentTypes(simplest)) {
+                        pushDefault(parameter, owner);
+                    }
+
+                    super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", simplest, false);
+                    changed = true;
+                    record(context, owner, "<init>" + descriptor, className,
+                            "it is gone, so the superclass is built through <init>" + simplest);
+                    return true;
                 }
 
                 /**
@@ -1211,6 +1282,19 @@ public final class MissingMemberTransformer implements Transformer {
                             && readFromCollection(owner, name, type)) {
                         changed = true;
                         record(context, owner, name, className, "it is one of a collection of weathering states now");
+                        return;
+                    }
+
+                    String fieldShim = opcode == Opcodes.GETSTATIC && classVersion >= Opcodes.V1_5
+                            ? Shims.fieldShimFor(owner, name, descriptor) : null;
+
+                    if (fieldShim != null) {
+                        delegate.visitLdcInsn(Type.getObjectType(owner));
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), fieldShim,
+                                "(Ljava/lang/Class;)Ljava/lang/Object;", false);
+                        delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
+                        changed = true;
+                        record(context, owner, name, className, "it is rebuilt from what this version's API has");
                         return;
                     }
 

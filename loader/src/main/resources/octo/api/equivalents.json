@@ -153,6 +153,24 @@
 
   "fields": [
     {
+      "owner": "net/minecraft/world/item/ItemStack",
+      "name": "STRICT_CODEC",
+      "alternatives": ["CODEC"],
+      "note": "1.21.2 folded ItemStack's strict codec into CODEC, which validates the same way; Create's recipe results are read through it"
+    },
+    {
+      "owner": "net/minecraft/world/item/ItemStack",
+      "name": "SINGLE_ITEM_CODEC",
+      "alternatives": ["CODEC"],
+      "note": "the single-item codec went with it; CODEC reads a stack of one as well"
+    },
+    {
+      "owner": "net/minecraft/world/item/ItemStack",
+      "name": "SIMPLE_ITEM_CODEC",
+      "alternatives": ["CODEC"],
+      "note": "the item-id-only codec went with it; CODEC reads a stack given as just its item"
+    },
+    {
       "owner": "net/minecraft/SystemReport",
       "name": "entries",
       "alternatives": ["entries", "details"],
