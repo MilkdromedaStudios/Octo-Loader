@@ -66,20 +66,27 @@ public final class FabricBridge implements LoaderBridge {
                 || phase.equals(Phases.CLIENT) || phase.equals(Phases.SERVER);
     }
 
+    /** Entrypoints are built when their key is first asked for, as on Fabric. */
     private void construct(LoadedMod mod, ClassLoader classLoader, String phase, Class<?> expectedType) {
         for (EntrypointSpec spec : mod.metadata().entrypoints(phase)) {
-            try {
-                Object instance = Entrypoints.create(spec, classLoader, expectedType);
-                OctoRuntime.get().registerEntrypoint(phase, mod, instance);
-                LOG.debug("{}: constructed {} entrypoint {}", mod.id(), phase, spec);
-            } catch (Throwable e) {
-                Failures.rethrowIfFatal(e);
-                Throwable cause = Failures.unwrap(e);
-                LOG.warn("{}: could not construct {} entrypoint {}: {}", mod.id(), phase, spec,
-                        Failures.describe(cause));
-                OctoLog.detail(cause);
-                mod.recordFix("entrypoint " + spec + " could not be constructed: " + cause);
-            }
+            OctoRuntime.get().deferEntrypoint(phase, mod, () -> create(mod, classLoader, phase, expectedType, spec));
+        }
+    }
+
+    private static Object create(LoadedMod mod, ClassLoader classLoader, String phase, Class<?> expectedType,
+            EntrypointSpec spec) {
+        try {
+            Object instance = Entrypoints.create(spec, classLoader, expectedType);
+            LOG.debug("{}: constructed {} entrypoint {}", mod.id(), phase, spec);
+            return instance;
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            Throwable cause = Failures.unwrap(e);
+            LOG.warn("{}: could not construct {} entrypoint {}: {}", mod.id(), phase, spec,
+                    Failures.describe(cause));
+            OctoLog.detail(cause);
+            mod.recordFix("entrypoint " + spec + " could not be constructed: " + cause);
+            return null;
         }
     }
 

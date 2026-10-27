@@ -6,8 +6,10 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -22,12 +24,14 @@ import studios.milkdromeda.octo.compat.TimeCapsule;
 import studios.milkdromeda.octo.compat.api.Equivalents;
 import studios.milkdromeda.octo.compat.mapping.MappingProvider;
 import studios.milkdromeda.octo.compat.mapping.MappingRegistry;
+import studios.milkdromeda.octo.bridge.forge.NeoRegistration;
 import studios.milkdromeda.octo.discovery.Discovery;
 import studios.milkdromeda.octo.discovery.ModDiscoverer;
 import studios.milkdromeda.octo.hook.GameHooks;
 import studios.milkdromeda.octo.mixin.MixinSupport;
 import studios.milkdromeda.octo.mixin.MixinTargets;
 import studios.milkdromeda.octo.mod.ModCandidate;
+import studios.milkdromeda.octo.mod.ModFormat;
 import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.mod.Side;
 import studios.milkdromeda.octo.rebuild.MixinInterfaces;
@@ -44,6 +48,16 @@ import studios.milkdromeda.octo.runtime.OctoRuntime;
 import studios.milkdromeda.octo.transform.ByteScan;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
+import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
+import studios.milkdromeda.octo.transform.RegistrationIds;
+import studios.milkdromeda.octo.transform.RegistrateSupport;
+import studios.milkdromeda.octo.transform.FinalOverrides;
+import studios.milkdromeda.octo.transform.StaticInitGuard;
+import studios.milkdromeda.octo.transform.UnboundComponents;
+import studios.milkdromeda.octo.transform.OverrideGuard;
+import studios.milkdromeda.octo.transform.SupertypeFit;
+import studios.milkdromeda.octo.transform.VerifierFit;
+import studios.milkdromeda.octo.transform.ProbeRewriter;
 import studios.milkdromeda.octo.transform.ClassRelinker;
 import studios.milkdromeda.octo.transform.GameExitTransformer;
 import studios.milkdromeda.octo.transform.MemberIndex;
@@ -177,6 +191,9 @@ public final class OctoLauncher {
         return report;
     }
 
+    /** The libraries each mod bundles, as they went on the class path. */
+    private final Map<LoadedMod, List<Path>> bundledLibraries = new HashMap<>();
+
     private LaunchResult loadMods(OctoRuntime runtime, OctoClassLoader classLoader, PhantomClasses phantoms) {
         TimeCapsule timeCapsule = new TimeCapsule(context);
         installMappings(timeCapsule.runtimeEra());
@@ -242,6 +259,8 @@ public final class OctoLauncher {
         mappings = new MappingProvider(context.octoDir().resolve("cache").resolve("mappings"));
         ModRebuilder rebuilder = new ModRebuilder(context, timeCapsule, mappings);
 
+        Map<LoadedMod, TransformPipeline> pipelines = new HashMap<>();
+
         for (LoadedMod mod : mods) {
             TransformPipeline pipeline = TransformPipeline.empty();
             ModRebuilder.Result rebuilt = rebuilder.prepare(mod);
@@ -264,22 +283,49 @@ public final class OctoLauncher {
             }
 
             classLoader.addMod(mod, pipeline);
+            pipelines.put(mod, pipeline);
         }
 
         // The libraries the mods brought with them. Before this they were
         // unpacked, found to contain no mod, and thrown away — which is why
-        // Create loaded and then died on the Registrate it ships itself.
-        List<Path> libraries = discovery.libraries();
+        // Create loaded and then died on the Registrate it ships itself. Each
+        // goes on as part of the mod that brought it, translated as that mod
+        // is: it was built against the same game.
+        List<Discovery.Library> libraries = discovery.ownedLibraries();
+        bundledLibraries.clear();
 
         if (!libraries.isEmpty()) {
             LOG.info("{} bundled librarie(s) came with the mods and are on the class path", libraries.size());
-            libraries.forEach(classLoader::addLibrary);
+
+            for (Discovery.Library library : libraries) {
+                LoadedMod owner = mods.stream().filter(mod -> mod.id().equals(library.owner())).findFirst()
+                        .orElse(null);
+                Path jar = library.jar();
+                TransformPipeline pipeline = TransformPipeline.empty();
+
+                if (owner != null && isRebuilt(owner)) {
+                    ModRebuilder.Result rebuilt = rebuilder.prepareLibrary(owner, jar);
+                    jar = rebuilt.rebuilt() ? rebuilt.jar() : jar;
+                } else if (owner != null) {
+                    pipeline = pipelines.getOrDefault(owner, TransformPipeline.empty());
+                }
+
+                classLoader.addLibrary(jar, owner, pipeline);
+
+                if (owner != null) {
+                    bundledLibraries.computeIfAbsent(owner, ignored -> new ArrayList<>()).add(jar);
+                }
+            }
         }
 
         // NeoForge and Forge mods link against the game-side half of their
         // loader, which ships with the loader rather than as a mod.
         apiLibraries = LoaderApiLibraries.resolve(context, mods);
         apiLibraries.forEach(classLoader::addLibrary);
+
+        if (!apiLibraries.isEmpty() && !context.compat().strict()) {
+            classLoader.addGlobalTransformer(new RegistrationEntryGuard());
+        }
 
         // The API jars expect the game their installer patched; what they
         // publish about that shape is applied before the game loads a class.
@@ -320,6 +366,12 @@ public final class OctoLauncher {
 
             construct(mods, classLoader);
 
+            // NeoForge registers between constructing mods and setting them
+            // up; that is when every DeferredRegister puts its content in.
+            if (!apiLibraries.isEmpty() && mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE)) {
+                NeoRegistration.run(classLoader);
+            }
+
             // The client phases belong inside the game's own construction, so
             // they are handed to the hook when the hook can reach them.
             List<Lifecycle> deferred = deferredPhases(classLoader);
@@ -332,7 +384,19 @@ public final class OctoLauncher {
 
             if (!deferred.isEmpty()) {
                 LOG.info("holding {} until the game has started", describe(deferred));
-                GameHooks.arm(() -> deferred.forEach(phase -> dispatch(phase, mods)));
+                // Fabric and Quilt run their client initialisers as the client
+                // starts being built; Forge's client setup comes once it exists.
+                List<LoadedMod> fabricFamily = mods.stream()
+                        .filter(mod -> mod.format().family() == ModFormat.Family.FABRIC).toList();
+                List<LoadedMod> others = mods.stream()
+                        .filter(mod -> mod.format().family() != ModFormat.Family.FABRIC).toList();
+
+                if (deferred.contains(Lifecycle.SIDED_SETUP) && !fabricFamily.isEmpty()) {
+                    GameHooks.armEarly(() -> dispatch(Lifecycle.SIDED_SETUP, fabricFamily));
+                }
+
+                GameHooks.arm(() -> deferred.forEach(phase -> dispatch(phase,
+                        phase == Lifecycle.SIDED_SETUP ? others : mods)));
             }
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
@@ -704,11 +768,31 @@ public final class OctoLauncher {
             }
         }
 
+        // A mod asking whether a class exists gets told the truth about
+        // stand-ins, so it does not take one for another mod being installed.
+        if (context.compat().stubMissingApi()) {
+            classLoader.addGlobalTransformer(new ProbeRewriter());
+        }
+
         MemberIndex index = new MemberIndex(classLoader::rawClassBytes);
         MixinInterfaces.collect(mods, index);
         gameGaps = MissingMemberTransformer.forTranslatedMods(index,
                 apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES).withEquivalents(equivalents);
         classLoader.addGlobalTransformer(gameGaps);
+
+        if (translated) {
+            classLoader.addGlobalTransformer(new RegistrationIds());
+            classLoader.addGlobalTransformer(new RegistrateSupport());
+            classLoader.addGlobalTransformer(new UnboundComponents());
+            classLoader.addGlobalTransformer(new FinalOverrides(index));
+            classLoader.addGlobalTransformer(new SupertypeFit(index, false));
+            classLoader.addGlobalTransformer(new VerifierFit(index, false));
+
+            if (!context.compat().strict()) {
+                classLoader.addGlobalTransformer(new StaticInitGuard());
+                classLoader.addGlobalTransformer(new OverrideGuard(index));
+            }
+        }
 
         // Then the classes that are gone outright: added back from the release
         // the mod came from where that release has them, so a stand-in is only
@@ -718,7 +802,24 @@ public final class OctoLauncher {
                     context.octoDir().resolve("cache").resolve("restored"));
 
             if (restorer != null) {
-                classLoader.installRestorer(restorer, gameGaps);
+                Transformer fit = new SupertypeFit(index, true);
+                Transformer verify = new VerifierFit(index, true);
+                Transformer bypass = gameGaps;
+                classLoader.installRestorer(restorer, new Transformer() {
+                    @Override
+                    public String name() {
+                        return "restored-repair";
+                    }
+
+                    @Override
+                    public byte[] transform(String className, byte[] bytes,
+                            studios.milkdromeda.octo.transform.TransformContext context) {
+                        return verify.transform(className,
+                                bypass.transform(className, fit.transform(className, bytes, context), context),
+                                context);
+                    }
+                });
+                index.forgetAbsent();
                 LOG.debug("classes gone since {} can be added back", restorer.releases());
             }
         }
@@ -943,27 +1044,36 @@ public final class OctoLauncher {
             TransformPipeline pipeline = fromAnotherEra && !isRebuilt(mod) ? timeCapsule.pipelineFor(mod)
                     : TransformPipeline.empty();
 
-            try (ModSource source = ModSource.open(mod.effectivePath())) {
-                for (String entry : source.entries()) {
-                    if (!entry.endsWith(".class")) {
-                        continue;
+            // The libraries it bundles are its code too, already translated
+            // with it where it was rebuilt.
+            List<Path> jars = new ArrayList<>(List.of(mod.effectivePath()));
+            jars.addAll(bundledLibraries.getOrDefault(mod, List.of()));
+
+            for (Path jar : jars) {
+                try (ModSource source = ModSource.open(jar)) {
+                    for (String entry : source.entries()) {
+                        if (!entry.endsWith(".class")) {
+                            continue;
+                        }
+
+                        byte[] bytes = source.read(entry).orElse(null);
+
+                        if (bytes == null || (!fromAnotherEra && !worthReading.matches(bytes))) {
+                            continue;
+                        }
+
+                        // Look at the class as it will be after translation, not
+                        // as it is on disk: remapping resolves most missing
+                        // references.
+                        byte[] translated = pipeline.apply(entry.substring(0, entry.length() - 6), bytes,
+                                studios.milkdromeda.octo.transform.TransformContext.of(null,
+                                        classLoader::classExists));
+                        phantoms.observe(translated, classLoader::classExists, answerable);
                     }
-
-                    byte[] bytes = source.read(entry).orElse(null);
-
-                    if (bytes == null || (!fromAnotherEra && !worthReading.matches(bytes))) {
-                        continue;
-                    }
-
-                    // Look at the class as it will be after translation, not as
-                    // it is on disk: remapping resolves most missing references.
-                    byte[] translated = pipeline.apply(entry.substring(0, entry.length() - 6), bytes,
-                            studios.milkdromeda.octo.transform.TransformContext.of(null, classLoader::classExists));
-                    phantoms.observe(translated, classLoader::classExists, answerable);
+                } catch (Throwable e) {
+                    Failures.rethrowIfFatal(e);
+                    LOG.debug("could not scan {} for missing references: {}", jar.getFileName(), e.toString());
                 }
-            } catch (Throwable e) {
-                Failures.rethrowIfFatal(e);
-                LOG.debug("could not scan {} for missing references: {}", mod.id(), e.toString());
             }
         }
 

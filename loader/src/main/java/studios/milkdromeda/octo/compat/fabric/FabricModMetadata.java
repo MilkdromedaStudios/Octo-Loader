@@ -50,7 +50,7 @@ final class FabricModMetadata implements ModMetadata {
 
     @Override
     public Collection<String> getProvides() {
-        return List.of();
+        return source.provides();
     }
 
     @Override
@@ -119,23 +119,23 @@ final class FabricModMetadata implements ModMetadata {
 
     @Override
     public boolean containsCustomValue(String key) {
-        return false;
+        return source.customValues().containsKey(key);
     }
 
     @Override
     public CustomValue getCustomValue(String key) {
-        return null;
+        return containsCustomValue(key) ? OctoCustomValue.of(source.customValues().get(key)) : null;
     }
 
     @Override
     public Map<String, CustomValue> getCustomValues() {
-        return Map.of();
+        return OctoCustomValue.all(source.customValues());
     }
 
     @Override
     @Deprecated
     public boolean containsCustomElement(String key) {
-        return false;
+        return containsCustomValue(key);
     }
 
     private record SimplePerson(String name) implements Person {

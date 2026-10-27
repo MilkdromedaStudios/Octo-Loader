@@ -98,22 +98,28 @@ public final class VersionDiff {
      * order they are declared, keeping each pair whose names are related.
      */
     private static void pair(List<Member> before, List<Member> after, Renamed renamed) {
-        Set<String> namesBefore = new HashSet<>();
         Set<String> namesAfter = new HashSet<>();
-        before.forEach(member -> namesBefore.add(member.name()));
+        Set<String> signaturesBefore = new HashSet<>();
+        Set<String> signaturesAfter = new HashSet<>();
         after.forEach(member -> namesAfter.add(member.name()));
+        after.forEach(member -> signaturesAfter.add(member.name() + member.descriptor()));
+        before.forEach(member -> signaturesBefore.add(member.name() + member.descriptor()));
 
         Map<String, List<Member>> gone = new LinkedHashMap<>();
         Map<String, List<Member>> added = new LinkedHashMap<>();
 
         for (Member member : before) {
-            if (member.isMatchable() && !namesAfter.contains(member.name())) {
+            if (member.isMatchable() && !signaturesAfter.contains(member.name() + member.descriptor())
+                    && (!namesAfter.contains(member.name()) || isReturnReused(member, after))) {
                 gone.computeIfAbsent(key(member), ignored -> new ArrayList<>()).add(member);
             }
         }
 
+        // New by signature, not by name: 1.21's Registry already had a
+        // getValue, for a ResourceKey, so getValue(Identifier) arriving beside
+        // it is as new as anything.
         for (Member member : after) {
-            if (member.isMatchable() && !namesBefore.contains(member.name())) {
+            if (member.isMatchable() && !signaturesBefore.contains(member.name() + member.descriptor())) {
                 added.computeIfAbsent(key(member), ignored -> new ArrayList<>()).add(member);
             }
         }
@@ -134,6 +140,33 @@ public final class VersionDiff {
                 }
             }
         });
+    }
+
+    /**
+     * Whether a method's name went on to something else with the same
+     * arguments: {@code Registry.get(Identifier)} answered the value until
+     * 1.21.2, answers an {@code Optional} of a holder since, and the value is
+     * {@code getValue(Identifier)}. A mod calling the old {@code get} wants the
+     * value, so the old method is gone and paired like any renamed one. A name
+     * kept with other arguments is an overload, not this, and is left alone.
+     */
+    private static boolean isReturnReused(Member member, List<Member> after) {
+        if (!member.descriptor().startsWith("(")) {
+            return false;
+        }
+
+        String arguments = member.descriptor().substring(0, member.descriptor().indexOf(')') + 1);
+
+        for (Member candidate : after) {
+            if (candidate.isMatchable() && candidate.name().equals(member.name())
+                    && candidate.isStatic() == member.isStatic()
+                    && candidate.descriptor().startsWith(arguments)
+                    && !candidate.descriptor().equals(member.descriptor())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static String key(Member member) {
@@ -197,6 +230,22 @@ public final class VersionDiff {
                     : names.fields.get(NameTable.fieldKey(owner, name));
             return named != null ? named : name;
         }, names::mapDescriptor, out);
+        return out;
+    }
+
+    /**
+     * An obfuscated release's classes in the names a mod from it is
+     * translated into: today's where intermediary links them, its own where
+     * not. Renames found this way are keyed the way the translated mod
+     * already names things, so {@code Registry.get(Identifier)} is looked
+     * up as that, not as 1.21.1's {@code get(ResourceLocation)}.
+     */
+    static Map<String, Shape> readThrough(Path jar, org.objectweb.asm.commons.Remapper names) throws IOException {
+        Map<String, Shape> out = new HashMap<>();
+        read(jar, names::map, (owner, name, descriptor) -> descriptor.startsWith("(")
+                ? names.mapMethodName(owner, name, descriptor) : names.mapFieldName(owner, name, descriptor),
+                descriptor -> descriptor.startsWith("(") ? names.mapMethodDesc(descriptor) : names.mapDesc(descriptor),
+                out);
         return out;
     }
 

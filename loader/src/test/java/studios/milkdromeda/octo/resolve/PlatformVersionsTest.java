@@ -69,4 +69,15 @@ class PlatformVersionsTest {
         assertFalse(resolution.order().stream().anyMatch(candidate -> candidate.id().equals("mixinextras")));
         assertTrue(resolution.order().stream().anyMatch(candidate -> candidate.id().equals("user")));
     }
+
+    @Test
+    @DisplayName("a mod asking for an id another mod provides finds it, as mods asking for cloth-config2 do")
+    void providedIdsSatisfyDependencies() {
+        ModCandidate cloth = new ModCandidate(Path.of("cloth.jar"), ModMetadata.builder("cloth-config", ModFormat.FABRIC)
+                .version("21.0.0").provide("cloth-config2").build(), null);
+        Resolution resolution = resolve(List.of(cloth, mod("user", ModDependency.required("cloth-config2", ">=20"))));
+
+        assertTrue(resolution.order().stream().anyMatch(candidate -> candidate.id().equals("user")),
+                "user should load: " + resolution.problems());
+    }
 }

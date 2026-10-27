@@ -2,6 +2,7 @@ package studios.milkdromeda.octo.mod.format;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -21,6 +22,10 @@ import studios.milkdromeda.octo.mod.version.VersionPredicate;
  * as a list of objects rather than a map, but the model underneath is Fabric's.
  */
 public final class QuiltMetadataParser implements MetadataParser {
+    /** Root fields the schema defines; every other one is a value left to mods. */
+    private static final Set<String> SCHEMA_FIELDS = Set.of("schema_version", "quilt_loader", "mixin",
+            "access_widener", "minecraft");
+
     @Override
     public ModFormat format() {
         return ModFormat.QUILT;
@@ -79,6 +84,17 @@ public final class QuiltMetadataParser implements MetadataParser {
                 }
             }
         }
+
+        for (JsonElement provided : Json.list(loader, "provides")) {
+            String alias = Json.valueOf(provided, "id");
+
+            if (alias != null) {
+                builder.provide(alias.substring(alias.indexOf(':') + 1));
+            }
+        }
+
+        json.entrySet().stream().filter(entry -> !SCHEMA_FIELDS.contains(entry.getKey()))
+                .forEach(entry -> builder.customValue(entry.getKey(), Json.plain(entry.getValue())));
 
         readDependencies(loader, "depends", builder);
         readDependencies(loader, "breaks", builder);

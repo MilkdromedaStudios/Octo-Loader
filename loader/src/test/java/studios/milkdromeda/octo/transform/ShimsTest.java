@@ -135,4 +135,28 @@ class ShimsTest {
 
         assertEquals("broken", result.error().orElseThrow().message());
     }
+
+    @Test
+    @DisplayName("DirectionProperty's factories make the EnumProperty of directions 1.21.2 replaced it with")
+    void directionProperties() {
+        Class<?> owner = net.minecraft.world.level.block.state.properties.EnumProperty.class;
+        net.minecraft.core.Direction[] horizontal = { net.minecraft.core.Direction.NORTH,
+                net.minecraft.core.Direction.SOUTH, net.minecraft.core.Direction.WEST,
+                net.minecraft.core.Direction.EAST };
+
+        assertEquals(6, values(Shims.directionProperty("facing", owner)).size());
+        assertEquals(List.of(horizontal), values(Shims.directionPropertyOf("facing", horizontal, owner)));
+        assertEquals(List.of(horizontal), values(Shims.directionPropertyFrom("facing", List.of(horizontal), owner)));
+        assertEquals(List.of(net.minecraft.core.Direction.DOWN, net.minecraft.core.Direction.UP),
+                values(Shims.directionPropertyWhere("facing",
+                        (java.util.function.Predicate<net.minecraft.core.Direction>) direction -> direction.ordinal() < 2,
+                        owner)));
+        assertTrue(Shims.shimFor("net/minecraft/world/level/block/state/properties/EnumProperty", "create",
+                "(Ljava/lang/String;[Lnet/minecraft/core/Direction;)"
+                        + "Lnet/minecraft/world/level/block/state/properties/EnumProperty;") != null);
+    }
+
+    private static List<?> values(Object property) {
+        return ((net.minecraft.world.level.block.state.properties.EnumProperty<?>) property).values;
+    }
 }

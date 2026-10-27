@@ -224,4 +224,142 @@ class StandInShapesTest {
             studios.milkdromeda.octo.runtime.OctoRuntime.reset();
         }
     }
+
+    /** Jade's {@code HudRenderCallback.EVENT.register((graphics, delta) -> ...)}, the lambda half of it. */
+    private static byte[] lambdaUser() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Hud", null, "java/lang/Object", null);
+        String body = "(Ljava/lang/Object;F)V";
+
+        MethodVisitor lambda = writer.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                "lambda$init$0", body, null, null);
+        lambda.visitCode();
+        lambda.visitInsn(Opcodes.RETURN);
+        lambda.visitMaxs(0, 0);
+        lambda.visitEnd();
+
+        MethodVisitor callback = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "callback",
+                "()Ljava/lang/Object;", null, null);
+        callback.visitCode();
+        callback.visitInvokeDynamicInsn("onHudRender", "()Lapi/HudCallback;",
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "java/lang/invoke/LambdaMetafactory",
+                        "metafactory", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                                + "Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;"
+                                + "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)"
+                                + "Ljava/lang/invoke/CallSite;", false),
+                org.objectweb.asm.Type.getMethodType(body),
+                new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, "mod/Hud", "lambda$init$0", body, false),
+                org.objectweb.asm.Type.getMethodType(body));
+        callback.visitInsn(Opcodes.ARETURN);
+        callback.visitMaxs(0, 0);
+        callback.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a missing type a lambda is made for is an interface with the lambda's method")
+    void lambdaTargetsAreInterfaces() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        byte[] mod = lambdaUser();
+        phantoms.observe(mod, name -> !name.equals("api/HudCallback"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Hud", mod);
+        Object callback = loader.loadClass("mod.Hud").getMethod("callback").invoke(null);
+        Class<?> type = loader.loadClass("api.HudCallback");
+
+        assertTrue(type.isInterface());
+        assertTrue(type.isInstance(callback));
+        type.getMethod("onHudRender", Object.class, float.class).invoke(callback, "graphics", 1.0f);
+    }
+
+    /** Create's {@code handler.getClass()} and a {@code hashCode()} on a NeoForge IItemHandler. */
+    private static byte[] objectMethodUser() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Inventory", null, "java/lang/Object", null);
+
+        MethodVisitor describe = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "describe",
+                "(Lapi/ItemHandler;)Ljava/lang/Object;", null, null);
+        describe.visitCode();
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEINTERFACE, "api/ItemHandler", "hashCode", "()I", true);
+        describe.visitInsn(Opcodes.POP);
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEINTERFACE, "api/ItemHandler", "getSlots", "()I", true);
+        describe.visitInsn(Opcodes.POP);
+        describe.visitVarInsn(Opcodes.ALOAD, 0);
+        describe.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "api/ItemHandler", "getClass", "()Ljava/lang/Class;", false);
+        describe.visitInsn(Opcodes.ARETURN);
+        describe.visitMaxs(0, 0);
+        describe.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("Object's own methods called on a missing type are left to Object, so the stand-in loads")
+    void objectMethodsAreInherited() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        byte[] mod = objectMethodUser();
+        phantoms.observe(mod, name -> !name.equals("api/ItemHandler"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Inventory", mod);
+        Class<?> handler = loader.loadClass("api.ItemHandler");
+
+        assertTrue(handler.isInterface());
+        assertNotNull(handler.getMethod("getSlots"));
+        assertTrue(java.util.Arrays.stream(handler.getDeclaredMethods())
+                .noneMatch(method -> method.getName().equals("getClass") || method.getName().equals("hashCode")));
+    }
+
+    private static final String REAL_EVENT = "studios/milkdromeda/octo/transform/RealEvent";
+
+    /** Create's {@code bus.post(new BlockEvent.BreakEvent(...))}, with the event type gone. */
+    private static byte[] eventPoster() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "mod/Wrench", null, "java/lang/Object", null);
+
+        MethodVisitor post = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "post", "()Z", null, null);
+        post.visitCode();
+        post.visitTypeInsn(Opcodes.NEW, "api/BreakEvent");
+        post.visitInsn(Opcodes.DUP);
+        post.visitLdcInsn("broken");
+        post.visitMethodInsn(Opcodes.INVOKESPECIAL, "api/BreakEvent", "<init>", "(Ljava/lang/String;)V", false);
+        post.visitInsn(Opcodes.DUP);
+        post.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "api/BreakEvent", "isCanceled", "()Z", false);
+        post.visitInsn(Opcodes.POP);
+        post.visitMethodInsn(Opcodes.INVOKESTATIC, REAL_EVENT, "post", "(L" + REAL_EVENT + ";)Z", false);
+        post.visitInsn(Opcodes.IRETURN);
+        post.visitMaxs(0, 0);
+        post.visitEnd();
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    @DisplayName("a stand-in handed to a method taking a real class extends it, keeping what that class does")
+    void realSupertypesAreExtended() throws Exception {
+        PhantomClasses phantoms = new PhantomClasses();
+        phantoms.useRealClasses(name -> {
+            try (java.io.InputStream in = StandInShapesTest.class.getClassLoader().getResourceAsStream(name + ".class")) {
+                return in == null ? null : in.readAllBytes();
+            } catch (java.io.IOException e) {
+                return null;
+            }
+        });
+        byte[] mod = eventPoster();
+        phantoms.observe(mod, name -> !name.equals("api/BreakEvent"));
+
+        Loader loader = new Loader(phantoms);
+        loader.add("mod/Wrench", mod);
+
+        assertEquals(true, loader.loadClass("mod.Wrench").getMethod("post").invoke(null),
+                "the stand-in is a RealEvent, so the real post took it and its real setCanceled ran");
+        assertEquals(RealEvent.class, loader.loadClass("api.BreakEvent").getSuperclass());
+    }
 }

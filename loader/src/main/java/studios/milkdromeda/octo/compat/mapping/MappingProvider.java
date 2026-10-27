@@ -95,7 +95,7 @@ public final class MappingProvider {
      */
     public Optional<MappingSet> toCurrent(MappingNamespace namespace, String version) {
         String release = version == null || version.isBlank() ? LATEST_INTERMEDIARY : version;
-        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY;
+        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY + "-v2";
         return composed.computeIfAbsent(key, ignored -> compose(namespace, release, key));
     }
 
@@ -200,7 +200,7 @@ public final class MappingProvider {
             return Optional.empty();
         }
 
-        String key = "mojang-" + release + "-to-" + gameVersion + "-" + side;
+        String key = "mojang-" + release + "-to-" + gameVersion + "-" + side + "-v2";
         return composed.computeIfAbsent(key, ignored -> {
             Path file = cache.resolve(key + ".octomap");
 
@@ -222,8 +222,13 @@ public final class MappingProvider {
 
             try {
                 long started = System.nanoTime();
-                MappingSet renames = VersionDiff.between(VersionDiff.readObfuscated(oldJar.get(), names.get()),
-                        VersionDiff.readNamed(gameJars), "mojang " + release + "->" + gameVersion);
+                Optional<MappingSet> translated = release.equals(LATEST_INTERMEDIARY) ? Optional.empty()
+                        : officialToCurrent(release);
+                Map<String, VersionDiff.Shape> old = translated.isPresent()
+                        ? VersionDiff.readThrough(oldJar.get(), translated.get().remapper())
+                        : VersionDiff.readObfuscated(oldJar.get(), names.get());
+                MappingSet renames = VersionDiff.between(old, VersionDiff.readNamed(gameJars),
+                        "mojang " + release + "->" + gameVersion);
                 LOG.info("found {} member rename(s) between Minecraft {} and {} in {} ms", renames.size(),
                         release, gameVersion, (System.nanoTime() - started) / 1_000_000);
                 write(file, renames);
@@ -306,6 +311,11 @@ public final class MappingProvider {
         });
 
         return Optional.of(builder.build());
+    }
+
+    /** A name someone wrote, rather than one javac made: lambda$, access$, this$0, $VALUES. */
+    static boolean isSourceName(String name) {
+        return name.indexOf('$') < 0;
     }
 
     /** intermediary to today's names, the newest table first and the mod's own version behind it. */
@@ -393,15 +403,18 @@ public final class MappingProvider {
 
         // A rename that is the same everywhere a name appears is safe to apply
         // without an owner, which is what reaches a member called through a
-        // mod's own subclass.
+        // mod's own subclass. Not a name the compiler made, though: a game
+        // class's lambda$static$50 renumbered to lambda$static$100 says nothing
+        // about a mod's lambda$static$50, and applied to Create's AllBlocks it
+        // made two methods of one name, a class the JVM would not load.
         methodRenames.forEach((named, targets) -> {
-            if (targets.size() == 1 && !targets.contains(named)) {
+            if (targets.size() == 1 && !targets.contains(named) && isSourceName(named)) {
                 builder.mapMethodGlobally(named, targets.iterator().next());
             }
         });
 
         fieldRenames.forEach((named, targets) -> {
-            if (targets.size() == 1 && !targets.contains(named)) {
+            if (targets.size() == 1 && !targets.contains(named) && isSourceName(named)) {
                 builder.mapFieldGlobally(named, targets.iterator().next());
             }
         });

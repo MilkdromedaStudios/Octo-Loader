@@ -48,7 +48,9 @@ public class ModContainer {
     }
 
     public void registerConfig(ModConfig.Type type, Object spec, String fileName) {
-        configs.put(type, new ModConfig(type, spec, modId, fileName));
+        ModConfig config = new ModConfig(type, spec, modId, fileName);
+        configs.put(type, config);
+        studios.milkdromeda.octo.bridge.forge.ConfigFiles.load(spec, config::getFullPath);
     }
 
     public Optional<ModConfig> getConfig(ModConfig.Type type) {

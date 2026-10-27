@@ -65,7 +65,7 @@ public final class ModRebuilder {
     private static final OctoLog LOG = OctoLog.of(ModRebuilder.class);
 
     /** Bumped whenever what a rebuild produces changes, so old caches are not reused. */
-    private static final int FORMAT = 3;
+    private static final int FORMAT = 5;
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
 
@@ -147,6 +147,49 @@ public final class ModRebuilder {
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             LOG.warn("{}: could not be rebuilt, so it loads as it is: {}", mod.id(), Failures.describe(e));
+            OctoLog.detail(e);
+            return Result.untouched();
+        }
+    }
+
+    /**
+     * A library a mod bundles, rebuilt with that mod's plan.
+     *
+     * <p>It was compiled against the same Minecraft and the same loader API as
+     * the mod around it, so it needs the same translation; left as it was,
+     * Registrate inside Create for 1.21.1 named a NeoForge class 26.3 no
+     * longer has as the superclass of its item model provider, and the game's
+     * own bootstrap failed on it.
+     */
+    public Result prepareLibrary(LoadedMod owner, Path library) {
+        if (!context.compat().translateOldMods() || owner.isBuiltin() || !Files.isRegularFile(library)) {
+            return Result.untouched();
+        }
+
+        try {
+            Optional<Plan> plan = plan(owner);
+
+            if (plan.isEmpty()) {
+                return Result.untouched();
+            }
+
+            String name = library.getFileName().toString().replaceFirst("\\.jar$", "");
+            Path target = cacheDirectory.resolve(safe(owner.id()) + "-library-" + safe(name) + "-"
+                    + cacheKey(library, plan.get().recipe()) + ".jar");
+
+            if (Files.isRegularFile(target)) {
+                return new Result(target, true, true, plan.get().description());
+            }
+
+            long started = System.nanoTime();
+            int classes = rebuild(library, target, plan.get(), owner);
+            LOG.info("{}: rebuilt {} class(es) of its bundled {} in {} ms", owner.id(), classes,
+                    library.getFileName(), (System.nanoTime() - started) / 1_000_000);
+            return new Result(target, true, false, plan.get().description());
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.warn("{}: its bundled {} could not be rebuilt, so it loads as it is: {}", owner.id(),
+                    library.getFileName(), Failures.describe(e));
             OctoLog.detail(e);
             return Result.untouched();
         }

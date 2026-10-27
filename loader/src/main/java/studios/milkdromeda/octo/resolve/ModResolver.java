@@ -56,6 +56,15 @@ public final class ModResolver {
             provided.put(id, selected.get(id).metadata().version());
         }
 
+        // Then the ids mods answer for besides their own: Cloth Config is
+        // "cloth-config" and provides "cloth-config2", which is what half the
+        // mods using it ask for. A real mod with that id still wins.
+        for (ModCandidate candidate : selected.values()) {
+            for (String alias : candidate.metadata().provides()) {
+                provided.putIfAbsent(alias, candidate.metadata().version());
+            }
+        }
+
         // Dropping a mod can leave others depending on it, so this settles in
         // rounds. Only the last verdict for each mod is reported, otherwise a mod
         // evaluated three times would produce the same warning three times.
@@ -73,6 +82,8 @@ public final class ModResolver {
                 if (!verdict.loadable()) {
                     selected.remove(candidate.id());
                     provided.remove(candidate.id());
+                    candidate.metadata().provides().stream().filter(alias -> !selected.containsKey(alias))
+                            .forEach(provided::remove);
                     rejected.add(candidate.id());
                     changed = true;
                 }

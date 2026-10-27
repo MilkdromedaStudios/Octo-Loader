@@ -58,6 +58,17 @@ import studios.milkdromeda.octo.util.OctoLog;
  */
 public final class MissingMemberTransformer implements Transformer {
     private static final OctoLog LOG = OctoLog.of(MissingMemberTransformer.class);
+    private static final String REGISTRIES = "net/minecraft/core/registries/Registries";
+    private static final String RESOURCE_KEY = "Lnet/minecraft/resources/ResourceKey;";
+    private static final String BUILT_IN_REGISTRIES = "net/minecraft/core/registries/BuiltInRegistries";
+    private static final String GAP_BRIDGE = "studios/milkdromeda/octo/transform/GapBridge";
+    private static final String COPPER_COLLECTION = "net/minecraft/world/level/block/WeatheringCopperCollection";
+    private static final List<String> WEATHER_STATES = List.of("exposed", "weathered", "oxidized");
+    private static final String COLOUR_COLLECTION = "net/minecraft/world/level/block/ColorCollection";
+    /** The dye colours, as field names spell them. */
+    private static final List<String> COLOURS = List.of("light_blue", "light_gray", "white", "orange", "magenta",
+            "yellow", "lime", "pink", "gray", "cyan", "purple", "blue", "brown", "green", "red", "black");
+    private static final String REGISTRY = "Lnet/minecraft/core/Registry;";
 
     /**
      * The packages whose contents are Octo's to implement.
@@ -92,6 +103,11 @@ public final class MissingMemberTransformer implements Transformer {
         /** Whether calls on this owner are this instance's business at all. */
         boolean guards(String owner);
 
+        /** A class's superclass, or {@code null} when it cannot be seen. */
+        default String superName(String owner) {
+            return null;
+        }
+
         /** @return whether the method exists, or {@code null} when that cannot be told */
         Boolean hasMethod(String owner, String name, String descriptor);
 
@@ -111,6 +127,11 @@ public final class MissingMemberTransformer implements Transformer {
 
         /** @return the access flags of the method a call reaches, or {@code null} when unknown */
         default Integer methodAccess(String owner, String name, String descriptor) {
+            return null;
+        }
+
+        /** @return the access flags of the field an instruction reaches, or {@code null} when unknown */
+        default Integer fieldAccess(String owner, String name, String descriptor) {
             return null;
         }
 
@@ -239,6 +260,7 @@ public final class MissingMemberTransformer implements Transformer {
         ClassReader reader = new ClassReader(bytes);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
         Rewriter rewriter = new Rewriter(writer, context, className);
+        rewriter.declare(reader);
         reader.accept(rewriter, 0);
         return rewriter.changed ? writer.toByteArray() : bytes;
     }
@@ -320,10 +342,72 @@ public final class MissingMemberTransformer implements Transformer {
         private final List<Bridge> bridges = new java.util.ArrayList<>();
         boolean changed;
 
+        /** The methods this class declares itself, its superclass and its interfaces. */
+        private final Set<String> declared = new java.util.HashSet<>();
+        private String superName;
+        private String[] interfaces = new String[0];
+
         Rewriter(ClassVisitor delegate, TransformContext context, String className) {
             super(Opcodes.ASM9, delegate);
             this.context = context;
             this.className = className;
+        }
+
+        void declare(ClassReader reader) {
+            superName = reader.getSuperName();
+            interfaces = reader.getInterfaces();
+            reader.accept(new ClassVisitor(Opcodes.ASM9) {
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
+                        String[] exceptions) {
+                    declared.add(name + descriptor);
+                    return null;
+                }
+            }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        }
+
+        /**
+         * The game class a call on this mod's own class really reaches, when
+         * the mod never declares the method and the game no longer has it.
+         * Create calls {@code simpleCodec}, a static it inherited from
+         * {@code BlockBehaviour}, as {@code SchematicTableBlock.simpleCodec};
+         * 26.x dropped it, and since the call names Create's own class it went
+         * past the bypass and failed the block's static initialiser.
+         *
+         * @return that game class, or {@code null} when the call is the mod's own business
+         */
+        private String inheritedGap(String owner, String name, String descriptor) {
+            if (!owner.equals(className) || declared.contains(name + descriptor) || superName == null) {
+                return null;
+            }
+
+            String ancestor = superName;
+
+            // Up through the mod's own classes to the first of the game's.
+            for (int depth = 0; ancestor != null && depth < 16 && isOwnClass(context, ancestor); depth++) {
+                if (!Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor))) {
+                    return null;
+                }
+
+                ancestor = lookup.superName(ancestor);
+            }
+
+            // Only a gap in the game: the JDK's classes, and the libraries a mod
+            // brings, are not this bypass's to second-guess.
+            if (ancestor == null || !(ancestor.startsWith("net/minecraft/") || ancestor.startsWith("com/mojang/"))
+                    || !lookup.guards(ancestor)) {
+                return null;
+            }
+
+            // A default method from one of the class's interfaces answers it too:
+            // Registrate's builders inherit setData that way.
+            for (String iface : interfaces) {
+                if (!Boolean.FALSE.equals(lookup.hasMethod(iface, name, descriptor))) {
+                    return null;
+                }
+            }
+
+            return Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor)) ? ancestor : null;
         }
 
         @Override
@@ -588,6 +672,14 @@ public final class MissingMemberTransformer implements Transformer {
                     if (opcode == Opcodes.INVOKESPECIAL && name.equals("<init>")) {
                         constructor(owner, descriptor);
                         return;
+                    }
+
+                    if (opcode != Opcodes.INVOKESPECIAL && name.charAt(0) != '<') {
+                        String inherited = inheritedGap(owner, name, descriptor);
+
+                        if (inherited != null) {
+                            owner = inherited;
+                        }
                     }
 
                     // A super call is part of the class's own shape, and is
@@ -1026,6 +1118,19 @@ public final class MissingMemberTransformer implements Transformer {
                 public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
                     justMade = null;
 
+                    // There, but closed to the mod: Level.isClientSide was a
+                    // public field until 26.x made it private behind
+                    // isClientSide(), and every block Create has that asks it
+                    // was an IllegalAccessError that stopped the server.
+                    if (!owner.equals(className) && !isOwnClass(context, owner) && lookup.guards(owner)
+                            && Boolean.TRUE.equals(lookup.hasField(owner, name, descriptor))
+                            && fieldInaccessible(owner, name, descriptor)) {
+                        String how = reachClosedField(opcode, owner, name, descriptor);
+                        changed = true;
+                        record(context, owner, name, className, how);
+                        return;
+                    }
+
                     if (owner.equals(className) || isOwnClass(context, owner) || !lookup.guards(owner)
                             || !(Boolean.FALSE.equals(lookup.hasField(owner, name, descriptor))
                                     || lookup.isAbsent(owner, context))) {
@@ -1044,6 +1149,50 @@ public final class MissingMemberTransformer implements Transformer {
 
                     Type type = Type.getType(descriptor);
 
+                    // A registry this version dropped: Create's armour materials
+                    // are put in a DeferredRegister for Registries.ARMOR_MATERIAL,
+                    // gone since 1.21.2, and NeoForge refuses a null key. A key
+                    // is only a name, so the name it had stands in; nothing is
+                    // ever registered under it, and the mod carries on.
+                    if (opcode == Opcodes.GETSTATIC && owner.equals(REGISTRIES) && descriptor.equals(RESOURCE_KEY)) {
+                        delegate.visitLdcInsn(name.toLowerCase(java.util.Locale.ROOT));
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/resources/Identifier",
+                                "withDefaultNamespace", "(Ljava/lang/String;)Lnet/minecraft/resources/Identifier;",
+                                false);
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/resources/ResourceKey",
+                                "createRegistryKey",
+                                "(Lnet/minecraft/resources/Identifier;)Lnet/minecraft/resources/ResourceKey;", false);
+                        changed = true;
+                        record(context, owner, name, className, "that registry is gone, so a key of its name stands in");
+                        return;
+                    }
+
+                    // And a registry this version dropped, read from
+                    // BuiltInRegistries: an empty one of its name stands in.
+                    if (opcode == Opcodes.GETSTATIC && owner.equals(BUILT_IN_REGISTRIES) && descriptor.equals(REGISTRY)) {
+                        delegate.visitLdcInsn(name.toLowerCase(java.util.Locale.ROOT));
+                        delegate.visitLdcInsn(Type.getObjectType("net/minecraft/core/Registry"));
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/forge/LiveStandIns",
+                                "detachedRegistry", "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;", false);
+                        delegate.visitTypeInsn(Opcodes.CHECKCAST, "net/minecraft/core/Registry");
+                        changed = true;
+                        record(context, owner, name, className, "that registry is gone, so an empty one of its name "
+                                + "stands in");
+                        return;
+                    }
+
+                    // A block or an item this version keeps among its weathering
+                    // states: Blocks.COPPER_BLOCK, EXPOSED_COPPER and their waxed
+                    // kin are one WeatheringCopperCollection since 26.x, and
+                    // every block Create copies the properties of copper from
+                    // was a null, and not registered.
+                    if (opcode == Opcodes.GETSTATIC && type.getSort() == Type.OBJECT
+                            && readFromCollection(owner, name, type)) {
+                        changed = true;
+                        record(context, owner, name, className, "it is one of a collection of weathering states now");
+                        return;
+                    }
+
                     switch (opcode) {
                         case Opcodes.GETSTATIC -> pushDefault(type, owner);
                         case Opcodes.GETFIELD -> {
@@ -1059,6 +1208,154 @@ public final class MissingMemberTransformer implements Transformer {
 
                     changed = true;
                     record(context, owner, name, className, "reads return a default and writes go nowhere");
+                }
+
+                /**
+                 * Reaches a field the mod may no longer touch: through the
+                 * accessor the game gives it — {@code isClientSide()},
+                 * {@code getFoo()}, {@code setFoo(value)} — and where there is
+                 * none, by reflection.
+                 *
+                 * @return how it is reached now, for the report
+                 */
+                private String reachClosedField(int opcode, String owner, String name, String descriptor) {
+                    boolean isStatic = opcode == Opcodes.GETSTATIC || opcode == Opcodes.PUTSTATIC;
+                    boolean read = opcode == Opcodes.GETFIELD || opcode == Opcodes.GETSTATIC;
+                    String capitalised = Character.toUpperCase(name.charAt(0)) + name.substring(1);
+                    List<String> candidates = read ? List.of(name, "get" + capitalised, "is" + capitalised)
+                            : List.of("set" + capitalised);
+                    String accessorDescriptor = read ? "()" + descriptor : "(" + descriptor + ")V";
+                    boolean ownerIsInterface = Boolean.TRUE.equals(lookup.isInterface(owner));
+
+                    for (String accessor : candidates) {
+                        Integer access = lookup.methodAccess(owner, accessor, accessorDescriptor);
+
+                        if (access != null && (access & Opcodes.ACC_PUBLIC) != 0
+                                && ((access & Opcodes.ACC_STATIC) != 0) == isStatic) {
+                            delegate.visitMethodInsn(isStatic ? Opcodes.INVOKESTATIC
+                                    : ownerIsInterface ? Opcodes.INVOKEINTERFACE : Opcodes.INVOKEVIRTUAL,
+                                    owner, accessor, accessorDescriptor, ownerIsInterface);
+                            return "it is closed now, so " + accessor + accessorDescriptor + " is called";
+                        }
+                    }
+
+                    Type type = Type.getType(descriptor);
+
+                    if (read) {
+                        if (isStatic) {
+                            delegate.visitInsn(Opcodes.ACONST_NULL);
+                        }
+
+                        delegate.visitLdcInsn(Type.getObjectType(owner));
+                        delegate.visitLdcInsn(name);
+                        delegate.visitLdcInsn(descriptor);
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, GAP_BRIDGE, "readField",
+                                "(Ljava/lang/Object;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;)"
+                                        + "Ljava/lang/Object;", false);
+                        String wrapper = wrapperOf(type);
+
+                        if (wrapper == null) {
+                            delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getSort() == Type.ARRAY
+                                    ? type.getDescriptor() : type.getInternalName());
+                        } else {
+                            delegate.visitTypeInsn(Opcodes.CHECKCAST, wrapper);
+                            delegate.visitMethodInsn(Opcodes.INVOKEVIRTUAL, wrapper, type.getClassName() + "Value",
+                                    "()" + descriptor, false);
+                        }
+                    } else {
+                        box(delegate, type);
+
+                        if (isStatic) {
+                            delegate.visitInsn(Opcodes.ACONST_NULL);
+                            delegate.visitInsn(Opcodes.SWAP);
+                        }
+
+                        delegate.visitLdcInsn(Type.getObjectType(owner));
+                        delegate.visitLdcInsn(name);
+                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, GAP_BRIDGE, "writeField",
+                                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Class;Ljava/lang/String;)V", false);
+                    }
+
+                    return "it is closed now, so it is " + (read ? "read" : "written") + " by reflection";
+                }
+
+                private boolean readFromCollection(String owner, String name, Type type) {
+                    return readWeathering(owner, name, type) || readColour(owner, name, type);
+                }
+
+                /**
+                 * Reads {@code YELLOW_WOOL} as {@code WOOL.yellow()}, and
+                 * {@code RED_SHULKER_BOX} as {@code DYED_SHULKER_BOX.red()}:
+                 * 26.x keeps each dyed block's sixteen colours in one
+                 * {@code ColorCollection}.
+                 */
+                private boolean readColour(String owner, String name, Type type) {
+                    for (String colour : COLOURS) {
+                        String prefix = colour.toUpperCase(java.util.Locale.ROOT) + "_";
+
+                        if (!name.startsWith(prefix) || name.length() == prefix.length()) {
+                            continue;
+                        }
+
+                        String rest = name.substring(prefix.length());
+                        String collection = "L" + COLOUR_COLLECTION + ";";
+
+                        for (String base : List.of(rest, "DYED_" + rest)) {
+                            if (Boolean.TRUE.equals(lookup.hasField(owner, base, collection))) {
+                                delegate.visitFieldInsn(Opcodes.GETSTATIC, owner, base, collection);
+                                delegate.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COLOUR_COLLECTION,
+                                        camelCase(colour), "()Ljava/lang/Object;", false);
+                                delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }
+
+                    return false;
+                }
+
+                /**
+                 * Reads {@code WAXED_EXPOSED_CUT_COPPER} as
+                 * {@code CUT_COPPER.waxed().exposed()}, when the owner has
+                 * such a collection; the unweathered block is just
+                 * {@code COPPER}'s, which was {@code COPPER_BLOCK}.
+                 */
+                private boolean readWeathering(String owner, String name, Type type) {
+                    String rest = name;
+                    boolean waxed = rest.startsWith("WAXED_");
+                    String state = "unaffected";
+
+                    if (waxed) {
+                        rest = rest.substring("WAXED_".length());
+                    }
+
+                    for (String weathered : WEATHER_STATES) {
+                        String prefix = weathered.toUpperCase(java.util.Locale.ROOT) + "_";
+
+                        if (rest.startsWith(prefix)) {
+                            state = weathered;
+                            rest = rest.substring(prefix.length());
+                            break;
+                        }
+                    }
+
+                    String collection = "L" + COPPER_COLLECTION + ";";
+
+                    for (String base : rest.equals("COPPER") ? List.of("COPPER", "COPPER_BLOCK") : List.of(rest)) {
+                        if (Boolean.TRUE.equals(lookup.hasField(owner, base, collection))) {
+                            delegate.visitFieldInsn(Opcodes.GETSTATIC, owner, base, collection);
+                            delegate.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COPPER_COLLECTION,
+                                    waxed ? "waxed" : "weathering", "()L" + COPPER_COLLECTION + "$ByState;", false);
+                            delegate.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COPPER_COLLECTION + "$ByState", state,
+                                    "()Ljava/lang/Object;", false);
+                            delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }
 
                 /** Removes a call's operands, deepest last, plus the receiver. */
@@ -1200,6 +1497,50 @@ public final class MissingMemberTransformer implements Transformer {
          * this class: private to another class, or package-private — or, for a
          * constructor, protected — in another package.
          */
+        /**
+         * Whether the JVM would refuse this class the field: private to
+         * another nest, package-private to another package, or protected
+         * in a class this one does not descend from.
+         */
+        private boolean fieldInaccessible(String owner, String name, String descriptor) {
+            // A class constant, which reaching it by reflection needs, wants Java 5.
+            Integer access = classVersion < Opcodes.V1_5 ? null : lookup.fieldAccess(owner, name, descriptor);
+
+            if (access == null || (access & Opcodes.ACC_PUBLIC) != 0) {
+                return false;
+            }
+
+            if ((access & Opcodes.ACC_PRIVATE) != 0) {
+                return !nestOf(owner).equals(nestOf(className));
+            }
+
+            if (packageOf(owner).equals(packageOf(className))) {
+                return false;
+            }
+
+            if ((access & Opcodes.ACC_PROTECTED) == 0) {
+                return true;
+            }
+
+            // Protected: open to subclasses, so closed only when the class
+            // provably is not one — its ancestry read all the way to Object.
+            String ancestor = superName;
+
+            for (int depth = 0; ancestor != null && depth < 32; depth++) {
+                if (ancestor.equals(owner)) {
+                    return false;
+                }
+
+                if (ancestor.equals("java/lang/Object")) {
+                    return true;
+                }
+
+                ancestor = lookup.superName(ancestor);
+            }
+
+            return false;
+        }
+
         private boolean inaccessible(String owner, String name, String descriptor) {
             Integer access = lookup.methodAccess(owner, name, descriptor);
 
@@ -1303,6 +1644,23 @@ public final class MissingMemberTransformer implements Transformer {
     private static String nestOf(String internalName) {
         int dollar = internalName.indexOf('$', internalName.lastIndexOf('/') + 1);
         return dollar < 0 ? internalName : internalName.substring(0, dollar);
+    }
+
+    /** {@code light_blue} as {@code lightBlue}. */
+    private static String camelCase(String name) {
+        StringBuilder out = new StringBuilder(name.length());
+        boolean upper = false;
+
+        for (char c : name.toCharArray()) {
+            if (c == '_') {
+                upper = true;
+            } else {
+                out.append(upper ? Character.toUpperCase(c) : c);
+                upper = false;
+            }
+        }
+
+        return out.toString();
     }
 
     private static String packageOf(String internalName) {
@@ -1582,6 +1940,12 @@ public final class MissingMemberTransformer implements Transformer {
             this.index = index;
         }
 
+        @Override
+        public String superName(String owner) {
+            MemberIndex.Shape shape = index.shape(owner);
+            return shape == null ? null : shape.superName();
+        }
+
         /**
          * Only classes the index can see the whole of: an owner whose ancestry
          * runs into something unreadable may inherit the member from there, and
@@ -1627,6 +1991,11 @@ public final class MissingMemberTransformer implements Transformer {
         @Override
         public Integer methodAccess(String owner, String name, String descriptor) {
             return index.methodAccess(owner, name, descriptor);
+        }
+
+        @Override
+        public Integer fieldAccess(String owner, String name, String descriptor) {
+            return index.fieldAccess(owner, name, descriptor);
         }
 
         @Override

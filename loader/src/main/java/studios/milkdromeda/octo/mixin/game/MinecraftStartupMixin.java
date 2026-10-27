@@ -17,6 +17,18 @@ import studios.milkdromeda.octo.hook.GameHooks;
  */
 @Mixin(targets = "net.minecraft.client.Minecraft", remap = false)
 public class MinecraftStartupMixin {
+    /**
+     * Where Fabric's client initialisers belong: after the player's {@code User}
+     * is set — JEI reads it from its initialiser — and before {@code Options}
+     * is built, which takes in the key mappings those initialisers register.
+     * That is also before the window exists, which Sodium needs its config for.
+     */
+    @Inject(method = "<init>", at = @At(value = "NEW", target = "net/minecraft/client/Options"), require = 0,
+            expect = 0)
+    private void octo$clientConstructing(CallbackInfo callback) {
+        GameHooks.clientConstructing(this);
+    }
+
     @Inject(method = "<init>", at = @At("TAIL"), require = 0, expect = 0)
     private void octo$clientStarted(CallbackInfo callback) {
         GameHooks.clientStarted(this);

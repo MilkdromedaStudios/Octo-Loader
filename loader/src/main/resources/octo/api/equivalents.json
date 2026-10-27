@@ -17,6 +17,11 @@
 
   "classes": [
     {
+      "name": "net/minecraft/world/level/block/state/properties/DirectionProperty",
+      "alternatives": ["net/minecraft/world/level/block/state/properties/EnumProperty"],
+      "note": "since 1.21.2 a property of directions is an EnumProperty<Direction>, and BlockStateProperties.FACING is declared as one; the old class cannot be added back, since it extended EnumProperty, which is final now, and its create(...) factories are answered by Shims"
+    },
+    {
       "name": "com/mojang/serialization/DataResult$PartialResult",
       "alternatives": ["com/mojang/serialization/DataResult$Error"],
       "note": "DataFixerUpper 7 (Minecraft 1.20.5) turned DataResult into an interface whose failure case is DataResult.Error; it carries the same message() and its partial value as partialValue()"
@@ -97,6 +102,12 @@
 
   "methods": [
     {
+      "owner": "net/minecraft/core/Direction",
+      "name": "getNormal",
+      "alternatives": ["getUnitVec3i"],
+      "note": "renamed in 1.21.5; Fabric's intermediary gave the new name a new id, so no published table connects the two, and 26.x has a getStep() of the same shape, so the jars alone cannot say which one it became. Create's water wheel and every rotating block ask it"
+    },
+    {
       "owner": "com/mojang/serialization/DataResult$Error",
       "name": "partial",
       "alternatives": ["partialValue"],
@@ -146,6 +157,18 @@
       "name": "entries",
       "alternatives": ["entries", "details"],
       "note": "the crash report's detail map; mixins reach it through an accessor, and a field of that exact type is unique on the class, so it is found even under a name nobody listed here"
+    },
+    {
+      "owner": "com/mojang/blaze3d/platform/InputConstants$Type",
+      "name": "KEYSYM",
+      "alternatives": ["KEYBOARD"],
+      "note": "26.x's SDL3 input has one keyboard input type where GLFW had key symbols and scan codes; every mod's key binding is created through one of them"
+    },
+    {
+      "owner": "com/mojang/blaze3d/platform/InputConstants$Type",
+      "name": "SCANCODE",
+      "alternatives": ["KEYBOARD"],
+      "note": "the other half of the same merge"
     }
   ]
 }

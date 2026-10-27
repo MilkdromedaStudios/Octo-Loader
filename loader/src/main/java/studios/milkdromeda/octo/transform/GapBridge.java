@@ -55,6 +55,67 @@ public final class GapBridge {
         throw (T) thrown;
     }
 
+    private static final java.util.Map<String, java.lang.reflect.Field> FIELDS = new ConcurrentHashMap<>();
+
+    /**
+     * Reads a field the mod may no longer touch, for the code
+     * {@link MissingMemberTransformer} writes where there is no accessor.
+     *
+     * @param target     the object, or {@code null} for a static field
+     * @param descriptor the field's type, for the default when it cannot be read
+     */
+    public static Object readField(Object target, Class<?> owner, String name, String descriptor) {
+        try {
+            return field(owner, name).get(target);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.debug("{}.{} could not be read: {}", owner.getName(), name, e.toString());
+            return switch (descriptor.charAt(0)) {
+                case 'Z' -> false;
+                case 'B' -> (byte) 0;
+                case 'C' -> (char) 0;
+                case 'S' -> (short) 0;
+                case 'I' -> 0;
+                case 'J' -> 0L;
+                case 'F' -> 0f;
+                case 'D' -> 0d;
+                default -> null;
+            };
+        }
+    }
+
+    /** Writes a field the mod may no longer touch; a write that cannot happen goes nowhere. */
+    public static void writeField(Object target, Object value, Class<?> owner, String name) {
+        try {
+            field(owner, name).set(target, value);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.debug("{}.{} could not be written: {}", owner.getName(), name, e.toString());
+        }
+    }
+
+    private static java.lang.reflect.Field field(Class<?> owner, String name) throws NoSuchFieldException {
+        String key = owner.getName() + "." + name;
+        java.lang.reflect.Field found = FIELDS.get(key);
+
+        if (found != null) {
+            return found;
+        }
+
+        for (Class<?> type = owner; type != null; type = type.getSuperclass()) {
+            try {
+                found = type.getDeclaredField(name);
+                found.setAccessible(true);
+                FIELDS.put(key, found);
+                return found;
+            } catch (NoSuchFieldException e) {
+                // Declared further up.
+            }
+        }
+
+        throw new NoSuchFieldException(key);
+    }
+
     /** Called from the code {@link MissingMemberTransformer} writes in place of the missing constructor. */
     public static Object construct(Class<?> type, Object[] arguments) {
         if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {

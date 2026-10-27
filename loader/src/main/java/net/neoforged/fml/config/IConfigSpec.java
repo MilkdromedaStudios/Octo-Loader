@@ -3,9 +3,9 @@ package net.neoforged.fml.config;
 /**
  * The shape of a mod's configuration file.
  *
- * <p>Octo does not run NeoForge's configuration system — it has no TOML
- * round-tripping, no file watcher and no reload events — but the interface has
- * to exist, because a mod's own config class implements it and every class that
+ * <p>Octo does not run NeoForge's configuration system — no file watcher
+ * and no reload events; it loads each config once, as it is registered — but
+ * the interface has to exist, because a mod's own config class implements it and every class that
  * mentions that class fails to link without it. That is the whole reason
  * {@code ponder} could not be constructed: not one line of its configuration
  * code ran, it simply could not be loaded.
@@ -29,5 +29,16 @@ public interface IConfigSpec {
 
     default boolean isEmpty() {
         return false;
+    }
+
+    /**
+     * A config file read for a spec. FML hands one to the spec's
+     * {@code acceptConfig}, and a spec answers nothing until it has one;
+     * {@link studios.milkdromeda.octo.bridge.forge.ConfigFiles} does the same.
+     */
+    interface ILoadedConfig {
+        com.electronwill.nightconfig.core.CommentedConfig config();
+
+        void save();
     }
 }

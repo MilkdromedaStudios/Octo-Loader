@@ -10,6 +10,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -42,6 +43,13 @@ public final class PhantomClasses {
     private volatile studios.milkdromeda.octo.compat.api.Equivalents equivalents =
             studios.milkdromeda.octo.compat.api.Equivalents.EMPTY;
 
+    /** Reads a class this runtime has, for a stand-in that has to be a subtype of it. */
+    private volatile java.util.function.Function<String, byte[]> realClasses = name -> null;
+
+    public void useRealClasses(java.util.function.Function<String, byte[]> bytes) {
+        this.realClasses = bytes;
+    }
+
     public void useEquivalents(studios.milkdromeda.octo.compat.api.Equivalents table) {
         this.equivalents = table;
     }
@@ -53,9 +61,13 @@ public final class PhantomClasses {
         private final Set<Member> fields = new LinkedHashSet<>();
         /** Other stand-ins this one has to be assignable to, learned from how the mod uses it. */
         private final Set<String> supertypes = new LinkedHashSet<>();
+        /** Classes this runtime has that the stand-in has to be assignable to. */
+        private final Set<String> realSupertypes = new LinkedHashSet<>();
         private boolean isInterface;
         private boolean instantiated;
         private boolean extended;
+        /** Caught or thrown, so it has to be a Throwable. */
+        private boolean throwable;
 
         Spec(String internalName) {
             this.internalName = internalName;
@@ -66,7 +78,7 @@ public final class PhantomClasses {
         }
 
         public boolean isInterface() {
-            return isInterface && !instantiated && !extended;
+            return isInterface && !instantiated && !extended && !throwable;
         }
 
         public Set<Member> methods() {
@@ -79,6 +91,10 @@ public final class PhantomClasses {
 
         public Set<String> supertypes() {
             return supertypes;
+        }
+
+        public Set<String> realSupertypes() {
+            return realSupertypes;
         }
 
         @Override
@@ -189,9 +205,15 @@ public final class PhantomClasses {
 
             if (actual != null && wanted != null && actual.getSort() == Type.OBJECT
                     && wanted.getSort() == Type.OBJECT && !actual.equals(wanted)
-                    && missing.test(actual.getInternalName()) && missing.test(wanted.getInternalName())) {
-                specFor(actual.getInternalName()).supertypes.add(wanted.getInternalName());
-                specFor(wanted.getInternalName());
+                    && missing.test(actual.getInternalName())) {
+                if (missing.test(wanted.getInternalName())) {
+                    specFor(actual.getInternalName()).supertypes.add(wanted.getInternalName());
+                    specFor(wanted.getInternalName());
+                } else if (!wanted.getInternalName().equals("java/lang/Object")) {
+                    // A class this runtime has: Create posts a BlockEvent.BreakEvent,
+                    // gone from NeoForge 26.x, to a bus whose post takes an Event.
+                    specFor(actual.getInternalName()).realSupertypes.add(wanted.getInternalName());
+                }
             }
 
             // Not a verifier: whatever the answer, the analysis carries on.
@@ -267,7 +289,7 @@ public final class PhantomClasses {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String name, String descriptor,
                             boolean isInterface) {
-                        if (!missing.test(owner)) {
+                        if (!missing.test(owner) || isObjectMethod(name, descriptor)) {
                             return;
                         }
 
@@ -313,6 +335,45 @@ public final class PhantomClasses {
                                 opcode == Opcodes.GETSTATIC || opcode == Opcodes.PUTSTATIC));
                     }
 
+                    /**
+                     * A lambda for a missing type makes that type an interface
+                     * with the lambda's method: LambdaMetafactory refuses a
+                     * class, and Jade's HudRenderCallback lambda, a type
+                     * Fabric API for 26.x no longer has, took Jade's client
+                     * initialiser down with a stand-in that was one.
+                     */
+                    @Override
+                    public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrap,
+                            Object... arguments) {
+                        Type made = Type.getReturnType(descriptor);
+
+                        if (!bootstrap.getOwner().equals("java/lang/invoke/LambdaMetafactory")
+                                || made.getSort() != Type.OBJECT || !missing.test(made.getInternalName())
+                                || arguments.length == 0 || !(arguments[0] instanceof Type method)) {
+                            return;
+                        }
+
+                        Spec spec = specFor(made.getInternalName());
+                        spec.isInterface = true;
+                        spec.methods.add(new Member(name, method.getDescriptor(), false));
+
+                        for (Type argument : method.getArgumentTypes()) {
+                            noteSignatureType(argument);
+                        }
+
+                        noteSignatureType(method.getReturnType());
+                    }
+
+                    @Override
+                    public void visitTryCatchBlock(org.objectweb.asm.Label start, org.objectweb.asm.Label end,
+                            org.objectweb.asm.Label handler, String type) {
+                        if (type != null && missing.test(type)) {
+                            Spec spec = specFor(type);
+                            spec.throwable = true;
+                            spec.realSupertypes.add("java/lang/RuntimeException");
+                        }
+                    }
+
                     @Override
                     public void visitTypeInsn(int opcode, String type) {
                         if (missing.test(type)) {
@@ -326,6 +387,27 @@ public final class PhantomClasses {
                 };
             }
         }, ClassReader.SKIP_FRAMES);
+    }
+
+    /**
+     * {@code java.lang.Object}'s own methods, which every stand-in inherits and
+     * none may declare: Create calls {@code getClass()} on a NeoForge
+     * {@code IItemHandler}, and a stand-in declaring it overrides a final
+     * method, which no class may do; an interface may not declare
+     * {@code equals}, {@code hashCode} or {@code toString} as defaults either.
+     */
+    static boolean isObjectMethod(String name, String descriptor) {
+        return switch (name) {
+            case "getClass" -> descriptor.equals("()Ljava/lang/Class;");
+            case "hashCode" -> descriptor.equals("()I");
+            case "equals" -> descriptor.equals("(Ljava/lang/Object;)Z");
+            case "toString" -> descriptor.equals("()Ljava/lang/String;");
+            case "notify", "notifyAll" -> descriptor.equals("()V");
+            case "wait" -> descriptor.equals("()V") || descriptor.equals("(J)V") || descriptor.equals("(JI)V");
+            case "clone" -> descriptor.equals("()Ljava/lang/Object;");
+            case "finalize" -> descriptor.equals("()V");
+            default -> false;
+        };
     }
 
     private static boolean isMissing(String internalName, Predicate<String> exists) {
@@ -418,6 +500,19 @@ public final class PhantomClasses {
      * {@code IncompatibleClassChangeError}. Both are worse than the
      * {@code NoClassDefFoundError} they replaced, because they arrive later.
      */
+    /**
+     * Declares an exception nobody planned for: a class extending
+     * {@code RuntimeException}. NeoForge's {@code CommonHooks} catches FML's
+     * {@code CyclePresentException}, and a catch type that is not a
+     * Throwable fails the whole class's verification.
+     */
+    public Spec declareThrowable(String internalName) {
+        Spec spec = declareClass(internalName);
+        spec.throwable = true;
+        spec.realSupertypes.add("java/lang/RuntimeException");
+        return spec;
+    }
+
     public Spec declareClass(String internalName) {
         Spec spec = specFor(internalName);
         spec.isInterface = false;
@@ -454,7 +549,7 @@ public final class PhantomClasses {
 
     /** Builds the class file for a recorded specification. */
     public static byte[] generate(Spec spec) {
-        return generate(spec, Map.of(spec.internalName(), spec));
+        return generate(spec, Map.of(spec.internalName(), spec), name -> null);
     }
 
     /** The suffix of the class generated to stand behind a stand-in interface. */
@@ -469,7 +564,7 @@ public final class PhantomClasses {
             Spec iface = specs.get(internalName.substring(0, internalName.length() - IMPLEMENTATION_SUFFIX.length()));
 
             if (iface != null && iface.isInterface()) {
-                return generateImplementation(iface, specs);
+                return generateImplementation(iface, specs, realClasses);
             }
         }
 
@@ -479,7 +574,7 @@ public final class PhantomClasses {
             throw new IllegalArgumentException("no stand-in was planned for " + internalName);
         }
 
-        return generate(spec, specs);
+        return generate(spec, specs, realClasses);
     }
 
     /** Whether a name is a stand-in this set can produce, including interface implementations. */
@@ -496,13 +591,27 @@ public final class PhantomClasses {
         return false;
     }
 
-    private static byte[] generate(Spec spec, Map<String, Spec> known) {
+    private static byte[] generate(Spec spec, Map<String, Spec> known,
+            java.util.function.Function<String, byte[]> realClasses) {
         // COMPUTE_MAXS, so the generated bodies get a valid frame size without
         // this code having to reason about argument widths.
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         boolean isInterface = spec.isInterface();
         String superName = isInterface ? "java/lang/Object" : superclassOf(spec, known);
         java.util.List<String> interfaces = interfacesOf(spec, known);
+        RealParent real = RealParent.of(spec, isInterface, realClasses);
+        String superConstructor = "()V";
+
+        if (real.superclass != null && superName.equals("java/lang/Object")) {
+            superName = real.superclass;
+            superConstructor = real.constructor;
+        }
+
+        for (String iface : real.interfaces) {
+            if (!interfaces.contains(iface)) {
+                interfaces.add(iface);
+            }
+        }
 
         writer.visit(Opcodes.V17,
                 Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC | (isInterface ? Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT : 0),
@@ -547,8 +656,16 @@ public final class PhantomClasses {
                 hasConstructor = true;
             }
 
+            // What Object or the real superclass already does is theirs to
+            // answer, and a final one may not be declared again at all.
+            if (isObjectMethod(method.name(), method.descriptor())
+                    || !method.isStatic() && real.inherited.contains(method.name() + method.descriptor())) {
+                continue;
+            }
+
             if (emitted.add(method.name() + method.descriptor())) {
-                emitMethod(writer, spec, method, isInterface, known, superName, needsInstanceInit);
+                emitMethod(writer, spec, method, isInterface, known, superName, superConstructor,
+                        needsInstanceInit);
             }
         }
 
@@ -557,8 +674,11 @@ public final class PhantomClasses {
         // AbstractMethodError.
         if (!isInterface) {
             for (Member inherited : inheritedInterfaceMethods(spec, known)) {
-                if (emitted.add(inherited.name() + inherited.descriptor())) {
-                    emitMethod(writer, spec, inherited, false, known, superName, needsInstanceInit);
+                if (!isObjectMethod(inherited.name(), inherited.descriptor())
+                        && !real.inherited.contains(inherited.name() + inherited.descriptor())
+                        && emitted.add(inherited.name() + inherited.descriptor())) {
+                    emitMethod(writer, spec, inherited, false, known, superName, superConstructor,
+                            needsInstanceInit);
                 }
             }
         }
@@ -566,7 +686,8 @@ public final class PhantomClasses {
         // Always leave a no-argument constructor: other stand-ins call it when
         // they need to return an instance of this one.
         if (!isInterface && !hasConstructor) {
-            emitMethod(writer, spec, new Member("<init>", "()V", false), false, known, superName, needsInstanceInit);
+            emitMethod(writer, spec, new Member("<init>", "()V", false), false, known, superName, superConstructor,
+                    needsInstanceInit);
         }
 
         writer.visitEnd();
@@ -578,7 +699,8 @@ public final class PhantomClasses {
      * A plain class implementing a stand-in interface, so that a factory whose
      * return type is that interface has something to return other than null.
      */
-    private static byte[] generateImplementation(Spec iface, Map<String, Spec> known) {
+    private static byte[] generateImplementation(Spec iface, Map<String, Spec> known,
+            java.util.function.Function<String, byte[]> realClasses) {
         Spec impl = new Spec(iface.internalName() + IMPLEMENTATION_SUFFIX);
         impl.instantiated = true;
         impl.supertypes.add(iface.internalName());
@@ -591,7 +713,96 @@ public final class PhantomClasses {
 
         Map<String, Spec> withImpl = new java.util.HashMap<>(known);
         withImpl.put(impl.internalName(), impl);
-        return generate(impl, withImpl);
+        return generate(impl, withImpl, realClasses);
+    }
+
+    /**
+     * The classes this runtime has that a stand-in must be a subtype of: the
+     * one it can extend, with the constructor it will call, the interfaces it
+     * takes on, and the methods it inherits from them rather than declaring.
+     */
+    private static final class RealParent {
+        String superclass;
+        String constructor = "()V";
+        final java.util.List<String> interfaces = new java.util.ArrayList<>();
+        final Set<String> inherited = new java.util.HashSet<>();
+
+        static RealParent of(Spec spec, boolean isInterface,
+                java.util.function.Function<String, byte[]> realClasses) {
+            RealParent out = new RealParent();
+
+            for (String name : spec.realSupertypes()) {
+                byte[] bytes = realClasses.apply(name);
+
+                if (bytes == null) {
+                    continue;
+                }
+
+                org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+                new ClassReader(bytes).accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+
+                if ((node.access & Opcodes.ACC_INTERFACE) != 0) {
+                    out.interfaces.add(name);
+                } else if (!isInterface && out.superclass == null && (node.access & Opcodes.ACC_FINAL) == 0) {
+                    String constructor = constructorOf(node, spec.internalName());
+
+                    if (constructor != null) {
+                        out.superclass = name;
+                        out.constructor = constructor;
+                        out.inheritFrom(node, realClasses);
+                    }
+                }
+            }
+
+            return out;
+        }
+
+        /** A constructor a subclass in the stand-in's package can call: no arguments if there is one. */
+        private static String constructorOf(org.objectweb.asm.tree.ClassNode node, String standIn) {
+            String best = null;
+
+            for (org.objectweb.asm.tree.MethodNode method : node.methods) {
+                boolean reachable = (method.access & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) != 0
+                        || (method.access & Opcodes.ACC_PRIVATE) == 0 && packageOf(node.name).equals(packageOf(standIn));
+
+                if (!method.name.equals("<init>") || !reachable) {
+                    continue;
+                }
+
+                if (best == null || Type.getArgumentTypes(method.desc).length < Type.getArgumentTypes(best).length) {
+                    best = method.desc;
+                }
+            }
+
+            return best;
+        }
+
+        private static String packageOf(String internalName) {
+            int slash = internalName.lastIndexOf('/');
+            return slash < 0 ? "" : internalName.substring(0, slash);
+        }
+
+        /** Every concrete instance method of the superclass and its own superclasses. */
+        private void inheritFrom(org.objectweb.asm.tree.ClassNode node,
+                java.util.function.Function<String, byte[]> realClasses) {
+            for (int depth = 0; node != null && depth < 32; depth++) {
+                for (org.objectweb.asm.tree.MethodNode method : node.methods) {
+                    if ((method.access & (Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_PRIVATE)) == 0
+                            && !method.name.startsWith("<")) {
+                        inherited.add(method.name + method.desc);
+                    }
+                }
+
+                byte[] parent = node.superName == null ? null : realClasses.apply(node.superName);
+
+                if (parent == null) {
+                    return;
+                }
+
+                node = new org.objectweb.asm.tree.ClassNode();
+                new ClassReader(parent).accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
+            }
+        }
     }
 
     /** The one stand-in class this one should extend, if the mod's usage asks for one. */
@@ -686,7 +897,7 @@ public final class PhantomClasses {
     }
 
     private static void emitMethod(ClassWriter writer, Spec spec, Member method, boolean isInterface,
-            Map<String, Spec> known, String superName, boolean initialiseFields) {
+            Map<String, Spec> known, String superName, String superConstructor, boolean initialiseFields) {
         int access = Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC | (method.isStatic() ? Opcodes.ACC_STATIC : 0);
 
         if (isInterface && !method.isStatic()) {
@@ -707,7 +918,12 @@ public final class PhantomClasses {
 
         if (method.name().equals("<init>")) {
             visitor.visitVarInsn(Opcodes.ALOAD, 0);
-            visitor.visitMethodInsn(Opcodes.INVOKESPECIAL, superName, "<init>", "()V", false);
+
+            for (Type argument : Type.getArgumentTypes(superConstructor)) {
+                Nothing.push(visitor, argument);
+            }
+
+            visitor.visitMethodInsn(Opcodes.INVOKESPECIAL, superName, "<init>", superConstructor, false);
 
             if (initialiseFields) {
                 for (Member field : spec.fields()) {

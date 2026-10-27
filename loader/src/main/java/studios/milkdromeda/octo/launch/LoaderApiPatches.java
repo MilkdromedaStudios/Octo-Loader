@@ -61,6 +61,10 @@ public final class LoaderApiPatches {
      * against the unpatched game: these are the classes it needs to be
      * subclasses of something of its own.
      */
+    private static final String MAPPED_REGISTRY = "net/minecraft/core/MappedRegistry";
+    private static final String INTRUSIVE_CONSTRUCTOR =
+            "(Lnet/minecraft/resources/ResourceKey;Lcom/mojang/serialization/Lifecycle;Z)V";
+
     private static final Map<String, String> SUPERCLASSES = Map.of(
             "net/minecraft/core/MappedRegistry", "net/neoforged/neoforge/registries/BaseMappedRegistry",
             "net/minecraft/world/entity/Entity", "net/neoforged/neoforge/attachment/AttachmentHolder",
@@ -322,14 +326,80 @@ public final class LoaderApiPatches {
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
                         String[] exceptions) {
                     MethodVisitor delegate = super.visitMethod(access, name, descriptor, signature, exceptions);
-                    return delegate == null || !name.equals("<init>") ? delegate
-                            : new SuperCall(delegate, superclass);
+
+                    if (delegate == null || !name.equals("<init>")) {
+                        return delegate;
+                    }
+
+                    MethodVisitor rebased = new SuperCall(delegate, superclass);
+                    return className.equals(MAPPED_REGISTRY) && descriptor.equals(INTRUSIVE_CONSTRUCTOR)
+                            ? new NotesIntrusive(rebased) : rebased;
+                }
+
+                @Override
+                public void visitEnd() {
+                    if (className.equals(MAPPED_REGISTRY) && superclass.endsWith("BaseMappedRegistry")) {
+                        addRegistryMethods(cv);
+                    }
+
+                    super.visitEnd();
                 }
             }, 0);
 
             LOG.debug("{} now extends {}, as the loader API expects", className.replace('/', '.'),
                     superclass.replace('/', '.'));
             return writer.toByteArray();
+        }
+
+        /**
+         * What NeoForge's patches add to {@code MappedRegistry} and
+         * {@code BaseMappedRegistry} declares abstract: without them, the
+         * registration NeoForge runs after mods construct ended in an
+         * AbstractMethodError, and no mod's blocks or items were ever registered.
+         *
+         * <p>{@code unfreeze} lets registration happen again: the registry is
+         * no longer frozen, and one that gives its entries intrusive holders
+         * gets the map for them back. {@code registerIdMapping} is how NeoForge
+         * applies a server's numeric ids to a client; Octo does not sync those,
+         * so it does nothing.
+         */
+        private static void addRegistryMethods(ClassVisitor writer) {
+            MethodVisitor unfreeze = writer.visitMethod(Opcodes.ACC_PROTECTED, "unfreeze", "(Z)V", null, null);
+            unfreeze.visitCode();
+            unfreeze.visitVarInsn(Opcodes.ALOAD, 0);
+            unfreeze.visitInsn(Opcodes.ICONST_0);
+            unfreeze.visitFieldInsn(Opcodes.PUTFIELD, MAPPED_REGISTRY, "frozen", "Z");
+            org.objectweb.asm.Label done = new org.objectweb.asm.Label();
+            unfreeze.visitVarInsn(Opcodes.ALOAD, 0);
+            unfreeze.visitFieldInsn(Opcodes.GETFIELD, MAPPED_REGISTRY, "unregisteredIntrusiveHolders", "Ljava/util/Map;");
+            unfreeze.visitJumpInsn(Opcodes.IFNONNULL, done);
+            unfreeze.visitVarInsn(Opcodes.ALOAD, 0);
+            unfreeze.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/forge/Registries",
+                    "hasIntrusiveHolders", "(Ljava/lang/Object;)Z", false);
+            unfreeze.visitJumpInsn(Opcodes.IFEQ, done);
+            unfreeze.visitVarInsn(Opcodes.ALOAD, 0);
+            unfreeze.visitTypeInsn(Opcodes.NEW, "java/util/IdentityHashMap");
+            unfreeze.visitInsn(Opcodes.DUP);
+            unfreeze.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/util/IdentityHashMap", "<init>", "()V", false);
+            unfreeze.visitFieldInsn(Opcodes.PUTFIELD, MAPPED_REGISTRY, "unregisteredIntrusiveHolders", "Ljava/util/Map;");
+            unfreeze.visitLabel(done);
+            unfreeze.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+            // Unbound again, as the bootstrap left it: vanilla's freeze refuses
+            // a registry whose tags are already bound.
+            unfreeze.visitVarInsn(Opcodes.ALOAD, 0);
+            unfreeze.visitMethodInsn(Opcodes.INVOKESTATIC, MAPPED_REGISTRY + "$TagSet", "unbound",
+                    "()L" + MAPPED_REGISTRY + "$TagSet;", true);
+            unfreeze.visitFieldInsn(Opcodes.PUTFIELD, MAPPED_REGISTRY, "allTags", "L" + MAPPED_REGISTRY + "$TagSet;");
+            unfreeze.visitInsn(Opcodes.RETURN);
+            unfreeze.visitMaxs(0, 0);
+            unfreeze.visitEnd();
+
+            MethodVisitor ids = writer.visitMethod(Opcodes.ACC_PROTECTED, "registerIdMapping",
+                    "(Lnet/minecraft/resources/ResourceKey;I)V", null, null);
+            ids.visitCode();
+            ids.visitInsn(Opcodes.RETURN);
+            ids.visitMaxs(0, 0);
+            ids.visitEnd();
         }
 
         /** A generic class's signature names its superclass first; that name changes too. */
@@ -377,6 +447,31 @@ public final class LoaderApiPatches {
      * {@code new Object()} elsewhere in the constructor is left alone, which is
      * why objects made with {@code NEW} are counted.
      */
+    /**
+     * Tells {@code Registries}, as each registry is finished, whether it was
+     * built to give its entries intrusive holders: a freeze forgets that, and
+     * a mod's registry unfrozen for registration needs it back. Create makes
+     * its contraption types in its {@code RegisterEvent} listener, each asking
+     * its own registry for a holder.
+     */
+    private static final class NotesIntrusive extends MethodVisitor {
+        NotesIntrusive(MethodVisitor delegate) {
+            super(Opcodes.ASM9, delegate);
+        }
+
+        @Override
+        public void visitInsn(int opcode) {
+            if (opcode == Opcodes.RETURN) {
+                super.visitVarInsn(Opcodes.ALOAD, 0);
+                super.visitVarInsn(Opcodes.ILOAD, 3);
+                super.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/forge/Registries",
+                        "built", "(Ljava/lang/Object;Z)V", false);
+            }
+
+            super.visitInsn(opcode);
+        }
+    }
+
     private static final class SuperCall extends MethodVisitor {
         private final String superclass;
         private int pendingObjects;

@@ -2,9 +2,13 @@ package studios.milkdromeda.octo.transform;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.objectweb.asm.Type;
@@ -30,6 +34,9 @@ import org.objectweb.asm.Type;
 public final class Shims {
     private static final String OWNER = "studios/milkdromeda/octo/transform/Shims";
 
+    private static final String ENUM_PROPERTY = "net/minecraft/world/level/block/state/properties/EnumProperty";
+    private static final String MAKES_ENUM_PROPERTY = ")L" + ENUM_PROPERTY + ";";
+
     /** What the mod called, in today's class names, to the shim that answers it. */
     private static final Map<String, String> SHIMS = Map.of(
             "com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet",
@@ -39,7 +46,16 @@ public final class Shims {
             "dataResultError",
             "com/mojang/serialization/DataResult.error(Ljava/lang/String;Ljava/lang/Object;)"
                     + "Lcom/mojang/serialization/DataResult;",
-            "dataResultErrorWithPartial");
+            "dataResultErrorWithPartial",
+            // DirectionProperty's factories, called on EnumProperty once the
+            // class itself has been relinked there.
+            ENUM_PROPERTY + ".create(Ljava/lang/String;" + MAKES_ENUM_PROPERTY, "directionProperty",
+            ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/function/Predicate;" + MAKES_ENUM_PROPERTY,
+            "directionPropertyWhere",
+            ENUM_PROPERTY + ".create(Ljava/lang/String;[Lnet/minecraft/core/Direction;" + MAKES_ENUM_PROPERTY,
+            "directionPropertyOf",
+            ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/Collection;" + MAKES_ENUM_PROPERTY,
+            "directionPropertyFrom");
 
     private Shims() {
     }
@@ -140,6 +156,45 @@ public final class Shims {
             return either.getMethod(side, Object.class).invoke(null, value);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("DataFixerUpper's Either is not reachable", e);
+        }
+    }
+
+    // ------------------------------------------------------ block state properties
+
+    /**
+     * {@code DirectionProperty.create(name)}, every direction. DirectionProperty
+     * went in 1.21.2, when a property of directions became an
+     * {@code EnumProperty<Direction>} like any other; restored, it would extend
+     * a class that is final now. Its factories are EnumProperty's with the enum
+     * class filled in.
+     */
+    public static Object directionProperty(Object name, Class<?> owner) {
+        return callStatic(owner, "create", new Class<?>[] { String.class, Class.class }, name, direction(owner));
+    }
+
+    /** {@code DirectionProperty.create(name, filter)}. */
+    public static Object directionPropertyWhere(Object name, Object filter, Class<?> owner) {
+        return callStatic(owner, "create", new Class<?>[] { String.class, Class.class, Predicate.class }, name,
+                direction(owner), filter);
+    }
+
+    /** {@code DirectionProperty.create(name, directions...)}. */
+    public static Object directionPropertyOf(Object name, Object directions, Class<?> owner) {
+        return callStatic(owner, "create", new Class<?>[] { String.class, Class.class, Enum[].class }, name,
+                direction(owner), directions);
+    }
+
+    /** {@code DirectionProperty.create(name, directions)}, from any collection. */
+    public static Object directionPropertyFrom(Object name, Object directions, Class<?> owner) {
+        return callStatic(owner, "create", new Class<?>[] { String.class, Class.class, List.class }, name,
+                direction(owner), new ArrayList<>((Collection<?>) directions));
+    }
+
+    private static Class<?> direction(Class<?> context) {
+        try {
+            return Class.forName("net.minecraft.core.Direction", false, context.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("the game's Direction is not reachable", e);
         }
     }
 

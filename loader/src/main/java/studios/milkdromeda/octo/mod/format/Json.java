@@ -2,7 +2,10 @@ package studios.milkdromeda.octo.mod.format;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -150,5 +153,27 @@ final class Json {
         }
 
         return fallback;
+    }
+
+    /** A JSON value as plain Java: maps, lists, strings, numbers, booleans and null. */
+    static Object plain(JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return null;
+        }
+
+        if (element instanceof JsonPrimitive primitive) {
+            return primitive.isBoolean() ? primitive.getAsBoolean()
+                    : primitive.isNumber() ? primitive.getAsNumber() : primitive.getAsString();
+        }
+
+        if (element.isJsonArray()) {
+            List<Object> out = new ArrayList<>();
+            element.getAsJsonArray().forEach(child -> out.add(plain(child)));
+            return Collections.unmodifiableList(out);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        element.getAsJsonObject().entrySet().forEach(entry -> out.put(entry.getKey(), plain(entry.getValue())));
+        return Collections.unmodifiableMap(out);
     }
 }
