@@ -41,6 +41,33 @@ class InstallerTest {
                 """.formatted(version));
     }
 
+    private void givenSnapshotInstalled(String version) throws IOException {
+        Path directory = gameDirectory.resolve("versions").resolve(version);
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve(version + ".json"), """
+                { "id": "%s", "type": "snapshot", "mainClass": "net.minecraft.client.main.Main" }
+                """.formatted(version));
+    }
+
+    @Test
+    @DisplayName("with no version named, the newest release is chosen over a newer snapshot")
+    void defaultsToTheNewestRelease() throws IOException {
+        givenMinecraftInstalled("26.2");
+        givenMinecraftInstalled("26.3");
+        givenSnapshotInstalled("26.4-snapshot-5");
+        givenSnapshotInstalled("26.3-rc-3");
+
+        assertEquals("26.3", ClientInstaller.defaultVersion(gameDirectory));
+    }
+
+    @Test
+    @DisplayName("with only a snapshot installed, it is still chosen rather than nothing")
+    void snapshotOnlyWhenNothingElse() throws IOException {
+        givenSnapshotInstalled("26.4-snapshot-5");
+
+        assertEquals("26.4-snapshot-5", ClientInstaller.defaultVersion(gameDirectory));
+    }
+
     @Test
     @DisplayName("installing writes a profile that inherits from the vanilla version")
     void writesAnInheritingProfile() throws IOException {
