@@ -38,24 +38,41 @@ public final class Shims {
     private static final String MAKES_ENUM_PROPERTY = ")L" + ENUM_PROPERTY + ";";
 
     /** What the mod called, in today's class names, to the shim that answers it. */
-    private static final Map<String, String> SHIMS = Map.of(
-            "com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet",
-            "com/mojang/serialization/DataResult.getOrThrow(ZLjava/util/function/Consumer;)Ljava/lang/Object;",
-            "dataResultGetOrThrow",
-            "com/mojang/serialization/DataResult.error(Ljava/lang/String;)Lcom/mojang/serialization/DataResult;",
-            "dataResultError",
-            "com/mojang/serialization/DataResult.error(Ljava/lang/String;Ljava/lang/Object;)"
-                    + "Lcom/mojang/serialization/DataResult;",
-            "dataResultErrorWithPartial",
+    private static final String NBT = "net/minecraft/nbt/";
+    private static final String NBT_UTILS = NBT + "NbtUtils";
+    private static final String COMPOUND = NBT + "CompoundTag";
+
+    private static final Map<String, String> SHIMS = Map.ofEntries(
+            Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
+            Map.entry("com/mojang/serialization/DataResult.getOrThrow(ZLjava/util/function/Consumer;)Ljava/lang/Object;",
+                    "dataResultGetOrThrow"),
+            Map.entry("com/mojang/serialization/DataResult.error(Ljava/lang/String;)"
+                    + "Lcom/mojang/serialization/DataResult;", "dataResultError"),
+            Map.entry("com/mojang/serialization/DataResult.error(Ljava/lang/String;Ljava/lang/Object;)"
+                    + "Lcom/mojang/serialization/DataResult;", "dataResultErrorWithPartial"),
             // DirectionProperty's factories, called on EnumProperty once the
             // class itself has been relinked there.
-            ENUM_PROPERTY + ".create(Ljava/lang/String;" + MAKES_ENUM_PROPERTY, "directionProperty",
-            ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/function/Predicate;" + MAKES_ENUM_PROPERTY,
-            "directionPropertyWhere",
-            ENUM_PROPERTY + ".create(Ljava/lang/String;[Lnet/minecraft/core/Direction;" + MAKES_ENUM_PROPERTY,
-            "directionPropertyOf",
-            ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/Collection;" + MAKES_ENUM_PROPERTY,
-            "directionPropertyFrom");
+            Map.entry(ENUM_PROPERTY + ".create(Ljava/lang/String;" + MAKES_ENUM_PROPERTY, "directionProperty"),
+            Map.entry(ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/function/Predicate;"
+                    + MAKES_ENUM_PROPERTY, "directionPropertyWhere"),
+            Map.entry(ENUM_PROPERTY + ".create(Ljava/lang/String;[Lnet/minecraft/core/Direction;"
+                    + MAKES_ENUM_PROPERTY, "directionPropertyOf"),
+            Map.entry(ENUM_PROPERTY + ".create(Ljava/lang/String;Ljava/util/Collection;" + MAKES_ENUM_PROPERTY,
+                    "directionPropertyFrom"),
+            // The NBT helpers 1.21.5 dropped for codecs.
+            Map.entry(NBT_UTILS + ".writeBlockPos(Lnet/minecraft/core/BlockPos;)L" + NBT + "Tag;", "nbtWriteBlockPos"),
+            Map.entry(NBT_UTILS + ".readBlockPos(L" + COMPOUND + ";Ljava/lang/String;)Ljava/util/Optional;",
+                    "nbtReadBlockPos"),
+            Map.entry(NBT_UTILS + ".createUUID(Ljava/util/UUID;)L" + NBT + "IntArrayTag;", "nbtCreateUuid"),
+            Map.entry(NBT_UTILS + ".loadUUID(L" + NBT + "Tag;)Ljava/util/UUID;", "nbtLoadUuid"),
+            Map.entry(COMPOUND + ".putUUID(Ljava/lang/String;Ljava/util/UUID;)V", "compoundPutUuid"),
+            Map.entry(COMPOUND + ".getUUID(Ljava/lang/String;)Ljava/util/UUID;", "compoundGetUuid"),
+            Map.entry(COMPOUND + ".hasUUID(Ljava/lang/String;)Z", "compoundHasUuid"),
+            Map.entry(COMPOUND + ".putIntArray(Ljava/lang/String;Ljava/util/List;)V", "compoundPutIntList"),
+            Map.entry(NBT + "Tag.getAsString()Ljava/lang/String;", "tagAsString"),
+            Map.entry(NBT + "StringTag.getAsString()Ljava/lang/String;", "tagAsString"),
+            Map.entry(NBT + "CompoundTag.getAsString()Ljava/lang/String;", "tagAsString"),
+            Map.entry(NBT + "TagParser.parseTag(Ljava/lang/String;)L" + COMPOUND + ";", "tagParserParseTag"));
 
     private Shims() {
     }
@@ -195,6 +212,116 @@ public final class Shims {
             return Class.forName("net.minecraft.core.Direction", false, context.getClassLoader());
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("the game's Direction is not reachable", e);
+        }
+    }
+
+    // ------------------------------------------------------------------- NBT
+
+    /** {@code NbtUtils.writeBlockPos(pos)}: the position as an int array of x, y and z. */
+    public static Object nbtWriteBlockPos(Object pos, Class<?> owner) {
+        return intArrayTag(owner, new int[] { (int) call(pos, "getX"), (int) call(pos, "getY"),
+                (int) call(pos, "getZ") });
+    }
+
+    /** {@code NbtUtils.readBlockPos(tag, key)}: the position written that way, if there is one. */
+    public static Object nbtReadBlockPos(Object tag, Object key, Class<?> owner) {
+        Optional<?> array = (Optional<?>) callWith(tag, "getIntArray", new Class<?>[] { String.class }, key);
+        return array.filter(found -> ((int[]) found).length == 3).map(found -> {
+            int[] xyz = (int[]) found;
+            return construct(game(owner, "net.minecraft.core.BlockPos"),
+                    new Class<?>[] { int.class, int.class, int.class }, xyz[0], xyz[1], xyz[2]);
+        });
+    }
+
+    /** {@code NbtUtils.createUUID(uuid)}: the four ints of it. */
+    public static Object nbtCreateUuid(Object uuid, Class<?> owner) {
+        return intArrayTag(owner, uuidInts(owner, uuid));
+    }
+
+    /** {@code NbtUtils.loadUUID(tag)}: the UUID in an int array tag, or null. */
+    public static Object nbtLoadUuid(Object tag, Class<?> owner) {
+        return uuidOf(owner, tag);
+    }
+
+    /** {@code CompoundTag.putUUID(key, uuid)}. */
+    public static void compoundPutUuid(Object tag, Object key, Object uuid) {
+        callWith(tag, "putIntArray", new Class<?>[] { String.class, int[].class }, key,
+                uuidInts(tag.getClass(), uuid));
+    }
+
+    /** {@code CompoundTag.getUUID(key)}: the UUID put there, or null. */
+    public static Object compoundGetUuid(Object tag, Object key) {
+        return uuidOf(tag.getClass(), callWith(tag, "get", new Class<?>[] { String.class }, key));
+    }
+
+    /** {@code CompoundTag.hasUUID(key)}. */
+    public static boolean compoundHasUuid(Object tag, Object key) {
+        return compoundGetUuid(tag, key) != null;
+    }
+
+    /** {@code CompoundTag.putIntArray(key, list)}. */
+    public static void compoundPutIntList(Object tag, Object key, Object values) {
+        int[] array = ((List<?>) values).stream().mapToInt(value -> ((Number) value).intValue()).toArray();
+        callWith(tag, "putIntArray", new Class<?>[] { String.class, int[].class }, key, array);
+    }
+
+    /** {@code Tag.getAsString()}: a string tag's string, and anything else as written in commands. */
+    public static Object tagAsString(Object tag) {
+        Optional<?> string = (Optional<?>) call(tag, "asString");
+        return string.isPresent() ? string.get() : String.valueOf(tag);
+    }
+
+    /** {@code TagParser.parseTag(text)}, now {@code parseCompoundFully}. */
+    public static Object tagParserParseTag(Object text, Class<?> owner) {
+        return callStatic(owner, "parseCompoundFully", new Class<?>[] { String.class }, text);
+    }
+
+    private static Object intArrayTag(Class<?> context, int[] values) {
+        return construct(game(context, "net.minecraft.nbt.IntArrayTag"), new Class<?>[] { int[].class },
+                (Object) values);
+    }
+
+    private static int[] uuidInts(Class<?> context, Object uuid) {
+        return (int[]) callStatic(game(context, "net.minecraft.core.UUIDUtil"), "uuidToIntArray",
+                new Class<?>[] { java.util.UUID.class }, uuid);
+    }
+
+    private static Object uuidOf(Class<?> context, Object tag) {
+        if (tag == null || !tag.getClass().getName().equals("net.minecraft.nbt.IntArrayTag")) {
+            return null;
+        }
+
+        int[] values = (int[]) call(tag, "getAsIntArray");
+        return values.length != 4 ? null : callStatic(game(context, "net.minecraft.core.UUIDUtil"),
+                "uuidFromIntArray", new Class<?>[] { int[].class }, (Object) values);
+    }
+
+    private static Class<?> game(Class<?> context, String name) {
+        try {
+            return Class.forName(name, true, context.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("the game's " + name + " is not reachable", e);
+        }
+    }
+
+    private static Object construct(Class<?> type, Class<?>[] parameters, Object... arguments) {
+        try {
+            return type.getConstructor(parameters).newInstance(arguments);
+        } catch (InvocationTargetException e) {
+            throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(type.getName() + " could not be made", e);
+        }
+    }
+
+    /** A public method with parameters, on the receiver's class. */
+    private static Object callWith(Object target, String name, Class<?>[] parameters, Object... arguments) {
+        try {
+            Method method = target.getClass().getMethod(name, parameters);
+            method.setAccessible(true);
+            return invoke(method, target, arguments);
+        } catch (NoSuchMethodException e) {
+            throw new IllegalStateException(target.getClass().getName() + " has no " + name, e);
         }
     }
 

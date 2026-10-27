@@ -439,6 +439,50 @@ class GameGapsTest {
     }
 
     @Test
+    @DisplayName("a super call to what nothing above has any more is skipped, with a default for its result")
+    void goneSuperCallIsSkipped() throws Exception {
+        String block = "net/minecraft/octotest/Block3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, block, null);
+
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, block, "<init>", "()V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        end(constructor);
+
+        // super.save(7); return super.count() + super.shape().length();
+        MethodVisitor run = writer.visitMethod(Opcodes.ACC_PUBLIC, "run", "()I", null, null);
+        run.visitCode();
+        run.visitVarInsn(Opcodes.ALOAD, 0);
+        run.visitIntInsn(Opcodes.BIPUSH, 7);
+        run.visitMethodInsn(Opcodes.INVOKESPECIAL, block, "save", "(I)V", false);
+        run.visitVarInsn(Opcodes.ALOAD, 0);
+        run.visitMethodInsn(Opcodes.INVOKESPECIAL, block, "count", "()I", false);
+        run.visitVarInsn(Opcodes.ALOAD, 0);
+        run.visitMethodInsn(Opcodes.INVOKESPECIAL, block, "shape", "()Ljava/lang/String;", false);
+        run.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        run.visitInsn(Opcodes.IADD);
+        run.visitInsn(Opcodes.IRETURN);
+        end(run);
+
+        MethodVisitor entry = method(writer, "entry", "()Ljava/lang/Object;");
+        entry.visitTypeInsn(Opcodes.NEW, CALLER);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, CALLER, "<init>", "()V", false);
+        entry.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CALLER, "run", "()I", false);
+        entry.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+        entry.visitInsn(Opcodes.ARETURN);
+        end(entry);
+
+        writer.visitEnd();
+
+        assertEquals(4, call(repaired(writer.toByteArray()), "entry"),
+                "save and count are gone and skipped; shape is still there and still called");
+    }
+
+    @Test
     @DisplayName("a dyed block that became one of a collection's colours is read from it")
     void coloursAreReadFromTheirCollection() throws Exception {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
