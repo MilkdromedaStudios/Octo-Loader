@@ -60,6 +60,7 @@ import studios.milkdromeda.octo.transform.OverrideGuard;
 import studios.milkdromeda.octo.transform.ValueIoBridge;
 import studios.milkdromeda.octo.transform.AbstractGaps;
 import studios.milkdromeda.octo.transform.RegistryLoadGuard;
+import studios.milkdromeda.octo.transform.NullTagGuard;
 import studios.milkdromeda.octo.transform.SupertypeFit;
 import studios.milkdromeda.octo.transform.VerifierFit;
 import studios.milkdromeda.octo.transform.ProbeRewriter;
@@ -804,6 +805,7 @@ public final class OctoLauncher {
 
             if (!context.compat().strict()) {
                 classLoader.addGlobalTransformer(new RegistryLoadGuard());
+                classLoader.addGlobalTransformer(new NullTagGuard());
             }
             classLoader.addGlobalTransformer(new FinalOverrides(index));
             classLoader.addGlobalTransformer(new SupertypeFit(index, false));

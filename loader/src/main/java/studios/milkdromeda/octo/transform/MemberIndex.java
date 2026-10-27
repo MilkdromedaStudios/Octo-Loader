@@ -38,11 +38,16 @@ public final class MemberIndex {
      *               field's under {@code name:descriptor}
      */
     public record Shape(String name, String superName, List<String> interfaces, boolean isInterface,
-            Set<String> methods, Set<String> fields, Set<String> staticMethods, Map<String, Integer> access) {
+            Set<String> methods, Set<String> fields, Set<String> staticMethods, Map<String, Integer> access,
+            int classAccess) {
+        /** Whether {@code new} can make one: neither an interface nor abstract. */
+        public boolean isConcrete() {
+            return (classAccess & (Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT)) == 0;
+        }
     }
 
     private static final Shape ABSENT = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
-            Map.of());
+            Map.of(), 0);
 
     private final Function<String, byte[]> classBytes;
     private final Map<String, Shape> shapes = new ConcurrentHashMap<>();
@@ -409,7 +414,7 @@ public final class MemberIndex {
     }
 
     private static final Shape READING = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
-            Map.of());
+            Map.of(), 0);
 
     private Shape read(String internalName) {
         byte[] bytes;
@@ -432,6 +437,7 @@ public final class MemberIndex {
             String[] header = new String[1];
             List<String> interfaces = new ArrayList<>();
             boolean[] isInterface = new boolean[1];
+            int[] classAccess = new int[1];
 
             new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
                 @Override
@@ -439,6 +445,7 @@ public final class MemberIndex {
                         String[] declared) {
                     header[0] = superName;
                     isInterface[0] = (access & Opcodes.ACC_INTERFACE) != 0;
+                    classAccess[0] = access;
 
                     if (declared != null) {
                         interfaces.addAll(List.of(declared));
@@ -468,7 +475,7 @@ public final class MemberIndex {
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
             return new Shape(internalName, header[0], List.copyOf(interfaces), isInterface[0], methods, fields,
-                    staticMethods, memberAccess);
+                    staticMethods, memberAccess, classAccess[0]);
         } catch (RuntimeException e) {
             return ABSENT;
         }
@@ -517,7 +524,8 @@ public final class MemberIndex {
 
             return new Shape(internalName, type.getSuperclass() == null ? null
                     : type.getSuperclass().getName().replace('.', '/'), interfaces, type.isInterface(), methods,
-                    fields, staticMethods, memberAccess);
+                    fields, staticMethods, memberAccess, type.getModifiers()
+                            | (type.isInterface() ? Opcodes.ACC_INTERFACE : 0));
         } catch (ClassNotFoundException | LinkageError | RuntimeException e) {
             return ABSENT;
         }

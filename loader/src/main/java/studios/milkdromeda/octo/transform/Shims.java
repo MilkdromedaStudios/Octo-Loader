@@ -41,6 +41,7 @@ public final class Shims {
     private static final String NBT = "net/minecraft/nbt/";
     private static final String NBT_UTILS = NBT + "NbtUtils";
     private static final String COMPOUND = NBT + "CompoundTag";
+    private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
 
@@ -75,6 +76,17 @@ public final class Shims {
             Map.entry(NBT + "StringTag.getAsString()Ljava/lang/String;", "tagAsString"),
             Map.entry(NBT + "CompoundTag.getAsString()Ljava/lang/String;", "tagAsString"),
             Map.entry(NBT + "TagParser.parseTag(Ljava/lang/String;)L" + COMPOUND + ";", "tagParserParseTag"),
+            // Item and fluid stacks, saved and read through their codecs since 1.21.5.
+            Map.entry("net/minecraft/world/item/ItemStack.saveOptional(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSaveOptional"),
+            Map.entry("net/minecraft/world/item/ItemStack.save(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSave"),
+            Map.entry("net/minecraft/world/item/ItemStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
+            Map.entry("net/minecraft/world/item/ItemStack.parse(L" + PROVIDER + ";L" + NBT + "Tag;)Ljava/util/Optional;", "stackParse"),
+            Map.entry("net/minecraft/world/item/ItemStack.parseOptional(L" + PROVIDER + ";L" + COMPOUND + ";)Lnet/minecraft/world/item/ItemStack;", "stackParseOptional"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.saveOptional(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSaveOptional"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSave"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.parse(L" + PROVIDER + ";L" + NBT + "Tag;)Ljava/util/Optional;", "stackParse"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.parseOptional(L" + PROVIDER + ";L" + COMPOUND + ";)Lnet/neoforged/neoforge/fluids/FluidStack;", "stackParseOptional"),
             // Recipes, looked up by key and through the level's recipe access since 1.21.2.
             Map.entry("net/minecraft/world/level/Level.getRecipeManager()L" + RECIPE_MANAGER + ";", "levelRecipeManager"),
             Map.entry("net/minecraft/server/level/ServerLevel.getRecipeManager()L" + RECIPE_MANAGER + ";",
@@ -372,6 +384,76 @@ public final class Shims {
         Class<?> codecType = game(owner, "com.mojang.serialization.Codec");
         return callStatic(game(owner, "com.mojang.serialization.MapCodec"), "assumeMapUnsafe",
                 new Class<?>[] { codecType }, codec);
+    }
+
+    // ---------------------------------------------------------------- stacks
+
+    /**
+     * {@code stack.saveOptional(registries)}: the stack as a tag, an empty
+     * compound when it is empty. An item or fluid stack, saved the way the
+     * game saves one now — through its codec.
+     */
+    public static Object stackSaveOptional(Object stack, Object registries) {
+        if (Boolean.TRUE.equals(call(stack, "isEmpty"))) {
+            return construct(game(stack.getClass(), "net.minecraft.nbt.CompoundTag"), new Class<?>[0]);
+        }
+
+        return stackSave(stack, registries);
+    }
+
+    /** {@code stack.save(registries)}. */
+    public static Object stackSave(Object stack, Object registries) {
+        Object result = callWith(staticField(stack.getClass(), "CODEC"), "encodeStart",
+                new Class<?>[] { game(stack.getClass(), "com.mojang.serialization.DynamicOps"), Object.class },
+                nbtOps(stack.getClass(), registries), stack);
+        Optional<?> tag = (Optional<?>) call(result, "result");
+        return tag.isPresent() ? tag.get()
+                : construct(game(stack.getClass(), "net.minecraft.nbt.CompoundTag"), new Class<?>[0]);
+    }
+
+    /** {@code stack.save(registries, into)}: saved into the compound given. */
+    public static Object stackSaveInto(Object stack, Object registries, Object into) {
+        Object saved = stackSave(stack, registries);
+        Class<?> compound = game(stack.getClass(), "net.minecraft.nbt.CompoundTag");
+
+        if (compound.isInstance(into) && compound.isInstance(saved)) {
+            callWith(into, "merge", new Class<?>[] { compound }, saved);
+            return into;
+        }
+
+        return saved;
+    }
+
+    /** {@code ItemStack.parse(registries, tag)}: the stack, if the tag holds one. */
+    public static Object stackParse(Object registries, Object tag, Class<?> owner) {
+        Object result = callWith(staticField(owner, "CODEC"), "parse",
+                new Class<?>[] { game(owner, "com.mojang.serialization.DynamicOps"), Object.class },
+                nbtOps(owner, registries), tag);
+        return call(result, "result");
+    }
+
+    /** {@code ItemStack.parseOptional(registries, tag)}: the stack, or the empty one. */
+    public static Object stackParseOptional(Object registries, Object tag, Class<?> owner) {
+        Object empty = staticField(owner, "EMPTY");
+
+        if (tag == null || Boolean.TRUE.equals(call(tag, "isEmpty"))) {
+            return empty;
+        }
+
+        Optional<?> stack = (Optional<?>) stackParse(registries, tag, owner);
+        return stack.isPresent() ? stack.get() : empty;
+    }
+
+    /** The NBT ops a stack is written with: with the registries' context when there are some. */
+    private static Object nbtOps(Class<?> context, Object registries) {
+        Object ops = staticField(game(context, "net.minecraft.nbt.NbtOps"), "INSTANCE");
+
+        if (registries == null) {
+            return ops;
+        }
+
+        return callWith(registries, "createSerializationContext",
+                new Class<?>[] { game(context, "com.mojang.serialization.DynamicOps") }, ops);
     }
 
     // ---------------------------------------------------------------- recipes

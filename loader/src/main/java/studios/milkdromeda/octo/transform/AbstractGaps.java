@@ -38,8 +38,10 @@ import studios.milkdromeda.octo.util.OctoLog;
  * <li>its own method under the old name: {@code getGroup()} for
  * {@code group()}, and the other way round;</li>
  * <li>a value that leaves the game as it would be without the mod's answer:
- * no placement, the miscellaneous book category, an empty string, false,
- * zero, an empty collection or null.</li>
+ * no placement, the miscellaneous book category, an empty string, a new
+ * object of the game's where it has a plain constructor (a block entity's
+ * render state, which 26.x asks every renderer for), false, zero, an empty
+ * collection or null.</li>
  * </ul>
  */
 public final class AbstractGaps implements Transformer {
@@ -252,6 +254,12 @@ public final class AbstractGaps implements Transformer {
                 answer.push(out);
             } else if (returned.getDescriptor().equals("Ljava/lang/String;")) {
                 out.visitLdcInsn("");
+            } else if (isMakeable(returned)) {
+                // A fresh one rather than null: 26.x asks every block entity
+                // renderer for a render state, and uses what it is given.
+                out.visitTypeInsn(Opcodes.NEW, returned.getInternalName());
+                out.visitInsn(Opcodes.DUP);
+                out.visitMethodInsn(Opcodes.INVOKESPECIAL, returned.getInternalName(), "<init>", "()V", false);
             } else {
                 Nothing.push(out, returned);
             }
@@ -263,6 +271,17 @@ public final class AbstractGaps implements Transformer {
         out.visitMaxs(0, 0);
         out.visitEnd();
         return how;
+    }
+
+    /** A game class that is concrete and has a public constructor taking nothing. */
+    private boolean isMakeable(Type type) {
+        if (type.getSort() != Type.OBJECT || !isGame(type.getInternalName())) {
+            return false;
+        }
+
+        MemberIndex.Shape shape = index.shape(type.getInternalName());
+        Integer constructor = shape == null ? null : shape.access().get("<init>()V");
+        return shape != null && shape.isConcrete() && constructor != null && (constructor & Opcodes.ACC_PUBLIC) != 0;
     }
 
     /** The class's own {@code name} with this method's arguments and one more after them. */
