@@ -41,6 +41,9 @@ public final class Shims {
     private static final String NBT = "net/minecraft/nbt/";
     private static final String NBT_UTILS = NBT + "NbtUtils";
     private static final String COMPOUND = NBT + "CompoundTag";
+    private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
+    private static final String CRAFTING = "net/minecraft/world/item/crafting/";
+    private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
             Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
@@ -72,7 +75,31 @@ public final class Shims {
             Map.entry(NBT + "Tag.getAsString()Ljava/lang/String;", "tagAsString"),
             Map.entry(NBT + "StringTag.getAsString()Ljava/lang/String;", "tagAsString"),
             Map.entry(NBT + "CompoundTag.getAsString()Ljava/lang/String;", "tagAsString"),
-            Map.entry(NBT + "TagParser.parseTag(Ljava/lang/String;)L" + COMPOUND + ";", "tagParserParseTag"));
+            Map.entry(NBT + "TagParser.parseTag(Ljava/lang/String;)L" + COMPOUND + ";", "tagParserParseTag"),
+            // Item and fluid stacks, saved and read through their codecs since 1.21.5.
+            Map.entry("net/minecraft/world/item/ItemStack.saveOptional(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSaveOptional"),
+            Map.entry("net/minecraft/world/item/ItemStack.save(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSave"),
+            Map.entry("net/minecraft/world/item/ItemStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
+            Map.entry("net/minecraft/world/item/ItemStack.parse(L" + PROVIDER + ";L" + NBT + "Tag;)Ljava/util/Optional;", "stackParse"),
+            Map.entry("net/minecraft/world/item/ItemStack.parseOptional(L" + PROVIDER + ";L" + COMPOUND + ";)Lnet/minecraft/world/item/ItemStack;", "stackParseOptional"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.saveOptional(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSaveOptional"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSave"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.parse(L" + PROVIDER + ";L" + NBT + "Tag;)Ljava/util/Optional;", "stackParse"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.parseOptional(L" + PROVIDER + ";L" + COMPOUND + ";)Lnet/neoforged/neoforge/fluids/FluidStack;", "stackParseOptional"),
+            // Recipes, looked up by key and through the level's recipe access since 1.21.2.
+            Map.entry("net/minecraft/world/level/Level.getRecipeManager()L" + RECIPE_MANAGER + ";", "levelRecipeManager"),
+            Map.entry("net/minecraft/server/level/ServerLevel.getRecipeManager()L" + RECIPE_MANAGER + ";",
+                    "levelRecipeManager"),
+            Map.entry(CRAFTING + "RecipeHolder.id()Lnet/minecraft/resources/Identifier;", "recipeHolderId"),
+            Map.entry(CRAFTING + "RecipeType.simple(Lnet/minecraft/resources/Identifier;)L" + CRAFTING + "RecipeType;",
+                    "recipeTypeSimple"),
+            Map.entry(RECIPE_MANAGER + ".byKey(Lnet/minecraft/resources/Identifier;)Ljava/util/Optional;",
+                    "recipeManagerByKey"),
+            Map.entry(RECIPE_MANAGER + ".getAllRecipesFor(L" + CRAFTING + "RecipeType;)Ljava/util/List;",
+                    "recipeManagerAllFor"),
+            Map.entry(RECIPE_MANAGER + ".getRecipesFor(L" + CRAFTING + "RecipeType;L" + CRAFTING
+                    + "RecipeInput;Lnet/minecraft/world/level/Level;)Ljava/util/List;", "recipeManagerMatching"));
 
     private Shims() {
     }
@@ -80,6 +107,24 @@ public final class Shims {
     /** @return the shim's name for this member, or {@code null} when there is none */
     static String shimFor(String owner, String name, String descriptor) {
         return SHIMS.get(owner + "." + name + descriptor);
+    }
+
+    /**
+     * Static fields removed, rebuilt the same way: a shim taking the owner's
+     * {@code Class} and answering the value.
+     */
+    private static final Map<String, String> FIELD_SHIMS = Map.of(
+            // NeoForge 26 kept only FluidIngredient.CODEC; Create builds every
+            // processing recipe's codec on the map codec, and without it not
+            // one of its machine recipes could be read.
+            "net/neoforged/neoforge/fluids/crafting/FluidIngredient.MAP_CODEC_NONEMPTY:"
+                    + "Lcom/mojang/serialization/MapCodec;", "fluidIngredientMapCodec",
+            "net/neoforged/neoforge/fluids/FluidStack.FLUID_NON_EMPTY_CODEC:Lcom/mojang/serialization/Codec;",
+            "fluidHolderCodec");
+
+    /** @return the shim's name for this static field, or {@code null} when there is none */
+    static String fieldShimFor(String owner, String name, String descriptor) {
+        return FIELD_SHIMS.get(owner + "." + name + ":" + descriptor);
     }
 
     static String owner() {
@@ -322,6 +367,184 @@ public final class Shims {
             return invoke(method, target, arguments);
         } catch (NoSuchMethodException e) {
             throw new IllegalStateException(target.getClass().getName() + " has no " + name, e);
+        }
+    }
+
+    // -------------------------------------------------------------- NeoForge
+
+    /** {@code FluidStack.FLUID_NON_EMPTY_CODEC}: a fluid, by its registry name. */
+    public static Object fluidHolderCodec(Class<?> owner) {
+        Object fluids = staticField(game(owner, "net.minecraft.core.registries.BuiltInRegistries"), "FLUID");
+        return callWith(fluids, "holderByNameCodec", new Class<?>[0]);
+    }
+
+    /** {@code FluidIngredient.MAP_CODEC_NONEMPTY}: its codec, read as a map. */
+    public static Object fluidIngredientMapCodec(Class<?> owner) {
+        Object codec = staticField(owner, "CODEC");
+        Class<?> codecType = game(owner, "com.mojang.serialization.Codec");
+        return callStatic(game(owner, "com.mojang.serialization.MapCodec"), "assumeMapUnsafe",
+                new Class<?>[] { codecType }, codec);
+    }
+
+    // ---------------------------------------------------------------- stacks
+
+    /**
+     * {@code stack.saveOptional(registries)}: the stack as a tag, an empty
+     * compound when it is empty. An item or fluid stack, saved the way the
+     * game saves one now — through its codec.
+     */
+    public static Object stackSaveOptional(Object stack, Object registries) {
+        if (Boolean.TRUE.equals(call(stack, "isEmpty"))) {
+            return construct(game(stack.getClass(), "net.minecraft.nbt.CompoundTag"), new Class<?>[0]);
+        }
+
+        return stackSave(stack, registries);
+    }
+
+    /** {@code stack.save(registries)}. */
+    public static Object stackSave(Object stack, Object registries) {
+        Object result = callWith(staticField(stack.getClass(), "CODEC"), "encodeStart",
+                new Class<?>[] { game(stack.getClass(), "com.mojang.serialization.DynamicOps"), Object.class },
+                nbtOps(stack.getClass(), registries), stack);
+        Optional<?> tag = (Optional<?>) call(result, "result");
+        return tag.isPresent() ? tag.get()
+                : construct(game(stack.getClass(), "net.minecraft.nbt.CompoundTag"), new Class<?>[0]);
+    }
+
+    /** {@code stack.save(registries, into)}: saved into the compound given. */
+    public static Object stackSaveInto(Object stack, Object registries, Object into) {
+        Object saved = stackSave(stack, registries);
+        Class<?> compound = game(stack.getClass(), "net.minecraft.nbt.CompoundTag");
+
+        if (compound.isInstance(into) && compound.isInstance(saved)) {
+            callWith(into, "merge", new Class<?>[] { compound }, saved);
+            return into;
+        }
+
+        return saved;
+    }
+
+    /** {@code ItemStack.parse(registries, tag)}: the stack, if the tag holds one. */
+    public static Object stackParse(Object registries, Object tag, Class<?> owner) {
+        Object result = callWith(staticField(owner, "CODEC"), "parse",
+                new Class<?>[] { game(owner, "com.mojang.serialization.DynamicOps"), Object.class },
+                nbtOps(owner, registries), tag);
+        return call(result, "result");
+    }
+
+    /** {@code ItemStack.parseOptional(registries, tag)}: the stack, or the empty one. */
+    public static Object stackParseOptional(Object registries, Object tag, Class<?> owner) {
+        Object empty = staticField(owner, "EMPTY");
+
+        if (tag == null || Boolean.TRUE.equals(call(tag, "isEmpty"))) {
+            return empty;
+        }
+
+        Optional<?> stack = (Optional<?>) stackParse(registries, tag, owner);
+        return stack.isPresent() ? stack.get() : empty;
+    }
+
+    /** The NBT ops a stack is written with: with the registries' context when there are some. */
+    private static Object nbtOps(Class<?> context, Object registries) {
+        Object ops = staticField(game(context, "net.minecraft.nbt.NbtOps"), "INSTANCE");
+
+        if (registries == null) {
+            return ops;
+        }
+
+        return callWith(registries, "createSerializationContext",
+                new Class<?>[] { game(context, "com.mojang.serialization.DynamicOps") }, ops);
+    }
+
+    // ---------------------------------------------------------------- recipes
+
+    /**
+     * {@code level.getRecipeManager()}: the server's recipe manager, which
+     * a server level's {@code recipeAccess()} is. A client level has only the
+     * recipes the server sent it, and no manager; that answers null.
+     */
+    public static Object levelRecipeManager(Object level) {
+        Object access = call(level, "recipeAccess");
+
+        if (access != null && access.getClass().getName().equals("net.minecraft.world.item.crafting.RecipeManager")) {
+            return access;
+        }
+
+        try {
+            Object server = call(level, "getServer");
+            return server == null ? null : call(server, "getRecipeManager");
+        } catch (IllegalStateException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code RecipeType.simple(id)}: a recipe type that is nothing but its
+     * name. 26.x only makes them through {@code RecipeType.register}, which
+     * puts them in the registry itself; a mod registers its own.
+     */
+    public static Object recipeTypeSimple(Object id, Class<?> owner) {
+        String name = String.valueOf(id);
+        return java.lang.reflect.Proxy.newProxyInstance(owner.getClassLoader(), new Class<?>[] { owner },
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "toString" -> name;
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == arguments[0];
+                    default -> method.isDefault()
+                            ? java.lang.reflect.InvocationHandler.invokeDefault(proxy, method, arguments) : null;
+                });
+    }
+
+    /** {@code holder.id()}, which was the recipe's identifier and is its registry key now. */
+    public static Object recipeHolderId(Object holder) {
+        Object key = call(holder, "id");
+        return key == null ? null : call(key, "identifier");
+    }
+
+    /** {@code manager.byKey(id)}, which takes the recipe's registry key now. */
+    public static Object recipeManagerByKey(Object manager, Object id) {
+        Class<?> resourceKey = game(manager.getClass(), "net.minecraft.resources.ResourceKey");
+        Object registry = staticField(game(manager.getClass(), "net.minecraft.core.registries.Registries"), "RECIPE");
+        Object key = callStatic(resourceKey, "create", new Class<?>[] { resourceKey, id.getClass() }, registry, id);
+        return callWith(manager, "byKey", new Class<?>[] { resourceKey }, key);
+    }
+
+    /** {@code manager.getAllRecipesFor(type)}: every recipe of that type. */
+    public static Object recipeManagerAllFor(Object manager, Object type) {
+        List<Object> out = new ArrayList<>();
+
+        for (Object holder : (Collection<?>) call(manager, "getRecipes")) {
+            if (call(call(holder, "value"), "getType") == type) {
+                out.add(holder);
+            }
+        }
+
+        return out;
+    }
+
+    /** {@code manager.getRecipesFor(type, input, level)}: those of the type that match. */
+    public static Object recipeManagerMatching(Object manager, Object type, Object input, Object level) {
+        List<Object> out = new ArrayList<>();
+        Class<?> inputType = game(manager.getClass(), "net.minecraft.world.item.crafting.RecipeInput");
+        Class<?> levelType = game(manager.getClass(), "net.minecraft.world.level.Level");
+
+        for (Object holder : (List<?>) recipeManagerAllFor(manager, type)) {
+            Object recipe = call(holder, "value");
+
+            if (Boolean.TRUE.equals(callWith(recipe, "matches", new Class<?>[] { inputType, levelType }, input,
+                    level))) {
+                out.add(holder);
+            }
+        }
+
+        return out;
+    }
+
+    private static Object staticField(Class<?> owner, String name) {
+        try {
+            return owner.getField(name).get(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(owner.getName() + " has no " + name, e);
         }
     }
 

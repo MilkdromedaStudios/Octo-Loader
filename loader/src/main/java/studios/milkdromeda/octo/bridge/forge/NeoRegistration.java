@@ -52,6 +52,7 @@ public final class NeoRegistration {
             step("freeze the registries", () -> freezeAll(loader));
         }
 
+        StateIds.assign(loader);
         LOG.info("NeoForge registration ran: {}", summary(loader));
         return true;
     }

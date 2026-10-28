@@ -12,6 +12,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
@@ -154,8 +155,28 @@ public final class VerifierFit implements Transformer {
             return 0;
         }
 
-        method.instructions.insertBefore(at, new TypeInsnNode(Opcodes.CHECKCAST, wanted.getInternalName()));
+        method.instructions.insertBefore(at, cast(wanted));
         return 1;
+    }
+
+    /**
+     * The cast that makes a value fit {@code wanted}. A record that was an
+     * interface — {@code RecipeSerializer} — is built from the value instead
+     * ({@link studios.milkdromeda.octo.bridge.RecordAdapter}): the value never
+     * was one, and a cast would only fail.
+     */
+    private InsnList cast(Type wanted) {
+        InsnList out = new InsnList();
+        MemberIndex.Shape shape = index.shape(wanted.getInternalName());
+
+        if (shape != null && "java/lang/Record".equals(shape.superName())) {
+            out.add(new LdcInsnNode(wanted));
+            out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/RecordAdapter",
+                    "adapt", "(Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/Object;", false));
+        }
+
+        out.add(new TypeInsnNode(Opcodes.CHECKCAST, wanted.getInternalName()));
+        return out;
     }
 
     /**
@@ -201,7 +222,7 @@ public final class VerifierFit implements Transformer {
             int slot = top - (arguments.length - 1 - j);
 
             if (misfits(frame.getStack(slot), arguments[j])) {
-                fix.add(new TypeInsnNode(Opcodes.CHECKCAST, arguments[j].getInternalName()));
+                fix.add(cast(arguments[j]));
                 casts++;
             }
         }

@@ -28,6 +28,10 @@ public class CompoundTag {
         return values.get(key) instanceof IntArrayTag tag ? Optional.of(tag.getAsIntArray()) : Optional.empty();
     }
 
+    public Tag put(String key, Tag value) {
+        return (Tag) values.put(key, value);
+    }
+
     public CompoundTag merge(CompoundTag other) {
         values.putAll(other.values);
         return this;
