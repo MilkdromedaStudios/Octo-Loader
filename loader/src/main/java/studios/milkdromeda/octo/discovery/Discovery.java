@@ -140,9 +140,14 @@ public final class Discovery {
     }
 
     void library(Path file, String owner) {
+        library(file, owner, true);
+    }
+
+    /** @param nested whether the jar came out of another one rather than the mods folder */
+    void library(Path file, String owner, boolean nested) {
         libraries.add(file);
         owned.add(new Library(file, owner));
-        inspections.add(new Inspection(file, Verdict.LIBRARY, true, owner, List.of()));
+        inspections.add(new Inspection(file, Verdict.LIBRARY, nested, owner, List.of()));
     }
 
     void reject(Path file, Verdict verdict, boolean nested, String detail) {
