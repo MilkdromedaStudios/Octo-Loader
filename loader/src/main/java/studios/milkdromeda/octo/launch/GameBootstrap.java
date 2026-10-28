@@ -152,7 +152,13 @@ final class GameBootstrap {
 
             try {
                 type = Class.forName(step.className(), false, classLoader);
-            } catch (ClassNotFoundException | LinkageError e) {
+            } catch (ClassNotFoundException e) {
+                continue;
+            } catch (LinkageError e) {
+                // There, but it would not define: say so, or the next step
+                // runs on a half-made game and fails somewhere unrelated.
+                LOG.warn("{} could not be loaded: {}", step.className(), Failures.describe(e));
+                OctoLog.detail(e);
                 continue;
             }
 

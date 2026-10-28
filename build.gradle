@@ -18,6 +18,9 @@ subprojects {
         // problems. A test suite that opens windows is a test suite nobody runs.
         systemProperty 'java.awt.headless', 'true'
         systemProperty 'octo.noReportWindow', 'true'
+        // Nor one that waits on Maven: a synthetic launch with Forge or
+        // NeoForge mods would otherwise fetch the loaders' API jars.
+        systemProperty 'octo.noApiLibraries', 'true'
         testLogging {
             events 'passed', 'skipped', 'failed'
             exceptionFormat = 'full'

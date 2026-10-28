@@ -11,6 +11,12 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.EraDetector;
 import studios.milkdromeda.octo.mod.EntrypointSpec;
@@ -438,8 +444,44 @@ public final class ModDiscoverer {
         boolean marked = source.read("META-INF/MANIFEST.MF")
                 .map(bytes -> new String(bytes, StandardCharsets.UTF_8).contains("FMLModType:"))
                 .orElse(false);
-        return marked || source.entries().stream()
-                .anyMatch(entry -> entry.startsWith("META-INF/jarjar/") && entry.endsWith(".jar"));
+        return marked || !jarJarPaths(source).isEmpty();
+    }
+
+    /**
+     * The jars Forge's and NeoForge's jar-in-jar carry: everything under
+     * {@code META-INF/jarjar/}, and whatever its {@code metadata.json} names
+     * elsewhere. MixinSquared's Forge jar keeps the library itself at
+     * {@code META-INF/jars/}, where Fabric would, and lists it there; read
+     * from the folder alone, every mod bundling it lost MixinSquared's API,
+     * and the game's first class with one of its mixins would not load.
+     */
+    private static Set<String> jarJarPaths(ModSource source) {
+        Set<String> paths = new LinkedHashSet<>();
+
+        for (String entry : source.entries()) {
+            if (entry.startsWith("META-INF/jarjar/") && entry.endsWith(".jar")) {
+                paths.add(entry);
+            }
+        }
+
+        source.read("META-INF/jarjar/metadata.json").ifPresent(bytes -> {
+            try {
+                JsonElement root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
+
+                if (root instanceof JsonObject object && object.get("jars") instanceof JsonArray jars) {
+                    for (JsonElement jar : jars) {
+                        if (jar instanceof JsonObject entry && entry.get("path") instanceof JsonPrimitive path
+                                && path.isString() && path.getAsString().endsWith(".jar")) {
+                            paths.add(path.getAsString());
+                        }
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("{}: unreadable jar-in-jar metadata: {}", source.path().getFileName(), e.toString());
+            }
+        });
+
+        return paths;
     }
 
     /** A library container's nested jars: each a mod if it is one, else part of the library. */
@@ -447,11 +489,7 @@ public final class ModDiscoverer {
         List<ModCandidate> out = new ArrayList<>();
         String name = container.getFileName().toString().replaceAll("\\.jar$", "");
 
-        for (String entry : source.entries()) {
-            if (!entry.startsWith("META-INF/jarjar/") || !entry.endsWith(".jar")) {
-                continue;
-            }
-
+        for (String entry : jarJarPaths(source)) {
             byte[] bytes = source.read(entry).orElse(null);
 
             if (bytes == null) {
@@ -483,12 +521,7 @@ public final class ModDiscoverer {
      */
     private List<ModCandidate> extractNested(ModSource source, ModCandidate parent, Discovery discovery) {
         Set<String> paths = new LinkedHashSet<>(parent.metadata().nestedJars());
-
-        for (String entry : source.entries()) {
-            if (entry.startsWith("META-INF/jarjar/") && entry.endsWith(".jar")) {
-                paths.add(entry);
-            }
-        }
+        paths.addAll(jarJarPaths(source));
 
         if (paths.isEmpty()) {
             return List.of();

@@ -116,6 +116,7 @@ tasks.register('importUpstreamApi', Sync) {
         // what a mod actually links against by identity, are the real thing.
         include 'net/neoforged/fml/common/Mod.java'
         include 'net/neoforged/fml/event/IModBusEvent.java'
+        include 'net/neoforged/fml/event/config/ModConfigEvent.java'
         include 'net/neoforged/fml/IExtensionPoint.java'
 
         // What a mod's bytecode said about itself. This is how a NeoForge mod

@@ -469,6 +469,111 @@ class GameGapsTest {
     }
 
     @Test
+    @DisplayName("a super() call whose arguments the superclass now takes in another order is reordered")
+    void reorderedSuperConstructor() throws Exception {
+        String gate = "net/minecraft/octotest/Gate3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, gate, null);
+
+        // super("pane", tag), compiled when Gate3 took its name first.
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "(L" + TAG + ";)V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitLdcInsn("pane");
+        constructor.visitVarInsn(Opcodes.ALOAD, 1);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, gate, "<init>", "(Ljava/lang/String;L" + TAG + ";)V",
+                false);
+        constructor.visitInsn(Opcodes.RETURN);
+        end(constructor);
+
+        MethodVisitor entry = method(writer, "entry", "()Ljava/lang/Object;");
+        entry.visitTypeInsn(Opcodes.NEW, CALLER);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitTypeInsn(Opcodes.NEW, TAG);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, TAG, "<init>", "()V", false);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, CALLER, "<init>", "(L" + TAG + ";)V", false);
+        entry.visitInsn(Opcodes.ARETURN);
+        end(entry);
+
+        writer.visitEnd();
+
+        net.minecraft.octotest.Gate3 built = (net.minecraft.octotest.Gate3) call(repaired(writer.toByteArray()),
+                "entry");
+        assertEquals("pane", built.name, "the name goes where the constructor takes it now");
+        assertNotNull(built.tag, "and so does the tag, rather than a null in its place");
+    }
+
+    @Test
+    @DisplayName("a constructor built at run time takes its arguments in the order it wants them")
+    void runtimeConstructionReorders() {
+        Tag3 tag = new Tag3();
+        net.minecraft.octotest.Gate3 built = (net.minecraft.octotest.Gate3) GapBridge.construct(
+                net.minecraft.octotest.Gate3.class, new Object[] { "pane", tag });
+
+        assertEquals("pane", built.name);
+        assertSame(tag, built.tag);
+    }
+
+    @Test
+    @DisplayName("a made-up constructor argument is a constant of its type, not a null")
+    void madeUpArgumentsAreConstants() throws Exception {
+        String gate = "net/minecraft/octotest/Gate3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, gate, null);
+
+        // super(1, 2), compiled when Gate3 took two sound ids; nothing fits now.
+        MethodVisitor constructor = writer.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitInsn(Opcodes.ICONST_1);
+        constructor.visitInsn(Opcodes.ICONST_2);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, gate, "<init>", "(II)V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        end(constructor);
+
+        MethodVisitor entry = method(writer, "entry", "()Ljava/lang/Object;");
+        entry.visitTypeInsn(Opcodes.NEW, CALLER);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, CALLER, "<init>", "()V", false);
+        entry.visitFieldInsn(Opcodes.GETFIELD, gate, "wood", "Ljava/lang/String;");
+        entry.visitInsn(Opcodes.ARETURN);
+        end(entry);
+
+        writer.visitEnd();
+
+        assertEquals("oak", call(repaired(writer.toByteArray()), "entry"),
+                "the gate is built with its type's first constant, where a null failed inside the constructor");
+    }
+
+    @Test
+    @DisplayName("an is-setter a builder no longer has hands the builder back, so the chain goes on")
+    void builderSettersNamedLikeQueriesHandBack() throws Exception {
+        String builder = "net/minecraft/octotest/Builder3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        // new Builder3().isViewBlocking("never").strength(1f).calls
+        MethodVisitor entry = method(writer, "entry", "()Ljava/lang/Object;");
+        entry.visitTypeInsn(Opcodes.NEW, builder);
+        entry.visitInsn(Opcodes.DUP);
+        entry.visitMethodInsn(Opcodes.INVOKESPECIAL, builder, "<init>", "()V", false);
+        entry.visitLdcInsn("never");
+        entry.visitMethodInsn(Opcodes.INVOKEVIRTUAL, builder, "isViewBlocking",
+                "(Ljava/lang/String;)L" + builder + ";", false);
+        entry.visitInsn(Opcodes.FCONST_1);
+        entry.visitMethodInsn(Opcodes.INVOKEVIRTUAL, builder, "strength", "(F)L" + builder + ";", false);
+        entry.visitFieldInsn(Opcodes.GETFIELD, builder, "calls", "I");
+        entry.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+        entry.visitInsn(Opcodes.ARETURN);
+        end(entry);
+
+        writer.visitEnd();
+
+        assertEquals(1, call(repaired(writer.toByteArray()), "entry"));
+    }
+
+    @Test
     @DisplayName("a super call to what nothing above has any more is skipped, with a default for its result")
     void goneSuperCallIsSkipped() throws Exception {
         String block = "net/minecraft/octotest/Block3";

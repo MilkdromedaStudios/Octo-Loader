@@ -19,7 +19,15 @@ public final class GameMethodGuard implements Transformer {
     private static final Map<String, Set<String>> GUARDED = Map.of(
             "net/minecraft/core/component/DataComponentInitializers$InitializerEntry",
             Set.of("run(Lnet/minecraft/core/component/DataComponentMap$Builder;"
-                    + "Lnet/minecraft/core/HolderLookup$Provider;)V"));
+                    + "Lnet/minecraft/core/HolderLookup$Provider;)V"),
+            // And the step that looks each item up afterwards: an item a mod
+            // made and never registered — Octo names one that is made without
+            // an id, so it can be made at all — has components waiting under
+            // a name the registry does not have, and the lookup threw.
+            "net/minecraft/core/component/DataComponentInitializers",
+            Set.of("lambda$createInitializerForRegistry$0(Lnet/minecraft/core/HolderLookup$RegistryLookup;"
+                    + "Ljava/util/List;Ljava/util/Set;Lnet/minecraft/resources/ResourceKey;"
+                    + "Lnet/minecraft/core/component/DataComponentMap$Builder;)V"));
 
     @Override
     public String name() {

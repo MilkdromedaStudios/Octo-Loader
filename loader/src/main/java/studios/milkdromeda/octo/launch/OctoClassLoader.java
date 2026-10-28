@@ -776,12 +776,16 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         return findLoadedClass(binaryName) != null;
     }
 
-    /** Whether a class can be resolved at all, without initialising it. */
+    /** Whether a real class of this name can be resolved, without initialising it; a stand-in is not one. */
     public boolean classExists(String internalName) {
         String binaryName = internalName.replace('/', '.');
 
+        // A stand-in Octo has defined is not the class: asked again later, the
+        // answer has to be the same as before it was made, or a class that
+        // moved is relinked to its new name only until the first stand-in for
+        // the old one, and a removed field is answered only until then too.
         if (findLoadedClass(binaryName) != null) {
-            return true;
+            return !phantomCache.containsKey(internalName);
         }
 
         if (findResource(internalName + ".class") != null) {

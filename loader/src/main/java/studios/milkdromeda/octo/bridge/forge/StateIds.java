@@ -51,6 +51,8 @@ public final class StateIds {
                 }
             }
 
+            items += refreshCachedItems(builtIn.getField("BLOCK").get(null), blockType, byBlock);
+
             if (blocks + fluids + items > 0) {
                 LOG.info("numbered {} block state(s) and {} fluid state(s) mods added, and linked {} block item(s)",
                         blocks, fluids, items);
@@ -60,6 +62,41 @@ public final class StateIds {
             LOG.warn("mods' block states could not be numbered; changing one of their blocks may disconnect players: {}",
                     Failures.describe(Failures.unwrap(e)));
         }
+    }
+
+    /**
+     * A block remembers its item the first time it is asked, and a mod that
+     * asked while registering, before its items were linked, left its block
+     * remembering air: Supplementaries' jar then cast air to its jar item and
+     * every jar failed to load its contents. Each block now remembers the
+     * item it actually has.
+     *
+     * @return how many blocks had remembered the wrong one
+     */
+    private static int refreshCachedItems(Object blocks, Class<?> blockType, Map<Object, Object> byBlock)
+            throws ReflectiveOperationException {
+        java.lang.reflect.Field cached;
+
+        try {
+            cached = blockType.getDeclaredField("item");
+            cached.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            return 0;
+        }
+
+        int fixed = 0;
+
+        for (Object block : (Iterable<?>) blocks) {
+            Object item = byBlock.get(block);
+            Object remembered = cached.get(block);
+
+            if (item != null && remembered != null && remembered != item) {
+                cached.set(block, item);
+                fixed++;
+            }
+        }
+
+        return fixed;
     }
 
     private static int number(Object registry, Object mapper, boolean initCache) throws ReflectiveOperationException {

@@ -241,6 +241,10 @@ public final class ForgeBridge implements LoaderBridge {
             return;
         }
 
+        if (phase == Lifecycle.COMMON_SETUP && mod.format() == ModFormat.NEOFORGE) {
+            postConfigLoading(mod);
+        }
+
         postModernEvent(mod, eventName);
 
         if (phase == Lifecycle.INTER_MOD) {
@@ -259,6 +263,33 @@ public final class ForgeBridge implements LoaderBridge {
             case LOAD_COMPLETE -> "FMLLoadCompleteEvent";
             case PRE_LAUNCH -> null;
         };
+    }
+
+    /**
+     * Tells a NeoForge mod its configs are loaded, as NeoForge does between
+     * construction and setup. Octo reads each file as it is registered; mods
+     * copy their values into fields from this event — Moonlight builds its
+     * own config events on it — and without it saw only the defaults.
+     */
+    private void postConfigLoading(LoadedMod mod) {
+        net.neoforged.fml.ModContainer container = ForgeBuses.neoContainerFor(mod.id());
+
+        if (container == null) {
+            return;
+        }
+
+        for (net.neoforged.fml.config.ModConfig.Type type : net.neoforged.fml.config.ModConfig.Type.values()) {
+            container.getConfig(type).ifPresent(config -> {
+                try {
+                    ForgeBuses.neoBusFor(mod.id()).post(new net.neoforged.fml.event.config.ModConfigEvent.Loading(config));
+                } catch (Throwable e) {
+                    Failures.rethrowIfFatal(e);
+                    LOG.warn("{}: a listener for its {} config loading failed: {}", mod.id(),
+                            type.extension(), Failures.describe(Failures.unwrap(e)));
+                    OctoLog.detail(e);
+                }
+            });
+        }
     }
 
     /** Posts one of the 1.13-and-later lifecycle events on the mod's own bus. */

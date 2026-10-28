@@ -36,14 +36,58 @@ public final class RegistryLoadGuard implements Transformer {
     private static final String TASK = "net/minecraft/resources/RegistryLoadTask";
     private static final String ERROR_SINK = "(L" + OWNER + ";Ljava/lang/Exception;)V";
 
+    private static final String MAPPED_REGISTRY = "net/minecraft/core/MappedRegistry";
+
     @Override
     public boolean handles(String className, TransformContext context) {
-        return className.equals(OWNER) || className.equals(TASK);
+        return className.equals(OWNER) || className.equals(TASK) || className.equals(MAPPED_REGISTRY);
     }
 
     @Override
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
+        if (className.equals(MAPPED_REGISTRY)) {
+            return fillingUnbound(bytes);
+        }
+
         return className.equals(TASK) ? forgiving(bytes) : guarded(bytes);
+    }
+
+    /**
+     * Before a registry is frozen, the loot tables mods named and never
+     * supplied are filled with empty ones ({@code DataErrors.fillUnbound}):
+     * one such name is otherwise a registry that will not freeze, and a server
+     * that will not start.
+     */
+    private static byte[] fillingUnbound(byte[] bytes) {
+        ClassReader reader = new ClassReader(bytes);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        boolean[] found = { false };
+
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
+                    String[] exceptions) {
+                MethodVisitor delegate = super.visitMethod(access, name, descriptor, signature, exceptions);
+
+                if (delegate == null || !name.equals("freeze") || !descriptor.equals("()Lnet/minecraft/core/Registry;")
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return delegate;
+                }
+
+                found[0] = true;
+                return new MethodVisitor(Opcodes.ASM9, delegate) {
+                    @Override
+                    public void visitCode() {
+                        super.visitCode();
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/DataErrors",
+                                "fillUnbound", "(Ljava/lang/Object;)V", false);
+                    }
+                };
+            }
+        }, 0);
+
+        return found[0] ? writer.toByteArray() : bytes;
     }
 
     /**
