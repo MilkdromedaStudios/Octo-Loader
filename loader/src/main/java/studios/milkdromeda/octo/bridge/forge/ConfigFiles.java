@@ -52,6 +52,44 @@ public final class ConfigFiles {
         }
     }
 
+    /**
+     * Hands a spec a config somebody else read: NeoForge's {@code LoadedConfig},
+     * built by a mod applying the values a server sent.
+     *
+     * @return whether the spec took it
+     */
+    public static boolean accept(Object spec, Object loadedConfig) {
+        for (Method method : spec.getClass().getMethods()) {
+            if (method.getParameterCount() == 1 && method.getName().equals("acceptConfig")
+                    && method.getParameterTypes()[0].isInstance(loadedConfig)) {
+                try {
+                    method.invoke(spec, loadedConfig);
+                    return true;
+                } catch (Throwable e) {
+                    Failures.rethrowIfFatal(e);
+                    LOG.warn("{} would not take its config: {}", spec.getClass().getName(),
+                            Failures.describe(Failures.unwrap(e)));
+                    OctoLog.detail(Failures.unwrap(e));
+                    return false;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** Writes a config out as TOML, replacing the file. */
+    public static void write(Path path, CommentedConfig config) {
+        try {
+            Files.createDirectories(path.getParent());
+            com.electronwill.nightconfig.toml.TomlFormat.instance().createWriter()
+                    .write(config, path, WritingMode.REPLACE);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            LOG.debug("config {} could not be written: {}", path.getFileName(), e.toString());
+        }
+    }
+
     private static CommentedConfig open(Path path) {
         try {
             Files.createDirectories(path.getParent());

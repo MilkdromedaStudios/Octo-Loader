@@ -251,9 +251,9 @@ public final class ModPacks {
                         return null;
                     }
 
-                    if (migrate && isRecipe(path)) {
+                    if (migrate && (isRecipe(path) || isTag(path))) {
                         arguments = arguments.clone();
-                        arguments[3] = migratingOutput(loader, arguments[3]);
+                        arguments[3] = migratingOutput(loader, arguments[3], isTag(path));
                     }
                 }
                 case "getResource" -> {
@@ -264,9 +264,9 @@ public final class ModPacks {
                         return null;
                     }
 
-                    if (migrate && isRecipe(path)) {
+                    if (migrate && (isRecipe(path) || isTag(path))) {
                         Object supplier = invoke(resources, method, arguments);
-                        return supplier == null ? null : migrated(loader, supplier);
+                        return supplier == null ? null : migrated(loader, supplier, isTag(path));
                     }
                 }
                 default -> {
@@ -281,8 +281,15 @@ public final class ModPacks {
         return path.equals("recipe") || path.startsWith("recipe/");
     }
 
-    /** The output a listing goes to, handed each recipe rewritten, and none whose conditions fail. */
-    private static Object migratingOutput(ClassLoader loader, Object output) {
+    private static boolean isTag(String path) {
+        return path.equals("tags") || path.startsWith("tags/");
+    }
+
+    /**
+     * The output a listing goes to, handed each file rewritten: recipes for
+     * this game, and none whose conditions fail; tags with their entries optional.
+     */
+    private static Object migratingOutput(ClassLoader loader, Object output, boolean tags) {
         Class<?> outputType = output.getClass().getInterfaces().length > 0 ? findInterface(output.getClass(),
                 "net.minecraft.server.packs.PackResources$ResourceOutput") : null;
 
@@ -292,7 +299,7 @@ public final class ModPacks {
 
         return Proxy.newProxyInstance(loader, new Class<?>[] { outputType }, (proxy, method, arguments) -> {
             if (method.getName().equals("accept") && arguments != null && arguments.length == 2) {
-                Object supplier = migrated(loader, arguments[1]);
+                Object supplier = migrated(loader, arguments[1], tags);
 
                 if (supplier != null) {
                     invoke(output, method, new Object[] { arguments[0], supplier });
@@ -322,11 +329,11 @@ public final class ModPacks {
     }
 
     /**
-     * The recipe behind {@code supplier}, rewritten for this game, as a
+     * The recipe or tag behind {@code supplier}, rewritten for this game, as a
      * supplier of its own; {@code null} when it is not to be loaded. A file
      * that is not JSON is handed on as it is, for the game to report.
      */
-    private static Object migrated(ClassLoader loader, Object supplier) throws Throwable {
+    private static Object migrated(ClassLoader loader, Object supplier, boolean tag) throws Throwable {
         byte[] bytes;
 
         Class<?> supplierType = type(loader, "net.minecraft.server.packs.resources.IoSupplier");
@@ -340,7 +347,8 @@ public final class ModPacks {
         try {
             com.google.gson.JsonElement json = com.google.gson.JsonParser.parseString(
                     new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
-            com.google.gson.JsonElement rewritten = DataMigration.recipe(json, ModPacks::isInstalled);
+            com.google.gson.JsonElement rewritten = tag ? DataMigration.tag(json)
+                    : DataMigration.recipe(json, ModPacks::isInstalled);
 
             if (rewritten == null) {
                 return null;
@@ -364,7 +372,7 @@ public final class ModPacks {
             return switch (method.getName()) {
                 case "hashCode" -> System.identityHashCode(proxy);
                 case "equals" -> proxy == arguments[0];
-                default -> "rewritten recipe";
+                default -> tag ? "rewritten tag" : "rewritten recipe";
             };
         });
     }

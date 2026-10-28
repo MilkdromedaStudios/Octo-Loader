@@ -109,6 +109,44 @@ public final class DataMigration {
         return unknown ? null : false;
     }
 
+    /**
+     * A translated mod's tag file, with every entry it adds made optional.
+     *
+     * <p>The game refuses a whole tag when one entry names nothing, and a tag
+     * other tags include takes them down with it. A mod from another version
+     * often has a block or two this game could not register: Farmer's
+     * Delight's rope fence gate missing from {@code minecraft:fence_gates}
+     * took {@code blocks_motion}, every tag built on it, and then the
+     * enchantments asking for those, and the server would not start. Optional,
+     * the missing entry is left out and the rest of the tag stands.
+     */
+    public static JsonElement tag(JsonElement tag) {
+        if (!(tag instanceof JsonObject object) || !(object.get("values") instanceof JsonArray values)) {
+            return tag;
+        }
+
+        JsonArray optional = new JsonArray();
+
+        for (JsonElement value : values) {
+            if (value instanceof JsonPrimitive id && id.isString()) {
+                JsonObject entry = new JsonObject();
+                entry.add("id", id);
+                entry.addProperty("required", false);
+                optional.add(entry);
+            } else if (value instanceof JsonObject entry && entry.has("id")) {
+                JsonObject copy = entry.deepCopy();
+                copy.addProperty("required", false);
+                optional.add(copy);
+            } else {
+                optional.add(value);
+            }
+        }
+
+        JsonObject out = object.deepCopy();
+        out.add("values", optional);
+        return out;
+    }
+
     /** Every old-form ingredient in the tree, written the new way. */
     static JsonElement ingredients(JsonElement element) {
         if (element instanceof JsonObject object) {

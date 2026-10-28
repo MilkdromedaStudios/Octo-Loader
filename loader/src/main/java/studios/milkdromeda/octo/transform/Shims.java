@@ -44,6 +44,7 @@ public final class Shims {
     private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
+    private static final String TOOL_RULE = "net/minecraft/world/item/component/Tool$Rule";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
             Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
@@ -99,7 +100,38 @@ public final class Shims {
             Map.entry(RECIPE_MANAGER + ".getAllRecipesFor(L" + CRAFTING + "RecipeType;)Ljava/util/List;",
                     "recipeManagerAllFor"),
             Map.entry(RECIPE_MANAGER + ".getRecipesFor(L" + CRAFTING + "RecipeType;L" + CRAFTING
-                    + "RecipeInput;Lnet/minecraft/world/level/Level;)Ljava/util/List;", "recipeManagerMatching"));
+                    + "RecipeInput;Lnet/minecraft/world/level/Level;)Ljava/util/List;", "recipeManagerMatching"),
+            // NeoForge's own patch to the game: the order its registries were
+            // made in, which is the order NeoForge registers mods' content in.
+            // Without it the order was alphabetical, blocks came before sound
+            // events, and every block that plays its own sound failed.
+            Map.entry("net/minecraft/core/registries/BuiltInRegistries.getVanillaRegistrationOrder()Ljava/util/Set;",
+                    "vanillaRegistrationOrder"),
+            // NeoForge's and Forge's tag factories, patched into the game's tag
+            // classes. Every mod tag made through one was a null, and the
+            // first block asked whether it was in it ended the server.
+            tagFactory("ItemTags"),
+            tagFactory("BlockTags"),
+            tagFactory("FluidTags"),
+            tagFactory("EntityTypeTags"),
+            tagFactory("BiomeTags"),
+            Map.entry("net/minecraft/world/item/DyeColor.getTag()Lnet/minecraft/tags/TagKey;", "dyeColorTag"),
+            // Tool rules named a block tag until 26.x, which takes the blocks themselves.
+            Map.entry(TOOL_RULE + ".minesAndDrops(Lnet/minecraft/tags/TagKey;F)L" + TOOL_RULE + ";",
+                    "toolRuleMinesAndDrops"),
+            Map.entry(TOOL_RULE + ".deniesDrops(Lnet/minecraft/tags/TagKey;)L" + TOOL_RULE + ";", "toolRuleDeniesDrops"),
+            Map.entry(TOOL_RULE + ".overrideSpeed(Lnet/minecraft/tags/TagKey;F)L" + TOOL_RULE + ";",
+                    "toolRuleOverrideSpeed"),
+            // NeoForge's and Forge's creative tab builder, patched in beside
+            // the game's, which wants a row and column: mods' tabs go in the
+            // top row, and the loader's tab sorting places them.
+            Map.entry("net/minecraft/world/item/CreativeModeTab.builder()Lnet/minecraft/world/item/CreativeModeTab$Builder;",
+                    "creativeTabBuilder"));
+
+    private static Map.Entry<String, String> tagFactory(String tags) {
+        return Map.entry("net/minecraft/tags/" + tags + ".create(Lnet/minecraft/resources/Identifier;)"
+                + "Lnet/minecraft/tags/TagKey;", "tagsCreate");
+    }
 
     private Shims() {
     }
@@ -113,14 +145,34 @@ public final class Shims {
      * Static fields removed, rebuilt the same way: a shim taking the owner's
      * {@code Class} and answering the value.
      */
-    private static final Map<String, String> FIELD_SHIMS = Map.of(
+    private static final String CAPABILITIES = "net/neoforged/neoforge/capabilities/";
+
+    private static final Map<String, String> FIELD_SHIMS = Map.ofEntries(
             // NeoForge 26 kept only FluidIngredient.CODEC; Create builds every
             // processing recipe's codec on the map codec, and without it not
             // one of its machine recipes could be read.
-            "net/neoforged/neoforge/fluids/crafting/FluidIngredient.MAP_CODEC_NONEMPTY:"
-                    + "Lcom/mojang/serialization/MapCodec;", "fluidIngredientMapCodec",
-            "net/neoforged/neoforge/fluids/FluidStack.FLUID_NON_EMPTY_CODEC:Lcom/mojang/serialization/Codec;",
-            "fluidHolderCodec");
+            Map.entry("net/neoforged/neoforge/fluids/crafting/FluidIngredient.MAP_CODEC_NONEMPTY:"
+                    + "Lcom/mojang/serialization/MapCodec;", "fluidIngredientMapCodec"),
+            Map.entry("net/neoforged/neoforge/fluids/FluidStack.FLUID_NON_EMPTY_CODEC:Lcom/mojang/serialization/Codec;",
+                    "fluidHolderCodec"),
+            // The capabilities NeoForge 26 replaced with its transfer API.
+            // Balm hands them to every mod built on it from its constructor,
+            // and a null there stopped Waystones and the rest of them.
+            capability("ItemHandler", "BLOCK", "Block", "legacyItemBlock"),
+            capability("ItemHandler", "ENTITY", "Entity", "legacyItemEntity"),
+            capability("ItemHandler", "ENTITY_AUTOMATION", "Entity", "legacyItemEntityAutomation"),
+            capability("ItemHandler", "ITEM", "Item", "legacyItemItem"),
+            capability("FluidHandler", "BLOCK", "Block", "legacyFluidBlock"),
+            capability("FluidHandler", "ENTITY", "Entity", "legacyFluidEntity"),
+            capability("FluidHandler", "ITEM", "Item", "legacyFluidItem"),
+            capability("EnergyStorage", "BLOCK", "Block", "legacyEnergyBlock"),
+            capability("EnergyStorage", "ENTITY", "Entity", "legacyEnergyEntity"),
+            capability("EnergyStorage", "ITEM", "Item", "legacyEnergyItem"));
+
+    private static Map.Entry<String, String> capability(String group, String field, String kind, String shim) {
+        return Map.entry(CAPABILITIES + "Capabilities$" + group + "." + field + ":L" + CAPABILITIES + kind
+                + "Capability;", shim);
+    }
 
     /** @return the shim's name for this static field, or {@code null} when there is none */
     static String fieldShimFor(String owner, String name, String descriptor) {
@@ -384,6 +436,158 @@ public final class Shims {
         Class<?> codecType = game(owner, "com.mojang.serialization.Codec");
         return callStatic(game(owner, "com.mojang.serialization.MapCodec"), "assumeMapUnsafe",
                 new Class<?>[] { codecType }, codec);
+    }
+
+    // -------------------------------------------------------------- registries
+
+    /** {@code BuiltInRegistries.getVanillaRegistrationOrder()}: every registry's name, in the order it was made. */
+    public static Object vanillaRegistrationOrder(Class<?> owner) {
+        Object root = staticField(owner, "REGISTRY");
+        java.util.Set<Object> out = new java.util.LinkedHashSet<>();
+
+        for (Object registry : (Iterable<?>) root) {
+            Object key = callWith(root, "getKey", new Class<?>[] { Object.class }, registry);
+
+            if (key != null) {
+                out.add(key);
+            }
+        }
+
+        return out;
+    }
+
+    // ------------------------------------------------------------------- tags
+
+    /** {@code ItemTags.create(id)} and its kin: a tag key of the registry the owner's tags are for. */
+    public static Object tagsCreate(Object id, Class<?> owner) {
+        String registry = switch (owner.getSimpleName()) {
+            case "BlockTags" -> "BLOCK";
+            case "FluidTags" -> "FLUID";
+            case "EntityTypeTags" -> "ENTITY_TYPE";
+            case "BiomeTags" -> "BIOME";
+            default -> "ITEM";
+        };
+        return tagKey(owner, registry, id);
+    }
+
+    /** {@code DyeColor.getTag()}: the common tag for dyes of that colour, {@code c:dyes/red}. */
+    public static Object dyeColorTag(Object color) {
+        Class<?> identifier = game(color.getClass(), "net.minecraft.resources.Identifier");
+        Object id = callStatic(identifier, "fromNamespaceAndPath", new Class<?>[] { String.class, String.class }, "c",
+                "dyes/" + call(color, "getName"));
+        return tagKey(color.getClass(), "ITEM", id);
+    }
+
+    public static Object toolRuleMinesAndDrops(Object tag, float speed, Class<?> owner) {
+        return callStatic(owner, "minesAndDrops", new Class<?>[] { game(owner, "net.minecraft.core.HolderSet"),
+                float.class }, blocksOf(owner, tag), speed);
+    }
+
+    public static Object toolRuleDeniesDrops(Object tag, Class<?> owner) {
+        return callStatic(owner, "deniesDrops", new Class<?>[] { game(owner, "net.minecraft.core.HolderSet") },
+                blocksOf(owner, tag));
+    }
+
+    public static Object toolRuleOverrideSpeed(Object tag, float speed, Class<?> owner) {
+        return callStatic(owner, "overrideSpeed", new Class<?>[] { game(owner, "net.minecraft.core.HolderSet"),
+                float.class }, blocksOf(owner, tag), speed);
+    }
+
+    private static Object tagKey(Class<?> context, String registry, Object id) {
+        Class<?> registries = game(context, "net.minecraft.core.registries.Registries");
+        Class<?> resourceKey = game(context, "net.minecraft.resources.ResourceKey");
+        return callStatic(game(context, "net.minecraft.tags.TagKey"), "create",
+                new Class<?>[] { resourceKey, game(context, "net.minecraft.resources.Identifier") },
+                staticField(registries, registry), id);
+    }
+
+    /** The blocks of a tag, as items are given them while they are made: bound once tags load. */
+    private static Object blocksOf(Class<?> context, Object tag) {
+        Class<?> builtIn = game(context, "net.minecraft.core.registries.BuiltInRegistries");
+        Class<?> registry = game(context, "net.minecraft.core.Registry");
+        Object lookup = callStatic(builtIn, "acquireBootstrapRegistrationLookup", new Class<?>[] { registry },
+                staticField(builtIn, "BLOCK"));
+        return callWith(lookup, "getOrThrow", new Class<?>[] { game(context, "net.minecraft.tags.TagKey") }, tag);
+    }
+
+    /** {@code CreativeModeTab.builder()}: a builder for the top row, as the loaders' own makes. */
+    public static Object creativeTabBuilder(Class<?> owner) {
+        Class<?> row = game(owner, "net.minecraft.world.item.CreativeModeTab$Row");
+        return callStatic(owner, "builder", new Class<?>[] { row, int.class }, staticField(row, "TOP"), 0);
+    }
+
+    // ---------------------------------------------------------- capabilities
+
+    private static final String ITEM_HANDLER = "net.neoforged.neoforge.items.IItemHandler";
+    private static final String FLUID_HANDLER = "net.neoforged.neoforge.fluids.capability.IFluidHandler";
+    private static final String FLUID_HANDLER_ITEM = "net.neoforged.neoforge.fluids.capability.IFluidHandlerItem";
+    private static final String ENERGY_STORAGE = "net.neoforged.neoforge.energy.IEnergyStorage";
+
+    /** {@code Capabilities.ItemHandler.BLOCK}, and the nine below it the same way. */
+    public static Object legacyItemBlock(Class<?> owner) {
+        return legacyCapability(owner, "Block", "item_handler", ITEM_HANDLER, true);
+    }
+
+    public static Object legacyItemEntity(Class<?> owner) {
+        return legacyCapability(owner, "Entity", "item_handler", ITEM_HANDLER, false);
+    }
+
+    public static Object legacyItemEntityAutomation(Class<?> owner) {
+        return legacyCapability(owner, "Entity", "item_handler_automation", ITEM_HANDLER, true);
+    }
+
+    public static Object legacyItemItem(Class<?> owner) {
+        return legacyCapability(owner, "Item", "item_handler", ITEM_HANDLER, false);
+    }
+
+    public static Object legacyFluidBlock(Class<?> owner) {
+        return legacyCapability(owner, "Block", "fluid_handler", FLUID_HANDLER, true);
+    }
+
+    public static Object legacyFluidEntity(Class<?> owner) {
+        return legacyCapability(owner, "Entity", "fluid_handler", FLUID_HANDLER, true);
+    }
+
+    public static Object legacyFluidItem(Class<?> owner) {
+        return legacyCapability(owner, "Item", "fluid_handler_item", FLUID_HANDLER_ITEM, false);
+    }
+
+    public static Object legacyEnergyBlock(Class<?> owner) {
+        return legacyCapability(owner, "Block", "energy", ENERGY_STORAGE, true);
+    }
+
+    public static Object legacyEnergyEntity(Class<?> owner) {
+        return legacyCapability(owner, "Entity", "energy", ENERGY_STORAGE, true);
+    }
+
+    public static Object legacyEnergyItem(Class<?> owner) {
+        return legacyCapability(owner, "Item", "energy", ENERGY_STORAGE, false);
+    }
+
+    /**
+     * One of the capabilities NeoForge had before its transfer API, made
+     * under a name of Octo's own. NeoForge 26 took {@code neoforge:item_handler}
+     * for the new resource handlers and refuses a second capability of the
+     * same name and another type; under its own name, every mod built for the
+     * old one still finds what the others registered.
+     *
+     * @param kind  {@code Block}, {@code Entity} or {@code Item}
+     * @param sided whether it is asked with a direction, rather than nothing
+     */
+    private static Object legacyCapability(Class<?> owner, String kind, String name, String type, boolean sided) {
+        Class<?> identifier = game(owner, "net.minecraft.resources.Identifier");
+        Object id = callStatic(identifier, "fromNamespaceAndPath", new Class<?>[] { String.class, String.class },
+                "octo", "legacy/" + name);
+        Class<?> typeClass;
+
+        try {
+            typeClass = Class.forName(type, false, owner.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            typeClass = Object.class;
+        }
+
+        return callStatic(game(owner, "net.neoforged.neoforge.capabilities." + kind + "Capability"),
+                sided ? "createSided" : "createVoid", new Class<?>[] { identifier, Class.class }, id, typeClass);
     }
 
     // ---------------------------------------------------------------- stacks

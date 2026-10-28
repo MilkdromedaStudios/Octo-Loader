@@ -106,11 +106,12 @@ public final class LoaderApiLibraries {
             java.util.function.Function<String, String> jarUrl, Path cache, boolean offline) {
         Optional<Path> cached = newestCached(name, prefix, cache);
 
-        if (offline) {
+        if (offline || cached.isPresent() && checkedRecently(cache, name, prefix)) {
             return cached;
         }
 
         Optional<String> latest = latestVersion(repository, prefix);
+        markChecked(cache, name, prefix);
 
         if (latest.isEmpty()) {
             if (cached.isEmpty()) {
@@ -178,6 +179,34 @@ public final class LoaderApiLibraries {
         }
     }
 
+    /** How long a cached API is used before the loader's site is asked whether there is a newer one. */
+    private static final Duration RECHECK = Duration.ofHours(24);
+
+    /**
+     * Whether the loader's site was asked for its newest release within the
+     * last day. Asking on every launch made a slow network a slow start, two
+     * minutes at worst for each of the two loaders, with the jar already here.
+     */
+    private static boolean checkedRecently(Path cache, String name, String prefix) {
+        try {
+            Path stamp = cache.resolve(name + "-" + prefix + "checked");
+            return Files.isRegularFile(stamp) && Files.getLastModifiedTime(stamp).toInstant()
+                    .isAfter(java.time.Instant.now().minus(RECHECK));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static void markChecked(Path cache, String name, String prefix) {
+        try {
+            Files.createDirectories(cache);
+            Path stamp = cache.resolve(name + "-" + prefix + "checked");
+            Files.writeString(stamp, java.time.Instant.now().toString());
+        } catch (IOException e) {
+            LOG.debug("could not note when {} was last checked: {}", name, e.toString());
+        }
+    }
+
     private static Optional<Path> newestCached(String name, String prefix, Path cache) {
         if (!Files.isDirectory(cache)) {
             return Optional.empty();
@@ -215,7 +244,9 @@ public final class LoaderApiLibraries {
     }
 
     private static HttpRequest request(String url) {
-        return HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(2))
+        // The metadata is a few kilobytes; the jar is megabytes and gets longer.
+        Duration timeout = url.endsWith(".xml") ? Duration.ofSeconds(20) : Duration.ofMinutes(2);
+        return HttpRequest.newBuilder(URI.create(url)).timeout(timeout)
                 .header("User-Agent", "Octo-Loader").GET().build();
     }
 

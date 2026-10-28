@@ -151,6 +151,40 @@ class DiscoveryReportTest {
     }
 
     @Test
+    @DisplayName("a library jar of jars puts what it carries on the class path and finds the mods inside")
+    void libraryContainersAreUnpacked() throws IOException {
+        Path stdlib = gameDir.resolve("kotlin-stdlib.jar");
+        new JarBuilder().file("kotlin/Unit.txt", "the Kotlin standard library").writeTo(stdlib);
+        Path language = gameDir.resolve("kffmod.jar");
+        new JarBuilder()
+                .file("META-INF/neoforge.mods.toml", """
+                        modLoader="javafml"
+                        loaderVersion="[1,)"
+                        license="LGPL"
+                        [[mods]]
+                        modId="kotlinforforge"
+                        version="5.12.0"
+                        """)
+                .writeTo(language);
+
+        new JarBuilder()
+                .file("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nFMLModType: LIBRARY\n")
+                .file("META-INF/jarjar/kotlin-stdlib.jar", Files.readAllBytes(stdlib))
+                .file("META-INF/jarjar/kffmod.jar", Files.readAllBytes(language))
+                .writeTo(modsDir.resolve("kotlinforforge-all.jar"));
+
+        Discovery discovery = discover();
+
+        assertEquals(List.of("kotlinforforge"), discovery.candidates().stream().map(c -> c.id()).toList(),
+                "the mod inside the library is a mod: " + discovery.describe());
+        assertTrue(discovery.libraries().stream().anyMatch(jar -> jar.getFileName().toString().contains("stdlib")),
+                "the standard library should be on the class path: " + discovery.describe());
+        assertEquals(Discovery.Verdict.LIBRARY, inspectionOf(discovery, "kotlinforforge-all.jar").verdict());
+        assertEquals(1, discovery.filesInspected(), "the container is the one file in the folder");
+        assertTrue(discovery.failures().isEmpty(), "a library is nobody's problem: " + discovery.describe());
+    }
+
+    @Test
     @DisplayName("the report names the folders that were scanned even when they hold nothing")
     void theReportAlwaysNamesTheFolders() {
         Discovery discovery = discover();

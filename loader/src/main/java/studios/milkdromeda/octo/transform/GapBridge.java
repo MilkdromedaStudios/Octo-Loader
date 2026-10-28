@@ -141,17 +141,12 @@ public final class GapBridge {
         return null;
     }
 
-    /** How many of the caller's arguments this constructor can take, in order. */
+    /** How many of the caller's arguments this constructor can take. */
     private static int used(Constructor<?> constructor, Object[] arguments) {
-        Class<?>[] parameters = constructor.getParameterTypes();
         int used = 0;
-        int next = 0;
 
-        for (Class<?> parameter : parameters) {
-            if (next < arguments.length && fits(parameter, arguments[next])) {
-                used++;
-                next++;
-            }
+        for (int from : assign(constructor.getParameterTypes(), arguments)) {
+            used += from >= 0 ? 1 : 0;
         }
 
         return used;
@@ -159,17 +154,47 @@ public final class GapBridge {
 
     private static Object[] fill(Class<?>[] parameters, Object[] arguments) {
         Object[] out = new Object[parameters.length];
+        int[] from = assign(parameters, arguments);
+
+        for (int i = 0; i < parameters.length; i++) {
+            out[i] = from[i] >= 0 ? arguments[from[i]] : defaultFor(parameters[i]);
+        }
+
+        return out;
+    }
+
+    /**
+     * Which argument each parameter takes: in order where they line up, and
+     * then whatever argument of its type is left, since a constructor's
+     * parameters are sometimes only put in another order between versions —
+     * 26.x's {@code StandingAndWallBlockItem} takes the direction before the
+     * item properties — and in order alone the properties became a null.
+     *
+     * @return per parameter, the index of its argument, or -1 for a default
+     */
+    private static int[] assign(Class<?>[] parameters, Object[] arguments) {
+        int[] from = new int[parameters.length];
+        boolean[] taken = new boolean[arguments.length];
+        Arrays.fill(from, -1);
         int next = 0;
 
         for (int i = 0; i < parameters.length; i++) {
             if (next < arguments.length && fits(parameters[i], arguments[next])) {
-                out[i] = arguments[next++];
-            } else {
-                out[i] = defaultFor(parameters[i]);
+                from[i] = next;
+                taken[next++] = true;
             }
         }
 
-        return out;
+        for (int i = 0; i < parameters.length; i++) {
+            for (int j = 0; j < arguments.length && from[i] < 0; j++) {
+                if (!taken[j] && arguments[j] != null && fits(parameters[i], arguments[j])) {
+                    from[i] = j;
+                    taken[j] = true;
+                }
+            }
+        }
+
+        return from;
     }
 
     private static boolean fits(Class<?> parameter, Object argument) {
@@ -198,9 +223,57 @@ public final class GapBridge {
         };
     }
 
+    private static final java.util.Map<Class<?>, Object> SAMPLES = new ConcurrentHashMap<>();
+    private static final Object NO_SAMPLE = new Object();
+
+    /**
+     * A value of {@code type} to build something with where nothing was
+     * given: its first constant if it is an enum, else the first public
+     * constant of its own type it declares. A made-up constructor argument
+     * of {@code null} is a crash inside the constructor more often than not —
+     * Farmer's Delight's fence gate, built through 26.x's constructor that
+     * takes a wood type, failed reading the sounds of a null one, where
+     * {@code WoodType.OAK} builds it.
+     *
+     * @return that value, or {@code null} when the type has none
+     */
+    public static Object sample(Class<?> type) {
+        if (type == null || type.isPrimitive() || type.isInterface() || type.isArray()) {
+            return null;
+        }
+
+        Object found = SAMPLES.computeIfAbsent(type, ignored -> {
+            try {
+                if (type.isEnum()) {
+                    Object[] constants = type.getEnumConstants();
+                    return constants.length == 0 ? NO_SAMPLE : constants[0];
+                }
+
+                for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                    int modifiers = field.getModifiers();
+
+                    if (field.getType() == type && Modifier.isPublic(modifiers) && Modifier.isStatic(modifiers)
+                            && Modifier.isFinal(modifiers)) {
+                        Object value = field.get(null);
+
+                        if (value != null) {
+                            return value;
+                        }
+                    }
+                }
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+            }
+
+            return NO_SAMPLE;
+        });
+
+        return found == NO_SAMPLE ? null : found;
+    }
+
     private static Object defaultFor(Class<?> type) {
         if (!type.isPrimitive()) {
-            return null;
+            return sample(type);
         }
 
         return switch (type.getName()) {

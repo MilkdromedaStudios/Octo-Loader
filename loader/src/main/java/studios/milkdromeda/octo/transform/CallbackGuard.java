@@ -88,10 +88,27 @@ public final class CallbackGuard implements Transformer {
         return context.mod() != null && context.mod().isFromAnotherVersion();
     }
 
+    /** Each translated mod's own classes, for the references worth bridging. */
+    private final Map<studios.milkdromeda.octo.runtime.LoadedMod, Set<String>> modClasses =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private Set<String> classesOf(studios.milkdromeda.octo.runtime.LoadedMod mod) {
+        return modClasses.computeIfAbsent(mod, ignored -> {
+            Set<String> names = new java.util.HashSet<>();
+
+            for (var scanned : mod.candidate().bytecode().classes()) {
+                names.add(scanned.internalName());
+            }
+
+            return names;
+        });
+    }
+
     @Override
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
         ClassReader reader = new ClassReader(bytes);
         Map<String, Fallback> handlers = handlers(reader);
+        Set<String> ownClasses = context.mod() == null ? Set.of() : classesOf(context.mod());
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
         boolean[] changed = { false };
         boolean[] isInterface = { false };
@@ -119,7 +136,7 @@ public final class CallbackGuard implements Transformer {
 
                 // Interfaces may hold the private bridges only from Java 9 on.
                 if (!isInterface[0] || version[0] >= Opcodes.V9) {
-                    delegate = new BridgingReferences(delegate, className, isInterface[0], bridges);
+                    delegate = new BridgingReferences(delegate, className, isInterface[0], bridges, ownClasses);
                 }
 
                 Fallback fallback = isCallback(access, name)
@@ -163,13 +180,15 @@ public final class CallbackGuard implements Transformer {
         private final String owner;
         private final boolean ownerIsInterface;
         private final Map<Handle, Handle> bridges;
+        private final Set<String> ownClasses;
 
         BridgingReferences(MethodVisitor delegate, String owner, boolean ownerIsInterface,
-                Map<Handle, Handle> bridges) {
+                Map<Handle, Handle> bridges, Set<String> ownClasses) {
             super(Opcodes.ASM9, delegate);
             this.owner = owner;
             this.ownerIsInterface = ownerIsInterface;
             this.bridges = bridges;
+            this.ownClasses = ownClasses;
         }
 
         @Override
@@ -186,15 +205,23 @@ public final class CallbackGuard implements Transformer {
         }
 
         /**
-         * A method of this class's own: a reference to a JDK method such as
+         * A method of the mod's own: a reference to a JDK method such as
          * {@code Integer::parseInt} throws what its callers are written to
-         * catch, and one to another class's protected method cannot be made
-         * from here at all.
+         * catch. Another class of the same mod counts — Farmer's Delight's
+         * cooking pot ticks through {@code CookingPotBlockEntity::cookingTick},
+         * made in the block's class, and one failing tick ended the server —
+         * but only for a static method there: a reference to another class's
+         * instance method may capture its receiver as a supertype, which a
+         * bridge typed by the method's own class does not accept, as Balm's
+         * runtime found.
          */
         private boolean isBridgeable(Handle target) {
-            if (!target.getOwner().equals(owner) || target.getName().startsWith("lambda$")
-                    || target.getName().startsWith("<")) {
+            if (target.getName().startsWith("lambda$") || target.getName().startsWith("<")) {
                 return false;
+            }
+
+            if (!target.getOwner().equals(owner)) {
+                return ownClasses.contains(target.getOwner()) && target.getTag() == Opcodes.H_INVOKESTATIC;
             }
 
             return switch (target.getTag()) {

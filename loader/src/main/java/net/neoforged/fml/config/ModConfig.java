@@ -35,6 +35,20 @@ public final class ModConfig {
         return fileName;
     }
 
+    /**
+     * Gives the spec a config read elsewhere, and tells the mod. Private to
+     * FML, and reached by reflection: Moonlight applies the configs a server
+     * sends through it.
+     */
+    void setConfig(LoadedConfig loadedConfig, java.util.function.Function<ModConfig,
+            net.neoforged.fml.event.config.ModConfigEvent> eventConstructor) {
+        if (loadedConfig != null && spec != null) {
+            studios.milkdromeda.octo.bridge.forge.ConfigFiles.accept(spec, loadedConfig);
+        }
+
+        studios.milkdromeda.octo.bridge.forge.ForgeBuses.neoBusFor(modId).post(eventConstructor.apply(this));
+    }
+
     public Path getFullPath() {
         return OctoRuntime.get().configDir().resolve(fileName);
     }

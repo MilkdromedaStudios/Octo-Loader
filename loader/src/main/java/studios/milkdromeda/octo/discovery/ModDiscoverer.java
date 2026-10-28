@@ -1,6 +1,7 @@
 package studios.milkdromeda.octo.discovery;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -9,6 +10,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 import studios.milkdromeda.octo.compat.Era;
 import studios.milkdromeda.octo.compat.EraDetector;
@@ -121,8 +128,16 @@ public final class ModDiscoverer {
     }
 
     private List<ModCandidate> discoverFile(Path file, ModCandidate parent, Discovery discovery) {
+        return discoverFile(file, parent, discovery, false);
+    }
+
+    /**
+     * @param inLibrary whether the file came out of a library container, where
+     *                  a jar that is not a mod is one of the library's own
+     */
+    private List<ModCandidate> discoverFile(Path file, ModCandidate parent, Discovery discovery, boolean inLibrary) {
         List<ModCandidate> out = new ArrayList<>();
-        boolean nested = parent != null;
+        boolean nested = parent != null || inLibrary;
 
         try (ModSource source = ModSource.open(file)) {
             ScanResult scan = scanner.scan(source);
@@ -138,7 +153,22 @@ public final class ModDiscoverer {
                 ModMetadata recovered = recoverFromBytecode(file, scan);
 
                 if (recovered == null) {
-                    if (nested) {
+                    if (!nested && isLibraryContainer(source)) {
+                        // Kotlin for Forge: no mod of its own at the top, the
+                        // Kotlin standard library and its language loader
+                        // inside. Every Kotlin mod needs those classes.
+                        LOG.info("{} is a library; its jars go on the class path", file.getFileName());
+                        discovery.library(file, null, false);
+                        out.addAll(extractContainer(source, file, discovery));
+                        return out;
+                    }
+
+                    if (inLibrary) {
+                        discovery.library(file, null);
+                        return out;
+                    }
+
+                    if (parent != null) {
                         // A jar a mod shipped inside itself and that is not a mod
                         // is the mod's own library. Dropping it is what made
                         // Create load and then die on Registrate, which it
@@ -405,17 +435,93 @@ public final class ModDiscoverer {
     }
 
     /**
-     * Unpacks jar-in-jar payloads. Fabric and Quilt list them in the metadata;
-     * Forge and NeoForge put them under {@code META-INF/jarjar/}.
+     * Whether a jar with no mod in it is a library for mods: Forge and
+     * NeoForge mark those in the manifest ({@code FMLModType: LIBRARY},
+     * {@code GAMELIBRARY}, {@code LANGPROVIDER}), and bundle what they carry
+     * under {@code META-INF/jarjar/}.
      */
-    private List<ModCandidate> extractNested(ModSource source, ModCandidate parent, Discovery discovery) {
-        Set<String> paths = new LinkedHashSet<>(parent.metadata().nestedJars());
+    private static boolean isLibraryContainer(ModSource source) {
+        boolean marked = source.read("META-INF/MANIFEST.MF")
+                .map(bytes -> new String(bytes, StandardCharsets.UTF_8).contains("FMLModType:"))
+                .orElse(false);
+        return marked || !jarJarPaths(source).isEmpty();
+    }
+
+    /**
+     * The jars Forge's and NeoForge's jar-in-jar carry: everything under
+     * {@code META-INF/jarjar/}, and whatever its {@code metadata.json} names
+     * elsewhere. MixinSquared's Forge jar keeps the library itself at
+     * {@code META-INF/jars/}, where Fabric would, and lists it there; read
+     * from the folder alone, every mod bundling it lost MixinSquared's API,
+     * and the game's first class with one of its mixins would not load.
+     */
+    private static Set<String> jarJarPaths(ModSource source) {
+        Set<String> paths = new LinkedHashSet<>();
 
         for (String entry : source.entries()) {
             if (entry.startsWith("META-INF/jarjar/") && entry.endsWith(".jar")) {
                 paths.add(entry);
             }
         }
+
+        source.read("META-INF/jarjar/metadata.json").ifPresent(bytes -> {
+            try {
+                JsonElement root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
+
+                if (root instanceof JsonObject object && object.get("jars") instanceof JsonArray jars) {
+                    for (JsonElement jar : jars) {
+                        if (jar instanceof JsonObject entry && entry.get("path") instanceof JsonPrimitive path
+                                && path.isString() && path.getAsString().endsWith(".jar")) {
+                            paths.add(path.getAsString());
+                        }
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("{}: unreadable jar-in-jar metadata: {}", source.path().getFileName(), e.toString());
+            }
+        });
+
+        return paths;
+    }
+
+    /** A library container's nested jars: each a mod if it is one, else part of the library. */
+    private List<ModCandidate> extractContainer(ModSource source, Path container, Discovery discovery) {
+        List<ModCandidate> out = new ArrayList<>();
+        String name = container.getFileName().toString().replaceAll("\\.jar$", "");
+
+        for (String entry : jarJarPaths(source)) {
+            byte[] bytes = source.read(entry).orElse(null);
+
+            if (bytes == null) {
+                continue;
+            }
+
+            try {
+                Path target = extractionDir.resolve("library-" + name).resolve(entry.replace('/', '_'));
+
+                if (!Files.isRegularFile(target) || Files.size(target) != bytes.length) {
+                    Files.createDirectories(target.getParent());
+                    Files.write(target, bytes);
+                }
+
+                out.addAll(discoverFile(target, null, discovery, true));
+            } catch (IOException e) {
+                LOG.error("could not unpack {} from {}: {}", entry, container.getFileName(), e.toString());
+                discovery.reject(Path.of(entry), Discovery.Verdict.UNREADABLE, true,
+                        "nested inside " + container.getFileName() + ": " + e);
+            }
+        }
+
+        return out;
+    }
+
+    /**
+     * Unpacks jar-in-jar payloads. Fabric and Quilt list them in the metadata;
+     * Forge and NeoForge put them under {@code META-INF/jarjar/}.
+     */
+    private List<ModCandidate> extractNested(ModSource source, ModCandidate parent, Discovery discovery) {
+        Set<String> paths = new LinkedHashSet<>(parent.metadata().nestedJars());
+        paths.addAll(jarJarPaths(source));
 
         if (paths.isEmpty()) {
             return List.of();

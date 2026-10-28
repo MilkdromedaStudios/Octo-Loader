@@ -57,4 +57,15 @@ class DataMigrationTest {
         assertNotNull(migrate("{'neoforge:conditions':[{'type':'neoforge:tag_empty','tag':'c:ores/platinum'}]}"),
                 "tags are not loaded yet; the game decides");
     }
+
+    @Test
+    @DisplayName("a translated mod's tag entries are made optional, so one missing entry leaves the rest standing")
+    void tagEntriesBecomeOptional() {
+        assertEquals(json("{'replace':false,'values':[{'id':'farmersdelight:rope_fence_gate','required':false},"
+                + "{'id':'#c:fence_gates','required':false},{'id':'minecraft:oak_fence_gate','required':false}]}"),
+                DataMigration.tag(json("{'replace':false,'values':['farmersdelight:rope_fence_gate','#c:fence_gates',"
+                        + "{'id':'minecraft:oak_fence_gate','required':true}]}")));
+        assertEquals(json("{'not':'a tag'}"), DataMigration.tag(json("{'not':'a tag'}")),
+                "a file with no values is left as it is");
+    }
 }

@@ -618,6 +618,9 @@ public final class MissingMemberTransformer implements Transformer {
                 private final java.util.ArrayDeque<PendingNew> pending = new java.util.ArrayDeque<>();
                 /** The {@code NEW} just visited, until the next instruction says whether it was duplicated. */
                 private PendingNew justMade;
+                /** A local slot past every one the method has used so far, for values held a moment. */
+                private int nextFree = (Type.getArgumentsAndReturnSizes(methodDescriptor) >> 2)
+                        - ((access & Opcodes.ACC_STATIC) != 0 ? 1 : 0);
 
                 @Override
                 public void visitTypeInsn(int opcode, String type) {
@@ -643,7 +646,17 @@ public final class MissingMemberTransformer implements Transformer {
                 @Override
                 public void visitVarInsn(int opcode, int varIndex) {
                     justMade = null;
+                    boolean wide = opcode == Opcodes.LLOAD || opcode == Opcodes.DLOAD || opcode == Opcodes.LSTORE
+                            || opcode == Opcodes.DSTORE;
+                    nextFree = Math.max(nextFree, varIndex + (wide ? 2 : 1));
                     super.visitVarInsn(opcode, varIndex);
+                }
+
+                @Override
+                public void visitIincInsn(int varIndex, int increment) {
+                    justMade = null;
+                    nextFree = Math.max(nextFree, varIndex + 1);
+                    super.visitIincInsn(varIndex, increment);
                 }
 
                 @Override
@@ -795,7 +808,7 @@ public final class MissingMemberTransformer implements Transformer {
                     Type returnType = Type.getReturnType(descriptor);
                     boolean hasReceiver = opcode != Opcodes.INVOKESTATIC;
 
-                    if (hasReceiver && returnsReceiver(owner, name, returnType)) {
+                    if (hasReceiver && returnsReceiver(owner, name, descriptor)) {
                         // A builder method this version does not have: drop the
                         // arguments and hand the builder back, so the chain goes on.
                         discard(Type.getArgumentTypes(descriptor), false);
@@ -896,6 +909,93 @@ public final class MissingMemberTransformer implements Transformer {
                 }
 
                 /**
+                 * A super() call whose arguments the superclass now takes in
+                 * another order: 26.x's {@code StandingAndWallBlockItem}
+                 * takes its direction before the item properties, and Sign
+                 * items, added back from the release before, pass them the
+                 * old way round. Each argument is held in a spare local and
+                 * handed over where the constructor this version has wants it.
+                 *
+                 * @return whether the call was written
+                 */
+                private boolean reorderedSuperCall(String owner, String descriptor) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+
+                    if (arguments.length < 2) {
+                        return false;
+                    }
+
+                    for (String candidate : lookup.overloads(owner, "<init>")) {
+                        Type[] parameters = Type.getArgumentTypes(candidate);
+                        int[] from = parameters.length == arguments.length ? permutation(arguments, parameters) : null;
+                        Integer access = from == null ? null : lookup.methodAccess(owner, "<init>", candidate);
+
+                        if (access == null || (access & Opcodes.ACC_PRIVATE) != 0) {
+                            continue;
+                        }
+
+                        int[] slots = new int[arguments.length];
+                        int slot = nextFree;
+
+                        for (int i = 0; i < arguments.length; i++) {
+                            slots[i] = slot;
+                            slot += arguments[i].getSize();
+                        }
+
+                        for (int i = arguments.length - 1; i >= 0; i--) {
+                            super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                        }
+
+                        for (int index : from) {
+                            super.visitVarInsn(arguments[index].getOpcode(Opcodes.ILOAD), slots[index]);
+                        }
+
+                        nextFree = slot;
+                        super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", candidate, false);
+                        changed = true;
+                        record(context, owner, "<init>" + descriptor, className,
+                                "it takes the same arguments in another order now, <init>" + candidate);
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                /**
+                 * @return for each parameter, which argument it takes, each
+                 *         argument once; {@code null} unless every one fits
+                 */
+                private int[] permutation(Type[] arguments, Type[] parameters) {
+                    int[] from = new int[parameters.length];
+                    boolean[] taken = new boolean[arguments.length];
+
+                    for (int i = 0; i < parameters.length; i++) {
+                        from[i] = -1;
+
+                        // Exact types first, so two blocks keep their order.
+                        for (int j = 0; j < arguments.length && from[i] < 0; j++) {
+                            if (!taken[j] && parameters[i].equals(arguments[j])) {
+                                from[i] = j;
+                                taken[j] = true;
+                            }
+                        }
+
+                        for (int j = 0; j < arguments.length && from[i] < 0; j++) {
+                            if (!taken[j] && accepts(parameters[i], arguments[j])) {
+                                from[i] = j;
+                                taken[j] = true;
+                            }
+                        }
+
+                        if (from[i] < 0) {
+                            return null;
+                        }
+                    }
+
+                    return from;
+                }
+
+                /**
                  * A super() call to a constructor the game's superclass no
                  * longer has: Create's {@code ItemCopyingRecipe} calls
                  * {@code CustomRecipe(CraftingBookCategory)}, and 26.x's
@@ -925,6 +1025,10 @@ public final class MissingMemberTransformer implements Transformer {
                         return true;
                     }
 
+                    if (reorderedSuperCall(owner, descriptor)) {
+                        return true;
+                    }
+
                     String simplest = null;
 
                     for (String candidate : lookup.overloads(owner, "<init>")) {
@@ -950,7 +1054,7 @@ public final class MissingMemberTransformer implements Transformer {
                     discard(Type.getArgumentTypes(descriptor), false);
 
                     for (Type parameter : Type.getArgumentTypes(simplest)) {
-                        pushDefault(parameter, owner);
+                        pushSample(parameter, owner);
                     }
 
                     super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", simplest, false);
@@ -1210,6 +1314,17 @@ public final class MissingMemberTransformer implements Transformer {
                 public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
                     justMade = null;
 
+                    // A field with a shim, on a class that is not here at all:
+                    // the checks below only look at classes the game has, and
+                    // NeoForge 26 dropped Capabilities.ItemHandler and its kin
+                    // whole, so a mod reading one got a stand-in's null.
+                    if (opcode == Opcodes.GETSTATIC && classVersion >= Opcodes.V1_5 && !owner.equals(className)
+                            && !isOwnClass(context, owner) && !context.classExists().test(owner)
+                            && emitFieldShim(owner, name, descriptor)) {
+                        record(context, owner, name, className, "it is rebuilt from what this version's API has");
+                        return;
+                    }
+
                     // There, but closed to the mod: Level.isClientSide was a
                     // public field until 26.x made it private behind
                     // isClientSide(), and every block Create has that asks it
@@ -1285,15 +1400,8 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
-                    String fieldShim = opcode == Opcodes.GETSTATIC && classVersion >= Opcodes.V1_5
-                            ? Shims.fieldShimFor(owner, name, descriptor) : null;
-
-                    if (fieldShim != null) {
-                        delegate.visitLdcInsn(Type.getObjectType(owner));
-                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), fieldShim,
-                                "(Ljava/lang/Class;)Ljava/lang/Object;", false);
-                        delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
-                        changed = true;
+                    if (opcode == Opcodes.GETSTATIC && classVersion >= Opcodes.V1_5
+                            && emitFieldShim(owner, name, descriptor)) {
                         record(context, owner, name, className, "it is rebuilt from what this version's API has");
                         return;
                     }
@@ -1313,6 +1421,22 @@ public final class MissingMemberTransformer implements Transformer {
 
                     changed = true;
                     record(context, owner, name, className, "reads return a default and writes go nowhere");
+                }
+
+                /** Reads a removed static field through its shim, if it has one. */
+                private boolean emitFieldShim(String owner, String name, String descriptor) {
+                    String shim = Shims.fieldShimFor(owner, name, descriptor);
+
+                    if (shim == null) {
+                        return false;
+                    }
+
+                    delegate.visitLdcInsn(Type.getObjectType(owner));
+                    delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shim,
+                            "(Ljava/lang/Class;)Ljava/lang/Object;", false);
+                    delegate.visitTypeInsn(Opcodes.CHECKCAST, Type.getType(descriptor).getInternalName());
+                    changed = true;
+                    return true;
                 }
 
                 /**
@@ -1485,6 +1609,27 @@ public final class MissingMemberTransformer implements Transformer {
                  * {@link Nothing} writes is Octo's own, and has no business
                  * being read back through the rewrite that asked for it.
                  */
+                /**
+                 * A made-up constructor argument: a constant of its type where
+                 * it has one ({@link GapBridge#sample}), since a null is most
+                 * often a crash inside the constructor it is passed to.
+                 */
+                private void pushSample(Type type, String owner) {
+                    if (classVersion < Opcodes.V1_5 || type.getSort() != Type.OBJECT || Nothing.isSpecial(type)) {
+                        pushDefault(type, owner);
+                        return;
+                    }
+
+                    if (Nothing.pushLive(delegate, type, owner)) {
+                        return;
+                    }
+
+                    delegate.visitLdcInsn(type);
+                    delegate.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/transform/GapBridge",
+                            "sample", "(Ljava/lang/Class;)Ljava/lang/Object;", false);
+                    delegate.visitTypeInsn(Opcodes.CHECKCAST, type.getInternalName());
+                }
+
                 private void pushDefault(Type type, String owner) {
                     if (type.getSort() == Type.OBJECT && Nothing.pushLive(delegate, type, owner)) {
                         return;
@@ -1699,13 +1844,22 @@ public final class MissingMemberTransformer implements Transformer {
          * {@code tag.getCompound("child")} — is not: answering it with the
          * receiver would hand the mod the parent where it asked for the child.
          */
-        private boolean returnsReceiver(String owner, String name, Type type) {
+        private boolean returnsReceiver(String owner, String name, String descriptor) {
+            Type type = Type.getReturnType(descriptor);
+
             if (type.getSort() != Type.OBJECT || !type.getInternalName().equals(owner)) {
                 return false;
             }
 
+            // "is" and "has" ask something only when nothing is passed: given
+            // an argument and answering the builder, they set it —
+            // BlockBehaviour.Properties.isViewBlocking(predicate) and its kin,
+            // which as nulls stopped every block built with them.
+            boolean setter = Type.getArgumentTypes(descriptor).length > 0
+                    && (name.startsWith("is") || name.startsWith("has"));
+
             for (String query : QUERY_PREFIXES) {
-                if (name.startsWith(query)) {
+                if (name.startsWith(query) && !setter) {
                     return false;
                 }
             }

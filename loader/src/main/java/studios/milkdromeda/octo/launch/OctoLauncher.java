@@ -49,6 +49,7 @@ import studios.milkdromeda.octo.transform.ByteScan;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
 import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
+import studios.milkdromeda.octo.transform.EagerHolderBinding;
 import studios.milkdromeda.octo.transform.ExtensibleEnums;
 import studios.milkdromeda.octo.transform.ModPackHook;
 import studios.milkdromeda.octo.transform.RegistrationIds;
@@ -56,11 +57,13 @@ import studios.milkdromeda.octo.transform.RegistrateSupport;
 import studios.milkdromeda.octo.transform.FinalOverrides;
 import studios.milkdromeda.octo.transform.StaticInitGuard;
 import studios.milkdromeda.octo.transform.UnboundComponents;
+import studios.milkdromeda.octo.transform.OpenTypes;
 import studios.milkdromeda.octo.transform.OverrideGuard;
 import studios.milkdromeda.octo.transform.ValueIoBridge;
 import studios.milkdromeda.octo.transform.AbstractGaps;
 import studios.milkdromeda.octo.transform.RegistryLoadGuard;
 import studios.milkdromeda.octo.transform.NullTagGuard;
+import studios.milkdromeda.octo.transform.GameMethodGuard;
 import studios.milkdromeda.octo.transform.SupertypeFit;
 import studios.milkdromeda.octo.transform.VerifierFit;
 import studios.milkdromeda.octo.transform.ProbeRewriter;
@@ -332,6 +335,12 @@ public final class OctoLauncher {
 
         if (!apiLibraries.isEmpty() && !context.compat().strict()) {
             classLoader.addGlobalTransformer(new RegistrationEntryGuard());
+        }
+
+        // What the loaders' patched game does with an entry as it is
+        // registered, which their mods count on while registering the next.
+        if (!apiLibraries.isEmpty()) {
+            classLoader.addGlobalTransformer(new EagerHolderBinding());
         }
 
         if (apiLibraries.stream().anyMatch(jar -> jar.getFileName().toString().startsWith("neoforge-"))) {
@@ -806,8 +815,10 @@ public final class OctoLauncher {
             if (!context.compat().strict()) {
                 classLoader.addGlobalTransformer(new RegistryLoadGuard());
                 classLoader.addGlobalTransformer(new NullTagGuard());
+                classLoader.addGlobalTransformer(new GameMethodGuard());
             }
             classLoader.addGlobalTransformer(new FinalOverrides(index));
+            classLoader.addGlobalTransformer(new OpenTypes(extendedByMods(mods)));
             classLoader.addGlobalTransformer(new SupertypeFit(index, false));
             classLoader.addGlobalTransformer(new VerifierFit(index, false));
 
@@ -827,6 +838,7 @@ public final class OctoLauncher {
             if (restorer != null) {
                 Transformer fit = new SupertypeFit(index, true);
                 Transformer verify = new VerifierFit(index, true);
+                Transformer finals = new FinalOverrides(index);
                 Transformer bypass = gameGaps;
                 classLoader.installRestorer(restorer, new Transformer() {
                     @Override
@@ -837,9 +849,11 @@ public final class OctoLauncher {
                     @Override
                     public byte[] transform(String className, byte[] bytes,
                             studios.milkdromeda.octo.transform.TransformContext context) {
-                        return verify.transform(className,
-                                bypass.transform(className, fit.transform(className, bytes, context), context),
-                                context);
+                        // FinalOverrides as well: ItemNameBlockItem, added
+                        // back for Farmer's Delight, overrides a method 26.x
+                        // made final, and could not be defined.
+                        byte[] fitted = finals.transform(className, fit.transform(className, bytes, context), context);
+                        return verify.transform(className, bypass.transform(className, fitted, context), context);
                     }
                 });
                 index.forgetAbsent();
@@ -865,6 +879,23 @@ public final class OctoLauncher {
 
     /** What translated mods called that this game does not have, collected over the launch. */
     private MissingMemberTransformer gameGaps;
+
+    /** The classes translated mods' own classes extend, which the game may have made final since. */
+    private static Set<String> extendedByMods(List<LoadedMod> mods) {
+        Set<String> out = new java.util.HashSet<>();
+
+        for (LoadedMod mod : mods) {
+            if (mod.isFromAnotherVersion()) {
+                for (var scanned : mod.candidate().bytecode().classes()) {
+                    if (scanned.superName() != null) {
+                        out.add(scanned.superName());
+                    }
+                }
+            }
+        }
+
+        return out;
+    }
 
     /** Whether the jar on the class path is a rebuilt copy rather than the one that was found. */
     private static boolean isRebuilt(LoadedMod mod) {

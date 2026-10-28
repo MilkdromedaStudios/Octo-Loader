@@ -486,7 +486,8 @@ public final class MixinSupport {
         @Override
         public byte[] transform(String className, byte[] bytes, TransformContext context) {
             String binaryName = className.replace('/', '.');
-            byte[] result = transformer.transformClassBytes(binaryName, binaryName, bytes);
+            byte[] result = WovenMethodCheck.check(className, bytes,
+                    transformer.transformClassBytes(binaryName, binaryName, bytes));
 
             if (result != null && result != bytes && result.length != bytes.length) {
                 context.note("mixins applied to " + binaryName);
