@@ -65,7 +65,7 @@ public final class ModRebuilder {
     private static final OctoLog LOG = OctoLog.of(ModRebuilder.class);
 
     /** Bumped whenever what a rebuild produces changes, so old caches are not reused. */
-    private static final int FORMAT = 5;
+    private static final int FORMAT = 6;
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
 
@@ -307,6 +307,14 @@ public final class ModRebuilder {
         MappingSet own = release == null || release.equals(MappingProvider.LATEST_INTERMEDIARY) ? MappingSet.EMPTY
                 : mappings.releaseToGame(release, context.gameJars(), context.minecraftVersion(), side)
                         .orElse(MappingSet.EMPTY);
+
+        // That comparison is keyed in the release's own Mojang names, and is
+        // applied after the published tables have moved the mod to 1.21.11's.
+        // What those tables renamed is theirs; what is left is what they lost.
+        if (!own.isEmpty()) {
+            own = own.unchangedBy(mappings.toCurrent(MappingNamespace.MOJANG, release).orElse(MappingSet.EMPTY));
+        }
+
         return latest.orElse(own);
     }
 
@@ -427,7 +435,15 @@ public final class ModRebuilder {
         try (ZipFile zip = new ZipFile(source.toFile())) {
             Map<String, List<String>> mixinTargets = new HashMap<>();
             Map<String, List<String>> parents = parents(zip, mixinTargets);
-            Remapper remapper = plan.names().remapper(owner -> parents.getOrDefault(owner, List.of()));
+            // The game's own hierarchy too, for a member the tables list on the
+            // class that declares it and a mod calls through a subtype:
+            // Registry.get(key), called on BuiltInRegistries.BLOCK, a
+            // DefaultedRegistry. Names the game kept are the same on both sides.
+            Map<String, List<String>> game = VersionDiff.hierarchy(context.gameJars());
+            Remapper remapper = plan.names().remapper(owner -> {
+                List<String> mine = parents.get(owner);
+                return mine != null ? mine : game.getOrDefault(owner, List.of());
+            });
             // A mod in Mojang's names with no refmap names the game in its
             // mixin annotations as plain text, which only this can translate.
             boolean mixinStrings = mod.candidate().namespace() == MappingNamespace.MOJANG && !hasRefmap(zip);
