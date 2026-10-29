@@ -432,7 +432,7 @@ docs/                       the logo and other project assets
 
 ## Bugs
 
-This is only in development, bugs will be expectied and not all mods will be able to be loaded. If you find any bugs, please open a issue or a pr request with fixes if you are tech savy. 
+This is only in development, bugs will be expected and not all mods will be able to be loaded. If you find any bugs, please open a issue or a pr request with fixes if you are tech savy. 
 
 ## Licence
 
