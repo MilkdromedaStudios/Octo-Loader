@@ -29,6 +29,10 @@ public final class GameHooks {
     /** What runs as the client starts being built, rather than once it is. */
     private static volatile Runnable early;
     private static final AtomicBoolean firedEarly = new AtomicBoolean();
+    /** Opened once the deferred phases have run, for work that must come after them. */
+    private static volatile java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
+    /** The thread building the client, which runs the deferred phases and so must never wait for them. */
+    private static volatile Thread gameThread;
 
     private GameHooks() {
     }
@@ -37,6 +41,7 @@ public final class GameHooks {
     public static void arm(Runnable action) {
         pending = action;
         fired.set(false);
+        finished = new java.util.concurrent.CountDownLatch(1);
     }
 
     /**
@@ -53,6 +58,8 @@ public final class GameHooks {
 
     /** Called from the mixin just before the client builds its options. */
     public static void clientConstructing(Object game) {
+        gameThread = Thread.currentThread();
+
         if (OctoRuntime.isRunning()) {
             OctoRuntime.get().gameInstance(game);
         }
@@ -94,6 +101,8 @@ public final class GameHooks {
      *             {@code FabricLoader.getInstance().getGameInstance()}
      */
     public static void clientStarted(Object game) {
+        gameThread = Thread.currentThread();
+
         if (OctoRuntime.isRunning()) {
             OctoRuntime.get().gameInstance(game);
         }
@@ -126,18 +135,56 @@ public final class GameHooks {
         Runnable action = pending;
         pending = null;
 
-        if (action == null) {
-            return;
-        }
-
-        LOG.debug("dispatching the deferred client phases: {}", reason);
-
         try {
-            action.run();
+            if (action != null) {
+                LOG.debug("dispatching the deferred client phases: {}", reason);
+                action.run();
+            }
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             LOG.error("the deferred client phases failed: {}", Failures.describe(e));
             OctoLog.detail(e);
+        } finally {
+            finished.countDown();
+        }
+    }
+
+    /**
+     * Waits, from a thread other than the one building the client, until the
+     * deferred client phases have run.
+     *
+     * <p>NeoForge and Forge set their mods up while the game loads its first
+     * resources, ahead of the models: a mod makes the models it will ask for
+     * in its client setup — Create makes every partial model there — and asks
+     * when the models are read. Here the client phases run as the client's
+     * constructor ends, while that first load is already under way on other
+     * threads, so whatever needs them first waits for them.
+     *
+     * @return whether they have run, or there were none to run
+     */
+    public static boolean awaitClientPhases(long timeoutMillis) {
+        // Armed and not yet run, or running now on the game's thread.
+        boolean outstanding = pending != null || fired.get() && finished.getCount() > 0;
+
+        if (!outstanding) {
+            return true;
+        }
+
+        if (Thread.currentThread() == gameThread) {
+            return false;
+        }
+
+        try {
+            boolean done = finished.await(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+            if (!done) {
+                LOG.warn("the client phases had not run after {} s; going on without them", timeoutMillis / 1000);
+            }
+
+            return done;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -145,6 +192,8 @@ public final class GameHooks {
     public static void reset() {
         pending = null;
         fired.set(false);
+        finished = new java.util.concurrent.CountDownLatch(1);
+        gameThread = null;
         early = null;
         firedEarly.set(false);
     }

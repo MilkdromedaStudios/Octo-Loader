@@ -167,6 +167,33 @@ class MetadataParsersTest {
     }
 
     @Test
+    @DisplayName("each format's icon is read, the largest where sizes are given")
+    void icons() throws IOException {
+        Path fabric = new JarBuilder().file("fabric.mod.json", """
+                { "schemaVersion": 1, "id": "iconmod", "version": "1.0.0",
+                  "icon": { "16": "assets/iconmod/small.png", "128": "assets/iconmod/large.png" } }
+                """).writeTo(directory.resolve("fabric-icon.jar"));
+        Path quilt = new JarBuilder().file("quilt.mod.json", """
+                { "schema_version": 1, "quilt_loader": { "group": "com.example", "id": "quilticon",
+                  "version": "1.0.0", "metadata": { "icon": "/assets/quilticon/icon.png" } } }
+                """).writeTo(directory.resolve("quilt-icon.jar"));
+        Path neoforge = new JarBuilder().file("META-INF/neoforge.mods.toml", """
+                modLoader="javafml"
+                loaderVersion="[4,)"
+                license="MIT"
+                [[mods]]
+                modId="neoicon"
+                version="1.0.0"
+                logoFile="neoicon.png"
+                """).writeTo(directory.resolve("neo-icon.jar"));
+
+        assertEquals(Optional.of("assets/iconmod/large.png"), discover(fabric).metadata().icon());
+        assertEquals(Optional.of("assets/quilticon/icon.png"), discover(quilt).metadata().icon(),
+                "a leading slash is dropped");
+        assertEquals(Optional.of("neoicon.png"), discover(neoforge).metadata().icon());
+    }
+
+    @Test
     @DisplayName("META-INF/mods.toml, with mandatory booleans")
     void forge() throws IOException {
         Path jar = new JarBuilder()

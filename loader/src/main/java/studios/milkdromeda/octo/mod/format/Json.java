@@ -39,6 +39,46 @@ final class Json {
         }
     }
 
+    /**
+     * An icon field as Fabric and Quilt write it: a path, or paths keyed by
+     * their pixel size, of which the largest is the one worth showing.
+     */
+    static String icon(JsonObject object, String key) {
+        if (object == null || !object.has(key)) {
+            return null;
+        }
+
+        com.google.gson.JsonElement value = object.get(key);
+
+        if (value.isJsonPrimitive()) {
+            return value.getAsString();
+        }
+
+        if (!value.isJsonObject()) {
+            return null;
+        }
+
+        String best = null;
+        int bestSize = -1;
+
+        for (java.util.Map.Entry<String, com.google.gson.JsonElement> entry : value.getAsJsonObject().entrySet()) {
+            int size;
+
+            try {
+                size = Integer.parseInt(entry.getKey().trim());
+            } catch (NumberFormatException e) {
+                size = 0;
+            }
+
+            if (size > bestSize && entry.getValue().isJsonPrimitive()) {
+                best = entry.getValue().getAsString();
+                bestSize = size;
+            }
+        }
+
+        return best;
+    }
+
     static String string(JsonObject object, String key, String fallback) {
         JsonElement element = object == null ? null : object.get(key);
 

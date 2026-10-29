@@ -50,6 +50,7 @@ import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.transform.CallbackGuard;
 import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
 import studios.milkdromeda.octo.transform.EagerHolderBinding;
+import studios.milkdromeda.octo.transform.ExtraModelHooks;
 import studios.milkdromeda.octo.transform.ExtensibleEnums;
 import studios.milkdromeda.octo.transform.ModPackHook;
 import studios.milkdromeda.octo.transform.RegistrationIds;
@@ -64,6 +65,8 @@ import studios.milkdromeda.octo.transform.AbstractGaps;
 import studios.milkdromeda.octo.transform.RegistryLoadGuard;
 import studios.milkdromeda.octo.transform.NullTagGuard;
 import studios.milkdromeda.octo.transform.GameMethodGuard;
+import studios.milkdromeda.octo.transform.LegacyRendererBridge;
+import studios.milkdromeda.octo.transform.RestoredBridges;
 import studios.milkdromeda.octo.transform.SupertypeFit;
 import studios.milkdromeda.octo.transform.VerifierFit;
 import studios.milkdromeda.octo.transform.ProbeRewriter;
@@ -350,6 +353,12 @@ public final class OctoLauncher {
         // Their data and assets, which only reach the game as packs.
         if (mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE || mod.format() == ModFormat.FORGE)) {
             classLoader.addGlobalTransformer(new ModPackHook());
+
+            // And the models they ask for by name, which their loaders'
+            // patched client loads with the game's.
+            if (context.side() == Side.CLIENT) {
+                classLoader.addGlobalTransformer(new ExtraModelHooks());
+            }
         }
 
         // The API jars expect the game their installer patched; what they
@@ -810,6 +819,11 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new RegistrateSupport());
             classLoader.addGlobalTransformer(new UnboundComponents());
             classLoader.addGlobalTransformer(new ValueIoBridge(index));
+
+            if (context.side() == Side.CLIENT) {
+                classLoader.addGlobalTransformer(new LegacyRendererBridge());
+            }
+
             classLoader.addGlobalTransformer(new AbstractGaps(index));
 
             if (!context.compat().strict()) {
@@ -849,6 +863,14 @@ public final class OctoLauncher {
                     @Override
                     public byte[] transform(String className, byte[] bytes,
                             studios.milkdromeda.octo.transform.TransformContext context) {
+                        // The block renderer and its kin front a model system
+                        // 26.x replaced: named as the mods' own references are,
+                        // and answered with this game's models.
+                        if (RestoredBridges.bridges(className)) {
+                            byte[] named = relinker == null ? bytes : relinker.transform(className, bytes, context);
+                            return RestoredBridges.transform(className, named);
+                        }
+
                         // FinalOverrides as well: ItemNameBlockItem, added
                         // back for Farmer's Delight, overrides a method 26.x
                         // made final, and could not be defined.

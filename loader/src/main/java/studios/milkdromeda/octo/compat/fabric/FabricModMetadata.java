@@ -114,7 +114,7 @@ final class FabricModMetadata implements ModMetadata {
 
     @Override
     public Optional<String> getIconPath(int size) {
-        return Optional.empty();
+        return source.icon();
     }
 
     @Override

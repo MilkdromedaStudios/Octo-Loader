@@ -45,6 +45,14 @@ public final class Shims {
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
     private static final String TOOL_RULE = "net/minecraft/world/item/component/Tool$Rule";
+    private static final String MODEL_MANAGER = "net/minecraft/client/resources/model/ModelManager";
+    private static final String MODEL_LOCATION = "net/minecraft/client/resources/model/ModelResourceLocation";
+    private static final String BLOCK_MODEL = "net/minecraft/client/renderer/block/dispatch/BlockStateModel";
+    private static final String OLD_BLOCK_MODEL = "net/minecraft/client/renderer/block/model/BlockStateModel";
+    private static final String NEO_MODEL_EVENT = "net/neoforged/neoforge/client/event/ModelEvent";
+    private static final String FORGE_MODEL_EVENT = "net/minecraftforge/client/event/ModelEvent";
+    private static final String QUAD = "net/minecraft/client/resources/model/geometry/BakedQuad";
+    private static final String SPRITE = "net/minecraft/client/renderer/texture/TextureAtlasSprite";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
             Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
@@ -126,7 +134,62 @@ public final class Shims {
             // the game's, which wants a row and column: mods' tabs go in the
             // top row, and the loader's tab sorting places them.
             Map.entry("net/minecraft/world/item/CreativeModeTab.builder()Lnet/minecraft/world/item/CreativeModeTab$Builder;",
-                    "creativeTabBuilder"));
+                    "creativeTabBuilder"),
+            // The block layers a block entity renderer drew moving parts in;
+            // 26.x keeps their equivalents for moving blocks in RenderTypes.
+            blockLayer("solid", "renderTypeSolid"),
+            blockLayer("cutout", "renderTypeCutout"),
+            blockLayer("cutoutMipped", "renderTypeCutout"),
+            blockLayer("translucent", "renderTypeTranslucent"),
+            blockLayer("tripwire", "renderTypeTranslucent"),
+            // The game's block renderer, gone with 26.x's models; the one
+            // added back from the mod's release is answered by LegacyModels.
+            Map.entry("net/minecraft/client/Minecraft.getBlockRenderer()"
+                    + "Lnet/minecraft/client/renderer/block/BlockRenderDispatcher;", "blockRenderer"),
+            // Models asked for by name, and every baked model by its location:
+            // answered from what ExtraModels loaded with the game's models.
+            Map.entry(MODEL_MANAGER + ".getModel(L" + MODEL_LOCATION + ";)L" + BLOCK_MODEL + ";", "modelManagerModel"),
+            Map.entry(MODEL_MANAGER + ".getModel(Lnet/minecraft/resources/Identifier;)L" + BLOCK_MODEL + ";",
+                    "modelManagerModel"),
+            Map.entry(MODEL_MANAGER + ".getMissingModel()L" + BLOCK_MODEL + ";", "modelManagerMissing"),
+            // NeoForge's patch to the model location, which the class added
+            // back from the game alone does not have: a loose model's location.
+            Map.entry(MODEL_LOCATION + ".standalone(Lnet/minecraft/resources/Identifier;)L" + MODEL_LOCATION + ";",
+                    "modelLocationStandalone"),
+            // The same, named as 1.21.5 to 1.21.11 had the model type, which is
+            // where code added back from those releases' tables points.
+            Map.entry(MODEL_MANAGER + ".getModel(L" + MODEL_LOCATION + ";)L" + OLD_BLOCK_MODEL + ";",
+                    "modelManagerModel"),
+            Map.entry(MODEL_MANAGER + ".getMissingModel()L" + OLD_BLOCK_MODEL + ";", "modelManagerMissing"),
+            Map.entry("net/minecraft/client/resources/model/ModelBakery.getBakedTopLevelModels()Ljava/util/Map;",
+                    "bakedModels"),
+            Map.entry(NEO_MODEL_EVENT + "$BakingCompleted.getModels()Ljava/util/Map;", "bakedModels"),
+            Map.entry(NEO_MODEL_EVENT + "$ModifyBakingResult.getModels()Ljava/util/Map;", "bakedModels"),
+            Map.entry(FORGE_MODEL_EVENT + "$BakingCompleted.getModels()Ljava/util/Map;", "bakedModels"),
+            Map.entry(FORGE_MODEL_EVENT + "$ModifyBakingResult.getModels()Ljava/util/Map;", "bakedModels"),
+            Map.entry(NEO_MODEL_EVENT + "$RegisterAdditional.register(L" + MODEL_LOCATION + ";)V", "registerModel"),
+            Map.entry(NEO_MODEL_EVENT + "$RegisterAdditional.register(Lnet/minecraft/resources/Identifier;)V",
+                    "registerModel"),
+            Map.entry(FORGE_MODEL_EVENT + "$RegisterAdditional.register(Lnet/minecraft/resources/Identifier;)V",
+                    "registerModel"),
+            // A baked quad as its vertex data, which 26.x made a record of
+            // positions and a material; read and made by LegacyQuads.
+            Map.entry(QUAD + ".getVertices()[I", "quadVertices"),
+            Map.entry(QUAD + ".getSprite()L" + SPRITE + ";", "quadSprite"),
+            Map.entry(QUAD + ".getTintIndex()I", "quadTint"),
+            Map.entry(QUAD + ".isTinted()Z", "quadTinted"),
+            Map.entry(QUAD + ".isShade()Z", "quadShade"),
+            Map.entry(QUAD + ".hasAmbientOcclusion()Z", "quadAmbientOcclusion"),
+            Map.entry(QUAD + ".getDirection()Lnet/minecraft/core/Direction;", "quadDirection"),
+            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";Z)V", "newQuad"),
+            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";ZZ)V", "newQuadWithOcclusion"));
+
+
+    private static final String RENDER_TYPE = "net/minecraft/client/renderer/rendertype/RenderType";
+
+    private static Map.Entry<String, String> blockLayer(String layer, String shim) {
+        return Map.entry(RENDER_TYPE + "." + layer + "()L" + RENDER_TYPE + ";", shim);
+    }
 
     private static Map.Entry<String, String> tagFactory(String tags) {
         return Map.entry("net/minecraft/tags/" + tags + ".create(Lnet/minecraft/resources/Identifier;)"
@@ -138,8 +201,37 @@ public final class Shims {
 
     /** @return the shim's name for this member, or {@code null} when there is none */
     static String shimFor(String owner, String name, String descriptor) {
-        return SHIMS.get(owner + "." + name + descriptor);
+        String exact = SHIMS.get(owner + "." + name + descriptor);
+
+        if (exact != null) {
+            return exact;
+        }
+
+        // By arity, where the argument types moved too: NeoForge's ModelData
+        // changed package with the methods taking it.
+        String[] byArity = BY_ARITY.get(owner + "." + name + "/" + Type.getArgumentTypes(descriptor).length);
+        return byArity != null && byArity[1].equals(descriptorFor(descriptor, false)) ? byArity[0] : null;
     }
+
+    private static final String MODEL = "net/minecraft/client/renderer/block/dispatch/BlockStateModel";
+
+    /** Instance methods matched by owner, name and number of arguments, with the shim's erased descriptor. */
+    private static final Map<String, String[]> BY_ARITY = Map.ofEntries(
+            // A block model's NeoForge half from before 26.x: its layers, its
+            // data and its quads, answered from this game's model.
+            Map.entry(MODEL + ".getRenderTypes/3", new String[] { "modelRenderTypes",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" }),
+            Map.entry(MODEL + ".getModelData/4", new String[] { "modelData", "(Ljava/lang/Object;Ljava/lang/Object;"
+                    + "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" }),
+            Map.entry(MODEL + ".getQuads/3", new String[] { "modelQuads",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" }),
+            Map.entry(MODEL + ".getQuads/5", new String[] { "modelQuadsOfLayer", "(Ljava/lang/Object;Ljava/lang/Object;"
+                    + "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" }),
+            // A quad written with a tint, light and overlay, which 26.x writes through a QuadInstance.
+            Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/8", new String[] { "putBulkData",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/8", new String[] { "putBulkData",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }));
 
     /**
      * Static fields removed, rebuilt the same way: a shim taking the owner's
@@ -200,6 +292,17 @@ public final class Shims {
         }
 
         return out.append(')').append(erased(Type.getReturnType(descriptor))).toString();
+    }
+
+    /** A constructor shim's descriptor: the arguments by the convention above, the object made as the result. */
+    static String constructorDescriptor(String descriptor) {
+        StringBuilder out = new StringBuilder("(");
+
+        for (Type argument : Type.getArgumentTypes(descriptor)) {
+            out.append(erased(argument));
+        }
+
+        return out.append(")Ljava/lang/Object;").toString();
     }
 
     private static String erased(Type type) {
@@ -514,6 +617,123 @@ public final class Shims {
     public static Object creativeTabBuilder(Class<?> owner) {
         Class<?> row = game(owner, "net.minecraft.world.item.CreativeModeTab$Row");
         return callStatic(owner, "builder", new Class<?>[] { row, int.class }, staticField(row, "TOP"), 0);
+    }
+
+    // --------------------------------------------------------------- rendering
+
+    public static Object renderTypeSolid(Class<?> owner) {
+        return renderTypes(owner, "solidMovingBlock");
+    }
+
+    public static Object renderTypeCutout(Class<?> owner) {
+        return renderTypes(owner, "cutoutMovingBlock");
+    }
+
+    public static Object renderTypeTranslucent(Class<?> owner) {
+        return renderTypes(owner, "translucentMovingBlock");
+    }
+
+    public static Object quadVertices(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.vertices(quad);
+    }
+
+    public static Object quadSprite(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.sprite(quad);
+    }
+
+    public static int quadTint(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.tintIndex(quad);
+    }
+
+    public static boolean quadTinted(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.tintIndex(quad) != -1;
+    }
+
+    public static boolean quadShade(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.shade(quad);
+    }
+
+    public static boolean quadAmbientOcclusion(Object quad) {
+        return true;
+    }
+
+    public static Object quadDirection(Object quad) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.direction(quad);
+    }
+
+    public static Object newQuad(Object vertices, int tintIndex, Object direction, Object sprite, boolean shade) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.make((int[]) vertices, tintIndex, direction, sprite,
+                shade);
+    }
+
+    public static Object newQuadWithOcclusion(Object vertices, int tintIndex, Object direction, Object sprite,
+            boolean shade, boolean ambientOcclusion) {
+        return studios.milkdromeda.octo.bridge.client.LegacyQuads.make((int[]) vertices, tintIndex, direction, sprite,
+                shade, ambientOcclusion);
+    }
+
+    /** {@code ModelResourceLocation.standalone(id)}: the location with NeoForge's {@code standalone} variant. */
+    public static Object modelLocationStandalone(Object id, Class<?> owner) {
+        for (java.lang.reflect.Constructor<?> constructor : owner.getConstructors()) {
+            Class<?>[] parameters = constructor.getParameterTypes();
+
+            if (parameters.length == 2 && parameters[1] == String.class && parameters[0].isInstance(id)) {
+                try {
+                    return constructor.newInstance(id, "standalone");
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException("could not make a model location for " + id, e);
+                }
+            }
+        }
+
+        throw new IllegalStateException(owner.getName() + " has no (id, variant) constructor");
+    }
+
+    public static Object modelManagerModel(Object manager, Object location) {
+        return studios.milkdromeda.octo.bridge.client.ExtraModels.model(manager, location);
+    }
+
+    public static Object modelManagerMissing(Object manager) {
+        return studios.milkdromeda.octo.bridge.client.ExtraModels.missing(manager);
+    }
+
+    public static Object bakedModels(Object owner) {
+        return studios.milkdromeda.octo.bridge.client.ExtraModels.models(owner);
+    }
+
+    public static void registerModel(Object event, Object location) {
+        studios.milkdromeda.octo.bridge.client.ExtraModels.request(location);
+    }
+
+    public static Object blockRenderer(Object minecraft) {
+        return studios.milkdromeda.octo.bridge.client.LegacyModels.blockRenderer(minecraft);
+    }
+
+    public static Object modelRenderTypes(Object model, Object state, Object random, Object data) {
+        return studios.milkdromeda.octo.bridge.client.LegacyModels.renderTypes(model, state, random, data);
+    }
+
+    public static Object modelData(Object model, Object level, Object pos, Object state, Object data) {
+        return studios.milkdromeda.octo.bridge.client.LegacyModels.modelData(model, level, pos, state, data);
+    }
+
+    public static Object modelQuads(Object model, Object state, Object side, Object random) {
+        return studios.milkdromeda.octo.bridge.client.LegacyModels.quads(model, state, side, random);
+    }
+
+    public static Object modelQuadsOfLayer(Object model, Object state, Object side, Object random, Object data,
+            Object type) {
+        return studios.milkdromeda.octo.bridge.client.LegacyModels.quads(model, state, side, random, data, type);
+    }
+
+    public static void putBulkData(Object consumer, Object pose, Object quad, float red, float green, float blue,
+            float alpha, int light, int overlay) {
+        studios.milkdromeda.octo.bridge.client.LegacyModels.putBulkData(consumer, pose, quad, red, green, blue, alpha,
+                light, overlay);
+    }
+
+    private static Object renderTypes(Class<?> owner, String name) {
+        return callStatic(game(owner, "net.minecraft.client.renderer.rendertype.RenderTypes"), name, new Class<?>[0]);
     }
 
     // ---------------------------------------------------------- capabilities

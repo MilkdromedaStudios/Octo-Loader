@@ -202,12 +202,18 @@ public final class LiveStandIns {
             return false;
         }
 
-        if (returned.isPrimitive() && returned != void.class) {
-            return returned == long.class ? 0L : returned == double.class ? 0d
-                    : returned == float.class ? 0f : returned == char.class ? (char) 0
-                    : returned == byte.class ? (byte) 0 : returned == short.class ? (short) 0 : 0;
-        }
-
-        return null;
+        // A switch, not a chain of ?: — the conditional operator widens every
+        // branch to their common type, and a float method was handed a Double
+        // (Create's partial tick, through a stand-in DeltaTracker).
+        return switch (returned.getName()) {
+            case "long" -> 0L;
+            case "double" -> 0d;
+            case "float" -> 0f;
+            case "char" -> (char) 0;
+            case "byte" -> (byte) 0;
+            case "short" -> (short) 0;
+            case "int" -> 0;
+            default -> null;
+        };
     }
 }

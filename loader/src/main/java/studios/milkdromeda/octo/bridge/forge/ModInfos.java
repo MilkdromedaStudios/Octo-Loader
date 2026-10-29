@@ -81,6 +81,10 @@ public final class ModInfos {
         return mod(modId).map(loaded -> loaded.metadata().description()).orElse("");
     }
 
+    private static Optional<String> logo(String modId) {
+        return mod(modId).flatMap(loaded -> loaded.metadata().icon());
+    }
+
     private static String license(String modId) {
         return mod(modId).map(loaded -> loaded.metadata().license()).orElse("");
     }
@@ -141,7 +145,7 @@ public final class ModInfos {
 
         @Override
         public Optional<String> getLogoFile() {
-            return Optional.empty();
+            return logo(modId);
         }
 
         @Override
@@ -249,7 +253,7 @@ public final class ModInfos {
 
         @Override
         public Optional<String> getLogoFile() {
-            return Optional.empty();
+            return logo(modId);
         }
 
         @Override

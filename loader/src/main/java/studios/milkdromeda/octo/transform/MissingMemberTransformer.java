@@ -775,6 +775,30 @@ public final class MissingMemberTransformer implements Transformer {
                         }
                     }
 
+                    // A static factory moved to the class's plural holder, as
+                    // 26.x moved RenderType.entitySolid(...) to RenderTypes and
+                    // IntProvider.codec(...) to IntProviders.
+                    if (opcode == Opcodes.INVOKESTATIC) {
+                        String holder = owner + "s";
+                        String moved = lookup.guards(holder)
+                                ? compatibleOverload(holder, name, descriptor, true, true) : null;
+
+                        if (moved == null && lookup.guards(holder)
+                                && Boolean.TRUE.equals(lookup.isStatic(holder, name, descriptor))) {
+                            moved = descriptor;
+                        }
+
+                        if (moved != null && !inaccessible(holder, name, moved)) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, holder, name, moved,
+                                    Boolean.TRUE.equals(lookup.isInterface(holder)));
+                            adaptResult(Type.getReturnType(moved), Type.getReturnType(descriptor));
+                            changed = true;
+                            record(context, owner, name + descriptor, className, "it is " + holder.replace('/', '.')
+                                    + "." + name + " now");
+                            return;
+                        }
+                    }
+
                     if (followNewShape(opcode, owner, name, descriptor, isInterface)) {
                         return;
                     }
@@ -871,6 +895,22 @@ public final class MissingMemberTransformer implements Transformer {
                         super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", compatible, false);
                         changed = true;
                         record(context, owner, "<init>" + descriptor, className, "it takes " + compatible + " now");
+                        return;
+                    }
+
+                    // A constructor whose old arguments are a few lines of the new
+                    // API: the old BakedQuad's vertex data, made into 26.x's record.
+                    String constructorShim = blocked || classVersion < Opcodes.V1_5 ? null
+                            : Shims.shimFor(owner, "<init>", descriptor);
+
+                    if (constructorShim != null) {
+                        super.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), constructorShim,
+                                Shims.constructorDescriptor(descriptor), false);
+                        super.visitTypeInsn(Opcodes.CHECKCAST, owner);
+                        dropUninitialised(made);
+                        changed = true;
+                        record(context, owner, "<init>" + descriptor, className,
+                                "it is rebuilt from what this version's API has");
                         return;
                     }
 
@@ -1352,6 +1392,18 @@ public final class MissingMemberTransformer implements Transformer {
                             record(context, owner, name, className, "it is called " + alias + " now");
                             return;
                         }
+                    }
+
+                    // A constant moved to the class's plural holder: IntProvider.CODEC
+                    // is IntProviders.CODEC since 26.x.
+                    if (opcode == Opcodes.GETSTATIC && lookup.guards(owner + "s")
+                            && Boolean.TRUE.equals(lookup.hasField(owner + "s", name, descriptor))
+                            && !fieldInaccessible(owner + "s", name, descriptor)) {
+                        super.visitFieldInsn(opcode, owner + "s", name, descriptor);
+                        changed = true;
+                        record(context, owner, name, className, "it is " + (owner + "s").replace('/', '.') + "."
+                                + name + " now");
+                        return;
                     }
 
                     Type type = Type.getType(descriptor);

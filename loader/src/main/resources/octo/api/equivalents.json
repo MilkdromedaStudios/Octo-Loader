@@ -145,6 +145,18 @@
     },
     {
       "owner": "net/minecraft/client/Minecraft",
+      "name": "getTimer",
+      "alternatives": ["getDeltaTracker"],
+      "note": "the frame's delta tracker, renamed in 26.x; every animated renderer asks it for the partial tick"
+    },
+    {
+      "owner": "com/mojang/blaze3d/vertex/PoseStack",
+      "name": "clear",
+      "alternatives": ["isEmpty"],
+      "note": "1.21's clear() only said whether the stack was down to its last pose; 26.x calls that isEmpty(). Answered false, catnip's buffers popped the root pose and every Create part failed to build"
+    },
+    {
+      "owner": "net/minecraft/client/Minecraft",
       "name": "reloadResourcePacks",
       "alternatives": ["reloadResourcePacks", "reloadResources"],
       "note": "a mixin naming a lambda inside this method is matched by name rather than by the compiler's index; see MixinTargets"
