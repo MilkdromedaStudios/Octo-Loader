@@ -430,6 +430,10 @@ docs/                       the logo and other project assets
 
 </details>
 
+## Bugs
+
+This is only in development, bugs will be expectied and not all mods will be able to be loaded. If you find any bugs, please open a issue or a pr request with fixes if you are tech savy. 
+
 ## Licence
 
 Octo Loader's own code is Apache-2.0 (see [`LICENSE`](LICENSE)). The vendored upstream sources keep their own licences: Fabric Loader and Quilt Loader are Apache-2.0, Forge and NeoForge's FancyModLoader are LGPL-2.1. Distributing a binary that combines Apache-2.0 and LGPL-2.1 code is not something to do casually; which files come from where, and at which commit, is in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). If you plan to redistribute Octo, read that file first.
