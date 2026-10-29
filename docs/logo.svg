@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="107 102 1040 1040" width="512" height="512" role="img" aria-label="Octo Loader">
+  <title>Octo Loader</title>
+  <defs>
+    <filter id="violet-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="17" result="blur"/>
+      <feFlood flood-color="#cf8cff" flood-opacity="0.95"/>
+      <feComposite in2="blur" operator="in" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="cyan-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="17" result="blur"/>
+      <feFlood flood-color="#7fdcff" flood-opacity="0.95"/>
+      <feComposite in2="blur" operator="in" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Outer arms -->
+  <g fill="#9b1cff" stroke="#9b1cff" stroke-width="36" stroke-linejoin="round" filter="url(#violet-glow)">
+    <polygon points="478,627 224,773 302,864"/>
+    <polygon points="776,627 1030,773 952,864"/>
+  </g>
+  <!-- Inner arms -->
+  <g fill="#00b2ff" stroke="#00b2ff" stroke-width="36" stroke-linejoin="round" filter="url(#cyan-glow)">
+    <polygon points="546,684 355,917 457,1032"/>
+    <polygon points="708,684 899,917 797,1032"/>
+  </g>
+  <!-- Head and body -->
+  <g fill="#6610e8" filter="url(#violet-glow)">
+    <circle cx="627" cy="396" r="232"/>
+    <path d="M512 572 L486 690 L562 650 L550 984 L627 1080 L704 984 L692 650 L768 690 L742 572 Z"
+          stroke="#6610e8" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+  <!-- Shine -->
+  <path d="M441 384 C452 304 506 250 582 224" fill="none" stroke="#ad5cff" stroke-width="30" stroke-linecap="round"/>
+</svg>

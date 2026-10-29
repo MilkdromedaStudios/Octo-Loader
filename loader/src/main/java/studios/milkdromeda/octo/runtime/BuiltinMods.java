@@ -40,6 +40,9 @@ public final class BuiltinMods {
     /** The bundled MixinExtras, which current mods declare a dependency on. */
     public static final String MIXINEXTRAS_VERSION = "0.5.5";
 
+    /** The loader's logo in its own jar, for mod lists to show beside its name. */
+    static final String ICON = "assets/octoloader/icon.png";
+
     private BuiltinMods() {
     }
 
@@ -61,7 +64,8 @@ public final class BuiltinMods {
                 String.valueOf(Runtime.version().feature()), Path.of(System.getProperty("java.home", ".")),
                 "The Java runtime the game is running on."));
         out.add(builtin("octoloader", "Octo Loader", OctoRuntime.VERSION, ownJar,
-                "Runs Fabric, Quilt, Forge and NeoForge mods side by side."));
+                "Runs Fabric, Quilt, Forge and NeoForge mods side by side, including mods made for other "
+                        + "Minecraft versions.", ICON));
         out.add(builtin("fabricloader", "Fabric Loader (Octo)", FABRIC_LOADER_VERSION, ownJar,
                 "Fabric Loader's API, provided by Octo Loader."));
         out.add(builtin("mixinextras", "MixinExtras", MIXINEXTRAS_VERSION, ownJar,
@@ -70,10 +74,16 @@ public final class BuiltinMods {
     }
 
     private static LoadedMod builtin(String id, String name, String version, Path path, String description) {
+        return builtin(id, name, version, path, description, null);
+    }
+
+    private static LoadedMod builtin(String id, String name, String version, Path path, String description,
+            String icon) {
         ModMetadata metadata = ModMetadata.builder(id, ModFormat.BUILTIN)
                 .name(name)
                 .version(version)
                 .description(description)
+                .icon(icon)
                 .build();
         return new LoadedMod(new ModCandidate(path, metadata, null));
     }

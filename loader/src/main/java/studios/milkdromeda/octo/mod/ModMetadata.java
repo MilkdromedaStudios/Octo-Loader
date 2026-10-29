@@ -35,6 +35,7 @@ public final class ModMetadata {
     private final String declaredMinecraftVersion;
     private final List<String> provides;
     private final Map<String, Object> customValues;
+    private final String icon;
 
     private ModMetadata(Builder builder) {
         this.id = builder.id;
@@ -54,6 +55,7 @@ public final class ModMetadata {
         this.declaredMinecraftVersion = builder.declaredMinecraftVersion;
         this.provides = List.copyOf(builder.provides);
         this.customValues = Collections.unmodifiableMap(new LinkedHashMap<>(builder.customValues));
+        this.icon = builder.icon;
 
         Map<String, List<EntrypointSpec>> copy = new LinkedHashMap<>();
         builder.entrypoints.forEach((phase, specs) -> copy.put(phase, List.copyOf(specs)));
@@ -178,6 +180,15 @@ public final class ModMetadata {
         return customValues;
     }
 
+    /**
+     * The mod's icon, as a path inside its jar: Fabric's {@code icon}, Quilt's
+     * {@code metadata.icon}, Forge's and NeoForge's {@code logoFile}. Mod lists
+     * show it beside the mod's name.
+     */
+    public Optional<String> icon() {
+        return Optional.ofNullable(icon);
+    }
+
     /** The Minecraft version range this mod asks for, from whichever field its format uses. */
     public Optional<ModDependency> minecraftDependency() {
         return dependencies.stream().filter(d -> d.modId().equals("minecraft")).findFirst();
@@ -200,6 +211,7 @@ public final class ModMetadata {
         builder.declaredMinecraftVersion = declaredMinecraftVersion;
         builder.provides.addAll(provides);
         builder.customValues.putAll(customValues);
+        builder.icon = icon;
         entrypoints.forEach((phase, specs) -> builder.entrypoints.put(phase, new ArrayList<>(specs)));
         return builder;
     }
@@ -228,6 +240,7 @@ public final class ModMetadata {
         private String declaredMinecraftVersion;
         private final List<String> provides = new ArrayList<>();
         private final Map<String, Object> customValues = new LinkedHashMap<>();
+        private String icon;
 
         private Builder(String id, ModFormat format) {
             this.id = id;
@@ -322,6 +335,18 @@ public final class ModMetadata {
 
         public Builder customValue(String key, Object value) {
             this.customValues.put(key, value);
+            return this;
+        }
+
+        /** The icon's path inside the jar; a leading slash, which some mods write, is dropped. */
+        public Builder icon(String value) {
+            String trimmed = value == null ? "" : value.trim();
+
+            while (trimmed.startsWith("/")) {
+                trimmed = trimmed.substring(1);
+            }
+
+            this.icon = trimmed.isEmpty() ? null : trimmed;
             return this;
         }
 

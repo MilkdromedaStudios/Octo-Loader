@@ -163,7 +163,7 @@ public final class ClassRelinker implements Transformer {
 
     /** @return the class to use instead of {@code internalName}, or {@code null} to leave it */
     public String replacementFor(String internalName) {
-        if (!inFamily(internalName) || exists.test(internalName)) {
+        if (!inFamily(internalName)) {
             return null;
         }
 
@@ -171,11 +171,23 @@ public final class ClassRelinker implements Transformer {
         // class, and a map must not be updated from inside its own update.
         Optional<String> decided = decisions.get(internalName);
 
-        if (decided == null) {
-            decided = search(internalName);
-            decisions.put(internalName, decided);
+        // Decided once, decided for good. A name relinked for the classes
+        // loaded first can be added back from the old release afterwards,
+        // for a class nobody relinked; asked then whether it exists, the
+        // answer was yes, and the classes loaded later named the old class
+        // while the earlier ones named the new. A mod's own code ended up
+        // holding both — Create's buffers asked the old model type for
+        // methods only the new one is answered for.
+        if (decided != null) {
+            return decided.orElse(null);
         }
 
+        if (exists.test(internalName)) {
+            return null;
+        }
+
+        decided = search(internalName);
+        decisions.put(internalName, decided);
         return decided.orElse(null);
     }
 

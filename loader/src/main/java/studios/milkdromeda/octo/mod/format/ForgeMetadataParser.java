@@ -83,7 +83,8 @@ public final class ForgeMetadataParser implements MetadataParser {
                     .name(string(mod, "displayName", id))
                     .version(resolvePlaceholders(string(mod, "version", "0.0.0"), jarVersion))
                     .description(string(mod, "description", ""))
-                    .license(license);
+                    .license(license)
+                    .icon(string(mod, "logoFile", string(config, "logoFile", null)));
 
             for (String author : splitAuthors(string(mod, "authors", ""))) {
                 builder.author(author);

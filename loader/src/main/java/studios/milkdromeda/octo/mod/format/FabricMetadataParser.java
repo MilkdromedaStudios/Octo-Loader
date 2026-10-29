@@ -50,6 +50,7 @@ public final class FabricMetadataParser implements MetadataParser {
                 .version(Json.string(json, "version", "0.0.0"))
                 .description(Json.string(json, "description", ""))
                 .license(Json.string(json, "license", ""))
+                .icon(Json.icon(json, "icon"))
                 .side(Side.parse(Json.string(json, "environment", "*"), Side.BOTH));
 
         Json.strings(json, "authors").forEach(builder::author);

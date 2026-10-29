@@ -317,6 +317,75 @@ public final class MappingSet {
     }
 
     /**
+     * This set, less what it would get wrong applied after {@code first}.
+     *
+     * <p>For a table keyed in the same names as {@code first} but applied to
+     * what {@code first} produced: the renames found by comparing a mod's own
+     * release with the running game, applied after the published tables have
+     * taken the mod to 1.21.11's names. Its use is the members those tables
+     * lost track of, which they leave as they were. A member they rename has
+     * a new name by the time this is asked, and that name can be another old
+     * member's: 1.21.1's {@code Registry.getHolder(key)} is {@code get(key)}
+     * after the tables, and 1.21.1's own {@code get(key)} became {@code
+     * getValue}, so the second step turned every {@code getHolder} into a
+     * {@code getValue} that hands back the entry rather than its holder. So
+     * an entry is kept only for a member {@code first} leaves alone, and only
+     * where no member {@code first} renames, on any class, lands on its name.
+     */
+    public MappingSet unchangedBy(MappingSet first) {
+        if (isEmpty() || first == null || first.isEmpty()) {
+            return this;
+        }
+
+        // By name alone: a rename on Registry reaches every registry type a
+        // call can name it through, and this has no hierarchy to follow.
+        java.util.Set<String> methodTargets = new java.util.HashSet<>(first.globalMethods.values());
+        first.methods.forEach((key, to) -> {
+            if (!to.equals(key.name())) {
+                methodTargets.add(to);
+            }
+        });
+        java.util.Set<String> fieldTargets = new java.util.HashSet<>(first.globalFields.values());
+        first.fields.forEach((key, to) -> {
+            if (!to.equals(key.name())) {
+                fieldTargets.add(to);
+            }
+        });
+
+        Builder builder = builder(name + " beyond " + first.name);
+        classes.forEach((from, to) -> {
+            if (first.mapClass(from).equals(from)) {
+                builder.mapClass(from, to);
+            }
+        });
+        methods.forEach((key, to) -> {
+            String renamed = first.lookupMethod(key.owner(), key.name(), key.descriptor());
+
+            if ((renamed == null || renamed.equals(key.name())) && !methodTargets.contains(key.name())) {
+                builder.mapMethod(key.owner(), key.name(), key.descriptor(), to);
+            }
+        });
+        fields.forEach((key, to) -> {
+            String renamed = first.lookupField(key.owner(), key.name(), key.descriptor());
+
+            if ((renamed == null || renamed.equals(key.name())) && !fieldTargets.contains(key.name())) {
+                builder.mapField(key.owner(), key.name(), key.descriptor(), to);
+            }
+        });
+        globalMethods.forEach((from, to) -> {
+            if (!first.globalMethods.containsKey(from) && !methodTargets.contains(from)) {
+                builder.mapMethodGlobally(from, to);
+            }
+        });
+        globalFields.forEach((from, to) -> {
+            if (!first.globalFields.containsKey(from) && !fieldTargets.contains(from)) {
+                builder.mapFieldGlobally(from, to);
+            }
+        });
+        return builder.build();
+    }
+
+    /**
      * Composes with a second set, so that applying the result once is the same as
      * applying this and then {@code next}.
      */

@@ -698,6 +698,35 @@ class GameGapsTest {
     }
 
     @Test
+    @DisplayName("a factory or constant that moved to the type's plural holder is reached there")
+    void movedToPluralHolder() throws Exception {
+        String paint = "net/minecraft/octotest/Paint3";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        // Paint3.of("blue"), compiled before of moved to Paint3s.
+        MethodVisitor factory = method(writer, "factory", "()Ljava/lang/Object;");
+        factory.visitLdcInsn("blue");
+        factory.visitMethodInsn(Opcodes.INVOKESTATIC, paint, "of", "(Ljava/lang/String;)L" + paint + ";", false);
+        factory.visitFieldInsn(Opcodes.GETFIELD, paint, "colour", "Ljava/lang/String;");
+        factory.visitInsn(Opcodes.ARETURN);
+        end(factory);
+
+        // Paint3.RED, likewise.
+        MethodVisitor constant = method(writer, "constant", "()Ljava/lang/Object;");
+        constant.visitFieldInsn(Opcodes.GETSTATIC, paint, "RED", "L" + paint + ";");
+        constant.visitFieldInsn(Opcodes.GETFIELD, paint, "colour", "Ljava/lang/String;");
+        constant.visitInsn(Opcodes.ARETURN);
+        end(constant);
+
+        writer.visitEnd();
+        Class<?> caller = repaired(writer.toByteArray());
+
+        assertEquals("blue", call(caller, "factory"));
+        assertEquals("red", call(caller, "constant"));
+    }
+
+    @Test
     @DisplayName("a class nothing can build hands back null instead of throwing")
     void unbuildableIsNull() {
         assertNull(GapBridge.construct(Runnable.class, new Object[0]));

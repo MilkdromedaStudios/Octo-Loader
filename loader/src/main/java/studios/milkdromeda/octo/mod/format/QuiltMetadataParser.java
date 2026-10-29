@@ -63,6 +63,7 @@ public final class QuiltMetadataParser implements MetadataParser {
                 .version(Json.string(loader, "version", "0.0.0"))
                 .description(Json.string(metadata, "description", ""))
                 .license(Json.string(metadata, "license", ""))
+                .icon(Json.icon(metadata, "icon"))
                 .side(Side.parse(Json.string(minecraft, "environment", "*"), Side.BOTH));
 
         JsonObject contributors = Json.object(metadata, "contributors");

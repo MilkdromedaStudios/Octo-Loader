@@ -80,6 +80,14 @@ public final class OctoNeoEventBus implements IEventBus {
         return event;
     }
 
+    /**
+     * Posts an event of any type: one the game's loader patches fired that
+     * may not extend this bus's {@code Event}, such as Forge 66's record events.
+     */
+    void postAny(Object event) {
+        dispatcher.post(event);
+    }
+
     public int listenerCount() {
         return dispatcher.size();
     }

@@ -122,6 +122,8 @@ public final class AbstractGaps implements Transformer {
         }
 
         Map<String, String> missing = new LinkedHashMap<>();
+        boolean bridgedRenderer = LegacyRendererBridge.bridges(List.of(reader.getInterfaces()), own.keySet())
+                || chain.stream().anyMatch(type -> LegacyRendererBridge.bridges(type.interfaces(), type.methods()));
 
         for (MemberIndex.Shape type : concat(chain, interfaces)) {
             if (!isGame(type.name())) {
@@ -132,7 +134,8 @@ public final class AbstractGaps implements Transformer {
                 Integer access = type.access().get(method);
 
                 if (access != null && (access & Opcodes.ACC_ABSTRACT) != 0 && (access & Opcodes.ACC_STATIC) == 0
-                        && !implemented(method, own, chain, interfaces)) {
+                        && !implemented(method, own, chain, interfaces)
+                        && !(bridgedRenderer && LegacyRendererBridge.writes(method))) {
                     missing.putIfAbsent(method, type.name());
                 }
             }

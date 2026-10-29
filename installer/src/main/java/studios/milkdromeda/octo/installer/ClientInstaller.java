@@ -146,7 +146,7 @@ public final class ClientInstaller {
             // ${game_directory} argument in the version profile.  Recording it
             // explicitly also preserves non-default installations.
             profile.addProperty("gameDir", gameDirectory.toAbsolutePath().normalize().toString());
-            profile.addProperty("icon", "Furnace");
+            profile.addProperty("icon", profileIcon());
 
             profiles.add("octo-loader-" + minecraftVersion, profile);
             root.add("profiles", profiles);
@@ -156,6 +156,21 @@ public final class ClientInstaller {
         } catch (IOException | RuntimeException e) {
             log.info("could not update launcher_profiles.json (" + e + "); select \"" + versionId
                     + "\" manually in your launcher");
+        }
+    }
+
+    /**
+     * The profile's icon: the loader's mark, as the data URI the launcher
+     * reads a custom icon from, at the 128 pixels it draws them. A launcher
+     * block icon if the mark cannot be drawn.
+     */
+    private static String profileIcon() {
+        try {
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write((java.awt.image.RenderedImage) Mark.image(128), "png", png);
+            return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(png.toByteArray());
+        } catch (IOException | RuntimeException | LinkageError e) {
+            return "Furnace";
         }
     }
 

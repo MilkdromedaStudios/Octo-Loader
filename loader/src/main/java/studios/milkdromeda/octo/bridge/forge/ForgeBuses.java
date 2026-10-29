@@ -91,6 +91,43 @@ public final class ForgeBuses {
         return COMMON_NEO;
     }
 
+    /**
+     * Posts an event the loaders' patched game fires on every mod's bus, as
+     * their client fires its model events. A NeoForge event reaches NeoForge
+     * mods; anything else reaches Forge mods, and the event's own EventBus 7
+     * bus, where Forge 66 mods listen.
+     */
+    public static void postToEveryMod(Object event) {
+        if (event instanceof net.neoforged.bus.api.Event) {
+            for (OctoNeoEventBus bus : NEO_BUSES.values()) {
+                bus.postAny(event);
+            }
+
+            return;
+        }
+
+        for (OctoForgeEventBus bus : FORGE_BUSES.values()) {
+            bus.postAny(event);
+        }
+
+        try {
+            java.lang.reflect.Field field = event.getClass().getField("BUS");
+
+            if (field.get(null) instanceof net.minecraftforge.eventbus.api.bus.EventBus<?> bus
+                    && event instanceof net.minecraftforge.eventbus.internal.Event forge && bus.hasListeners()) {
+                postTo(bus, forge);
+            }
+        } catch (NoSuchFieldException | IllegalAccessException | RuntimeException e) {
+            // Not an EventBus 7 event; the mod buses above are all it has.
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void postTo(net.minecraftforge.eventbus.api.bus.EventBus bus,
+            net.minecraftforge.eventbus.internal.Event event) {
+        bus.post(event);
+    }
+
     /** Test hook: forgets every registered listener. */
     public static void reset() {
         FORGE_BUSES.clear();
