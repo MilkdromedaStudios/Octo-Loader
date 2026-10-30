@@ -166,6 +166,25 @@ public final class Shims {
                     "registryAsLookup"),
             Map.entry("net/minecraft/core/WritableRegistry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
                     "registryAsLookup"),
+            // Saved data made from a factory and a name, as it was until
+            // 1.21.5: a SavedDataType made from them (SavedDataFactories).
+            savedData("SavedDataStorage", "computeIfAbsent", "savedDataComputeIfAbsent"),
+            savedData("DimensionDataStorage", "computeIfAbsent", "savedDataComputeIfAbsent"),
+            savedData("SavedDataStorage", "get", "savedDataGet"),
+            savedData("DimensionDataStorage", "get", "savedDataGet"),
+            // Entity types built from a name and made without a reason, as
+            // before 1.21.2: every older mod's entities came out null.
+            Map.entry("net/minecraft/world/entity/EntityType$Builder.build(Ljava/lang/String;)"
+                    + "Lnet/minecraft/world/entity/EntityType;", "entityTypeBuild"),
+            Map.entry("net/minecraft/world/entity/EntityType.create(Lnet/minecraft/world/level/Level;)"
+                    + "Lnet/minecraft/world/entity/Entity;", "entityTypeCreate"),
+            // NeoForge's public way to name a command argument's class.
+            Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
+                    + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
+                    + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;", "argumentRegisterByClass"),
+            // NeoForge's patch to the block entity type: the blocks it is for.
+            Map.entry("net/minecraft/world/level/block/entity/BlockEntityType.getValidBlocks()Ljava/util/Set;",
+                    "blockEntityValidBlocks"),
             // NeoForge's patch to the model location, which the class added
             // back from the game alone does not have: a loose model's location.
             Map.entry(MODEL_LOCATION + ".standalone(Lnet/minecraft/resources/Identifier;)L" + MODEL_LOCATION + ";",
@@ -271,6 +290,9 @@ public final class Shims {
      */
     private static final String CAPABILITIES = "net/neoforged/neoforge/capabilities/";
 
+    private static final String SERIALIZERS = "net/minecraft/network/syncher/EntityDataSerializers";
+    private static final String SERIALIZER = "net/minecraft/network/syncher/EntityDataSerializer";
+
     private static final Map<String, String> FIELD_SHIMS = Map.ofEntries(
             // NeoForge 26 kept only FluidIngredient.CODEC; Create builds every
             // processing recipe's codec on the map codec, and without it not
@@ -291,7 +313,20 @@ public final class Shims {
             capability("FluidHandler", "ITEM", "Item", "legacyFluidItem"),
             capability("EnergyStorage", "BLOCK", "Block", "legacyEnergyBlock"),
             capability("EnergyStorage", "ENTITY", "Entity", "legacyEnergyEntity"),
-            capability("EnergyStorage", "ITEM", "Item", "legacyEnergyItem"));
+            capability("EnergyStorage", "ITEM", "Item", "legacyEnergyItem"),
+            // Entity data kinds 1.21.5 removed: an optional UUID (an owner, a
+            // controller) and a compound tag. Create's contraptions define
+            // theirs in their static initialiser, and a null there kept every
+            // contraption, seat and glue entity from being registered.
+            Map.entry(SERIALIZERS + ".OPTIONAL_UUID:L" + SERIALIZER + ";", "serializerOptionalUuid"),
+            Map.entry(SERIALIZERS + ".COMPOUND_TAG:L" + SERIALIZER + ";", "serializerCompoundTag"),
+            // The game's own recipe serializers, each on its recipe class since
+            // RecipeSerializer became a record; mods build theirs on them.
+            Map.entry(CRAFTING + "RecipeSerializer.SHAPED_RECIPE:L" + CRAFTING + "RecipeSerializer;",
+                    "recipeSerializerShaped"),
+            Map.entry(CRAFTING + "RecipeSerializer.SHAPELESS_RECIPE:L" + CRAFTING + "RecipeSerializer;",
+                    "recipeSerializerShapeless"));
+
 
     private static Map.Entry<String, String> capability(String group, String field, String kind, String shim) {
         return Map.entry(CAPABILITIES + "Capabilities$" + group + "." + field + ":L" + CAPABILITIES + kind
@@ -559,6 +594,51 @@ public final class Shims {
 
     // -------------------------------------------------------------- NeoForge
 
+    private static volatile Object[] legacySerializers;
+
+    public static Object serializerOptionalUuid(Class<?> owner) {
+        return legacySerializers(owner)[0];
+    }
+
+    public static Object serializerCompoundTag(Class<?> owner) {
+        return legacySerializers(owner)[1];
+    }
+
+    /**
+     * Both made and registered together, the first time either is asked
+     * for, so a client and a server agree on the numbers they are sent by.
+     */
+    private static Object[] legacySerializers(Class<?> owner) {
+        Object[] made = legacySerializers;
+
+        if (made != null) {
+            return made;
+        }
+
+        synchronized (Shims.class) {
+            if (legacySerializers == null) {
+                Class<?> serializers = game(owner, SERIALIZERS.replace('/', '.'));
+                Class<?> serializer = game(owner, SERIALIZER.replace('/', '.'));
+                Class<?> codecs = game(owner, "net.minecraft.network.codec.ByteBufCodecs");
+                Class<?> streamCodec = game(owner, "net.minecraft.network.codec.StreamCodec");
+                Object uuids = callStatic(codecs, "optional", new Class<?>[] { streamCodec },
+                        staticField(game(owner, "net.minecraft.core.UUIDUtil"), "STREAM_CODEC"));
+                Object[] out = {
+                        callStatic(serializer, "forValueType", new Class<?>[] { streamCodec }, uuids),
+                        callStatic(serializer, "forValueType", new Class<?>[] { streamCodec },
+                                staticField(codecs, "COMPOUND_TAG")) };
+
+                for (Object each : out) {
+                    callStatic(serializers, "registerSerializer", new Class<?>[] { serializer }, each);
+                }
+
+                legacySerializers = out;
+            }
+
+            return legacySerializers;
+        }
+    }
+
     /** {@code FluidStack.FLUID_NON_EMPTY_CODEC}: a fluid, by its registry name. */
     public static Object fluidHolderCodec(Class<?> owner) {
         Object fluids = staticField(game(owner, "net.minecraft.core.registries.BuiltInRegistries"), "FLUID");
@@ -815,6 +895,87 @@ public final class Shims {
     }
 
     /** {@code registry.asLookup()}: the registry, which is its own lookup now. */
+    private static Map.Entry<String, String> savedData(String storage, String method, String shim) {
+        return Map.entry("net/minecraft/world/level/storage/" + storage + "." + method
+                + "(Lnet/minecraft/world/level/saveddata/SavedData$Factory;Ljava/lang/String;)"
+                + "Lnet/minecraft/world/level/saveddata/SavedData;", shim);
+    }
+
+    public static Object savedDataComputeIfAbsent(Object storage, Object factory, Object name) {
+        return studios.milkdromeda.octo.bridge.SavedDataFactories.computeIfAbsent(storage, factory, (String) name);
+    }
+
+    public static Object savedDataGet(Object storage, Object factory, Object name) {
+        return studios.milkdromeda.octo.bridge.SavedDataFactories.get(storage, factory, (String) name);
+    }
+
+    /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */
+    public static Object entityTypeBuild(Object builder, Object name) {
+        Class<?> resourceKey = game(builder.getClass(), "net.minecraft.resources.ResourceKey");
+        Class<?> identifier = game(builder.getClass(), "net.minecraft.resources.Identifier");
+        Object registry = staticField(game(builder.getClass(), "net.minecraft.core.registries.Registries"),
+                "ENTITY_TYPE");
+        Object id = studios.milkdromeda.octo.bridge.RegistrationContext.currentId("entity_type");
+
+        if (id == null) {
+            String text = String.valueOf(name).toLowerCase(java.util.Locale.ROOT);
+            id = callStatic(identifier, "parse", new Class<?>[] { String.class },
+                    text.indexOf(':') < 0 ? "minecraft:" + text : text);
+        }
+
+        Object key = callStatic(resourceKey, "create", new Class<?>[] { resourceKey, identifier }, registry, id);
+        return callWith(builder, "build", new Class<?>[] { resourceKey }, key);
+    }
+
+    /** {@code EntityType.create(level)}: made as an entity read back from the world is. */
+    public static Object entityTypeCreate(Object type, Object level) {
+        Class<?> levelType = game(type.getClass(), "net.minecraft.world.level.Level");
+        Class<?> reason = game(type.getClass(), "net.minecraft.world.entity.EntitySpawnReason");
+        return callWith(type, "create", new Class<?>[] { levelType, reason }, level, staticField(reason, "LOAD"));
+    }
+
+    public static Object recipeSerializerShaped(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.world.item.crafting.ShapedRecipe"), "SERIALIZER");
+    }
+
+    public static Object recipeSerializerShapeless(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.world.item.crafting.ShapelessRecipe"), "SERIALIZER");
+    }
+
+    /** {@code ArgumentTypeInfos.registerByClass(type, info)}: the info, filed under its argument's class. */
+    @SuppressWarnings("unchecked")
+    public static Object argumentRegisterByClass(Object type, Object info, Class<?> owner) {
+        try {
+            java.lang.reflect.Field field = owner.getDeclaredField("BY_CLASS");
+            field.setAccessible(true);
+
+            synchronized (owner) {
+                ((Map<Object, Object>) field.get(null)).put(type, info);
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Unknown to the game, the argument still parses; it is only not sent to clients.
+        }
+
+        return info;
+    }
+
+    /** {@code BlockEntityType.getValidBlocks()}: the set the type was made with. */
+    public static Object blockEntityValidBlocks(Object type) {
+        for (Class<?> at = type.getClass(); at != null; at = at.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field = at.getDeclaredField("validBlocks");
+                field.setAccessible(true);
+                return field.get(type);
+            } catch (NoSuchFieldException e) {
+                // Declared higher up.
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                break;
+            }
+        }
+
+        return java.util.Set.of();
+    }
+
     public static Object registryAsLookup(Object registry) {
         return registry;
     }

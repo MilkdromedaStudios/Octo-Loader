@@ -114,6 +114,8 @@ class RegistryProbeTest {
                         REGISTRY.entries.put("minecraft:item", items);
 
                         REGISTRY.entries.put("minecraft:custom_stat", new Registry<Object>());
+                        // A mod's own registry, filled later by its register event.
+                        REGISTRY.entries.put("create:contraption_type", new Registry<Object>());
 
                         DefaultedRegistry<Object> chunkStatus = new DefaultedRegistry<>();
                         REGISTRY.entries.put("minecraft:chunk_status", chunkStatus);

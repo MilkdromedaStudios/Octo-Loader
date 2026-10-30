@@ -7,6 +7,9 @@ import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -111,6 +114,28 @@ public final class RegistrateSupport implements Transformer {
                     method.instructions.insertBefore(instruction,
                             new MethodInsnNode(Opcodes.INVOKESTATIC, CONTEXT, "exit", "()V", false));
                 }
+            }
+
+            // Registrate logs only that an entry failed, never why: the cause
+            // is said here, with the entry's id, before it goes on its way.
+            org.objectweb.asm.Type[] arguments = org.objectweb.asm.Type.getArgumentTypes(method.desc);
+
+            if ((method.access & Opcodes.ACC_STATIC) == 0 && arguments.length == 1
+                    && arguments[0].getSort() == org.objectweb.asm.Type.OBJECT) {
+                LabelNode start = new LabelNode();
+                LabelNode end = new LabelNode();
+                LabelNode handler = new LabelNode();
+                method.instructions.insert(start);
+                method.instructions.add(end);
+                method.instructions.add(handler);
+                method.instructions.add(new FrameNode(Opcodes.F_FULL, 2,
+                        new Object[] { node.name, arguments[0].getInternalName() }, 1,
+                        new Object[] { "java/lang/Throwable" }));
+                method.instructions.add(new InsnNode(Opcodes.DUP));
+                method.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CONTEXT, "failed",
+                        "(Ljava/lang/Throwable;)V", false));
+                method.instructions.add(new InsnNode(Opcodes.ATHROW));
+                method.tryCatchBlocks.add(new TryCatchBlockNode(start, end, handler, "java/lang/Throwable"));
             }
 
             return true;

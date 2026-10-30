@@ -65,7 +65,7 @@ public final class ModRebuilder {
     private static final OctoLog LOG = OctoLog.of(ModRebuilder.class);
 
     /** Bumped whenever what a rebuild produces changes, so old caches are not reused. */
-    private static final int FORMAT = 7;
+    private static final int FORMAT = 9;
 
     private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
 

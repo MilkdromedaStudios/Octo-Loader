@@ -232,7 +232,7 @@ public final class MissingMemberTransformer implements Transformer {
     @Override
     public boolean handles(String className, TransformContext context) {
         if (translatedModsOnly && (context.mod() == null || !context.mod().isFromAnotherVersion())
-                && !isAlsoCovered(className)) {
+                && !isAlsoCovered(className) && !isForPatchedGame(context)) {
             return false;
         }
 
@@ -276,6 +276,17 @@ public final class MissingMemberTransformer implements Transformer {
             "fabricmc/", "fml/", "quiltmc/", "neoforged/", "minecraftforge/", "liteloader/",
             "artifact/versioning/"));
 
+
+    /**
+     * A Forge or NeoForge mod built for this very version: it was compiled
+     * against the loader's patched game, and the members those patches add
+     * are missing from the game Octo runs just as surely as the members an
+     * older release had. Fabric's are not: they run on the game as it is.
+     */
+    private static boolean isForPatchedGame(TransformContext context) {
+        return context.mod() != null && !context.mod().isBuiltin()
+                && context.mod().format().family() == studios.milkdromeda.octo.mod.ModFormat.Family.FORGE;
+    }
 
     private boolean isAlsoCovered(String className) {
         for (String prefix : alsoCovered) {

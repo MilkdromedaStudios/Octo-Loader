@@ -48,6 +48,35 @@ public final class RegistrationContext {
         CURRENT.set(previous.length == 0 ? null : previous);
     }
 
+    /**
+     * The id of the entry being built now, when it is going into the registry
+     * named {@code registry} ({@code entity_type}); {@code null} otherwise.
+     */
+    public static Object currentId(String registry) {
+        Object[] current = CURRENT.get();
+        return current != null && current.length == 2 && registry.equals(path(current[0])) ? current[1] : null;
+    }
+
+    /**
+     * Called as Registrate's {@code Registration.register} throws: says which
+     * entry could not be made and why, which Registrate itself does not, and
+     * leaves the entry's context.
+     */
+    public static void failed(Throwable error) {
+        Object[] current = CURRENT.get();
+        Throwable cause = Failures.unwrap(error);
+
+        if (current != null && current.length == 2) {
+            LOG.warn("{} {} could not be made, so it is not registered: {}", path(current[0]), current[1],
+                    Failures.describe(cause));
+        } else {
+            LOG.warn("an entry could not be made, so it is not registered: {}", Failures.describe(cause));
+        }
+
+        OctoLog.detail(cause);
+        exit();
+    }
+
     /** Forgets whatever an entry that threw left behind. */
     public static void clear() {
         ENTERED.get().clear();

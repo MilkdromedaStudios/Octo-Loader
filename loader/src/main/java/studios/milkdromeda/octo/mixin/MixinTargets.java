@@ -675,8 +675,11 @@ public final class MixinTargets implements Transformer {
             }
         }
 
+        // Synthetic, so mixin still counts the interface an accessor mixin:
+        // one ordinary method in it and mixin takes the whole interface for
+        // an interface mixin, which may only target an interface.
         boolean isStatic = (method.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0;
-        method.access &= ~org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+        method.access = (method.access & ~org.objectweb.asm.Opcodes.ACC_ABSTRACT) | org.objectweb.asm.Opcodes.ACC_SYNTHETIC;
         method.instructions = body;
         method.tryCatchBlocks.clear();
         method.localVariables = null;
@@ -697,6 +700,12 @@ public final class MixinTargets implements Transformer {
         for (String prefix : List.of("get", "set", "is", "invoke", "call")) {
             if (accessorName.length() > prefix.length() && accessorName.startsWith(prefix)) {
                 String rest = accessorName.substring(prefix.length());
+
+                // As mixin names it: setGRID_WIDTH reads GRID_WIDTH, not gRID_WIDTH.
+                if (rest.toUpperCase(java.util.Locale.ROOT).equals(rest)) {
+                    return rest;
+                }
+
                 return Character.toLowerCase(rest.charAt(0)) + rest.substring(1);
             }
         }

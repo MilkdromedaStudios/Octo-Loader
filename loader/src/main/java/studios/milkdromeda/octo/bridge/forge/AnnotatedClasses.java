@@ -28,6 +28,7 @@ import studios.milkdromeda.octo.util.OctoLog;
  */
 public final class AnnotatedClasses {
     private static final OctoLog LOG = OctoLog.of(AnnotatedClasses.class);
+    private static final Set<String> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private static final Set<String> SUBSCRIBERS = Set.of(
             "Lnet/minecraftforge/fml/common/Mod$EventBusSubscriber;",
@@ -186,9 +187,17 @@ public final class AnnotatedClasses {
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             Throwable cause = Failures.unwrap(e);
-            LOG.error("{}: listener {}.{} threw {}", mod.id(), method.getDeclaringClass().getName(),
-                    method.getName(), Failures.describe(cause));
-            OctoLog.detail(cause);
+
+            // A listener to a tick event that throws throws every tick: said
+            // once, and again only when it fails some other way.
+            if (REPORTED.add(method + ":" + cause.getClass().getName())) {
+                LOG.error("{}: listener {}.{} threw {}", mod.id(), method.getDeclaringClass().getName(),
+                        method.getName(), Failures.describe(cause));
+                OctoLog.detail(cause);
+            } else {
+                LOG.debug("{}: listener {}.{} threw {} again", mod.id(), method.getDeclaringClass().getName(),
+                        method.getName(), cause);
+            }
         }
     }
 
