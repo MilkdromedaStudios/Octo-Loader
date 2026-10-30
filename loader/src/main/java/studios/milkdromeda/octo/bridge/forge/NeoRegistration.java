@@ -53,6 +53,19 @@ public final class NeoRegistration {
         }
 
         StateIds.assign(loader);
+
+        // Capabilities next, as NeoForge registers them once the registries
+        // are frozen and before setup: each mod says what its blocks, block
+        // entities, entities and items offer — Create's tanks a fluid
+        // handler, its depots an item handler — and every query for one
+        // finds nothing if this never ran.
+        step("register the mods' capabilities", () -> call(find(loader,
+                "net.neoforged.neoforge.capabilities.CapabilityHooks"), "init"));
+
+        // And their packets: without them in NeoForge's table, the first
+        // packet a mod sends cannot be written and drops the player.
+        ModPayloads.setup(loader);
+
         LOG.info("NeoForge registration ran: {}", summary(loader));
         return true;
     }

@@ -3,6 +3,8 @@ package studios.milkdromeda.octo.bridge.forge;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 import studios.milkdromeda.octo.util.Failures;
@@ -26,9 +28,22 @@ final class EventDispatcher {
         this.modId = modId;
     }
 
+    /**
+     * @param declined event types this listener, added without naming one,
+     *        has already turned down: game events come every tick, and a
+     *        listener that refused one by failing its own cast will refuse
+     *        the next the same way
+     */
     private record Listener(Class<?> eventType, Object target, Method method, Consumer<Object> consumer, int priority,
-            boolean receiveCancelled) {
+            boolean receiveCancelled, Set<Class<?>> declined) {
+        Listener(Class<?> eventType, Object target, Method method, Consumer<Object> consumer, int priority,
+                boolean receiveCancelled) {
+            this(eventType, target, method, consumer, priority, receiveCancelled, ConcurrentHashMap.newKeySet());
+        }
     }
+
+    /** Failures already logged, by listener and event type: one that fails every tick is said once. */
+    private final Set<String> reported = ConcurrentHashMap.newKeySet();
 
     /**
      * Whether a cast failure is the listener turning the event down, rather
@@ -120,6 +135,10 @@ final class EventDispatcher {
                 continue;
             }
 
+            if (listener.eventType() == null && listener.declined().contains(event.getClass())) {
+                continue;
+            }
+
             try {
                 if (listener.consumer() != null) {
                     listener.consumer().accept(event);
@@ -131,24 +150,34 @@ final class EventDispatcher {
                     // A listener added without naming its event type: generics
                     // are erased, so the only way to know it does not want this
                     // event is for its own cast to reject it.
+                    listener.declined().add(event.getClass());
                     LOG.trace("{}: listener declined {}", modId, event.getClass().getSimpleName());
                 } else {
-                    LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(),
-                            Failures.describe(e));
-                    OctoLog.detail(e);
+                    failed(listener, event, e);
                 }
             } catch (Throwable e) {
                 Failures.rethrowIfFatal(e);
                 Throwable cause = Failures.unwrap(e);
 
                 if (cause instanceof ClassCastException cast && isDecline(cast)) {
+                    listener.declined().add(event.getClass());
                     continue;
                 }
 
-                LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(),
-                        Failures.describe(cause));
-                OctoLog.detail(cause);
+                failed(listener, event, cause);
             }
+        }
+    }
+
+    private void failed(Listener listener, Object event, Throwable cause) {
+        String key = System.identityHashCode(listener) + ":" + event.getClass().getName() + ":"
+                + cause.getClass().getName();
+
+        if (reported.add(key)) {
+            LOG.error("{}: listener for {} threw {}", modId, event.getClass().getSimpleName(), Failures.describe(cause));
+            OctoLog.detail(cause);
+        } else {
+            LOG.debug("{}: listener for {} threw {} again", modId, event.getClass().getSimpleName(), cause);
         }
     }
 

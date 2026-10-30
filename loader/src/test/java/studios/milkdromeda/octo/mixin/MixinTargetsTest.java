@@ -336,4 +336,68 @@ class MixinTargetsTest {
                         .anyMatch(annotation -> annotation.desc.equals("Lorg/spongepowered/asm/mixin/Pseudo;")),
                 "the mixin should have been marked @Pseudo");
     }
+
+    /**
+     * An accessor interface where one field is gone with nothing like it left,
+     * and one is named in capitals, as constants are.
+     */
+    private static ClassNode adaptedAccessorInterface() {
+        Map<String, byte[]> source = SourceCompiler.compile(Map.of("mixinpkg.LevelSourceAccessor", """
+                package mixinpkg;
+
+                import org.spongepowered.asm.mixin.Mixin;
+                import org.spongepowered.asm.mixin.gen.Accessor;
+
+                @Mixin(targets = "game.LevelSource")
+                public interface LevelSourceAccessor {
+                    @Accessor
+                    static void setGRID_WIDTH(int width) {
+                        throw new AssertionError();
+                    }
+
+                    @Accessor("lightDirections")
+                    float[] getLightDirections();
+                }
+                """));
+
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "game/LevelSource", null, "java/lang/Object", null);
+        writer.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, "GRID_WIDTH", "I", null, null).visitEnd();
+        writer.visitField(Opcodes.ACC_PRIVATE, "lightBuffer", "Ljava/lang/Object;", null, null).visitEnd();
+        writer.visitEnd();
+
+        Equivalents table = Equivalents.parse(new StringReader(TABLE), "test");
+        Map<String, byte[]> classPath = Map.of("game/LevelSource", writer.toByteArray());
+        byte[] adapted = new MixinTargets(table, classPath::get).transform("mixinpkg/LevelSourceAccessor",
+                source.get("mixinpkg.LevelSourceAccessor"), TransformContext.of(null, classPath::containsKey));
+
+        ClassNode node = new ClassNode();
+        new ClassReader(adapted).accept(node, 0);
+        return node;
+    }
+
+    @Test
+    @DisplayName("an accessor for a field that is gone answers a default, and leaves the interface an accessor mixin")
+    void goneFieldAccessorIsRetiredAsSynthetic() {
+        MethodNode retired = null;
+        MethodNode constant = null;
+
+        for (MethodNode method : adaptedAccessorInterface().methods) {
+            if (method.name.equals("getLightDirections")) {
+                retired = method;
+            } else if (method.name.equals("setGRID_WIDTH")) {
+                constant = method;
+            }
+        }
+
+        assertNotNull(retired);
+        assertEquals(0, retired.access & Opcodes.ACC_ABSTRACT, "it has a body now");
+        assertTrue((retired.access & Opcodes.ACC_SYNTHETIC) != 0,
+                "one ordinary method makes mixin take the interface for an interface mixin, which fails");
+        assertTrue(all(retired).isEmpty(), "mixin would still try to generate it");
+
+        assertNotNull(constant);
+        assertEquals(1, all(constant).size(), "GRID_WIDTH is there: mixin finds it by the capitalised name");
+        assertNull(value(all(constant).get(0), "value"));
+    }
 }

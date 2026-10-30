@@ -58,7 +58,8 @@ public final class ClassRelinker implements Transformer {
             { "PacketByteBuf", "FriendlyByteBuf" }, { "C2S", "Serverbound" }, { "S2C", "Clientbound" },
             { "FeatureRenderer", "RenderLayer" }, { "TooltipComponent", "ClientTooltipComponent" },
             { "SpriteProvider", "SpriteSet" }, { "ResourceLocation", "Identifier" },
-            { "ScreenHandler", "Menu" } };
+            { "ScreenHandler", "Menu" }, { "DimensionDataStorage", "SavedDataStorage" },
+            { "MobSpawnType", "EntitySpawnReason" } };
 
     /** Package segments renamed the same way. */
     private static final String[][] PACKAGES = {

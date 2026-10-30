@@ -109,7 +109,10 @@ final class RegistryProbe {
                 Object name = getKey.invoke(root, registry);
                 Set<?> keys = keySet.invoke(registry) instanceof Set<?> set ? set : null;
 
-                if (keys == null) {
+                // A mod's own registry is made during the bootstrap and filled
+                // afterwards, when the mods register their content: empty here
+                // is how every one of them looks, not a failure.
+                if (keys == null || !String.valueOf(name).startsWith("minecraft:")) {
                     continue;
                 }
 

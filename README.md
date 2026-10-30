@@ -262,6 +262,16 @@ Everything rebuilt, restored, bridged or bypassed is listed in the log and the m
 - **The old block renderer** (`BlockRenderDispatcher`, `ModelBlockRenderer`, `BlockModelShaper`) is added back, with each method answered from 26.x's block models.
 - **Models a mod asks for by name** (NeoForge's and Forge's `ModelEvent.RegisterAdditional`, which Flywheel's partial models and many other mods use) are loaded and baked with the game's own models, then handed back through `BakingCompleted.getModels()` and `ModelManager.getModel`.
 - **Baked quads** read and built the old way, as 32 ints of vertex data, are translated to and from 26.x's quad records, so mods that reshape or re-texture models keep working.
+- **Vertex buffers** a mod builds itself get the vertex layout it was written for, and mixin accessors for render state 26.x removed answer a sensible default instead of crashing the frame.
+
+### What the loaders' patched game did, done again
+
+NeoForge and Forge ship a patched game. Much of what their mods rely on happens in those patches, and Octo runs the unpatched game, so it puts that behaviour back:
+
+- **Game events.** Client, server, level and player ticks, server start and stop, command registration, levels loading and unloading, and players joining and leaving are all fired on NeoForge's game bus. Create's animations, contraptions, trains and commands run on these.
+- **Capabilities.** Mods register what their blocks, entities and items offer (inventories, tanks, energy), so pipes, funnels and hoppers can find each other.
+- **Networking.** Mods' own packets are written, read and handed to their handlers. Before this, the first packet a mod sent dropped the player from the world.
+- **Removed APIs, provided.** NeoForge 26 replaced its item, fluid and energy handlers (`IItemHandler`, `ItemStackHandler`, `IFluidHandler`, `FluidTank`, `IEnergyStorage` and the rest) with a new transfer API. Octo carries working implementations of the old ones, saved in the same format, for the many mods built on them.
 
 ### A warning about mods from other versions
 

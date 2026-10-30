@@ -52,6 +52,8 @@ public final class Shims {
     private static final String NEO_MODEL_EVENT = "net/neoforged/neoforge/client/event/ModelEvent";
     private static final String FORGE_MODEL_EVENT = "net/minecraftforge/client/event/ModelEvent";
     private static final String QUAD = "net/minecraft/client/resources/model/geometry/BakedQuad";
+    private static final String BUFFER_BUILDER = "com/mojang/blaze3d/vertex/BufferBuilder";
+    private static final String RENDER_TYPE_NAME = "net/minecraft/client/renderer/rendertype/RenderType";
     private static final String SPRITE = "net/minecraft/client/renderer/texture/TextureAtlasSprite";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
@@ -142,6 +144,11 @@ public final class Shims {
             blockLayer("cutoutMipped", "renderTypeCutout"),
             blockLayer("translucent", "renderTypeTranslucent"),
             blockLayer("tripwire", "renderTypeTranslucent"),
+            // A pose turned by a quaternion: 26.x turns about a point instead.
+            Map.entry("com/mojang/blaze3d/vertex/PoseStack.mulPose(Lorg/joml/Quaternionf;)V", "poseStackRotate"),
+            Map.entry("com/mojang/blaze3d/vertex/PoseStack.mulPose(Lorg/joml/Quaternionfc;)V", "poseStackRotate"),
+            // And the list of them, which mods build a buffer per layer from.
+            Map.entry(RENDER_TYPE_NAME + ".chunkBufferLayers()Ljava/util/List;", "renderTypeLayers"),
             // The game's block renderer, gone with 26.x's models; the one
             // added back from the mod's release is answered by LegacyModels.
             Map.entry("net/minecraft/client/Minecraft.getBlockRenderer()"
@@ -152,6 +159,32 @@ public final class Shims {
             Map.entry(MODEL_MANAGER + ".getModel(Lnet/minecraft/resources/Identifier;)L" + BLOCK_MODEL + ";",
                     "modelManagerModel"),
             Map.entry(MODEL_MANAGER + ".getMissingModel()L" + BLOCK_MODEL + ";", "modelManagerMissing"),
+            // A registry as a lookup: since 1.21.2 a registry is one itself.
+            Map.entry("net/minecraft/core/Registry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
+            Map.entry("net/minecraft/core/DefaultedRegistry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
+            Map.entry("net/minecraft/core/WritableRegistry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
+            // Saved data made from a factory and a name, as it was until
+            // 1.21.5: a SavedDataType made from them (SavedDataFactories).
+            savedData("SavedDataStorage", "computeIfAbsent", "savedDataComputeIfAbsent"),
+            savedData("DimensionDataStorage", "computeIfAbsent", "savedDataComputeIfAbsent"),
+            savedData("SavedDataStorage", "get", "savedDataGet"),
+            savedData("DimensionDataStorage", "get", "savedDataGet"),
+            // Entity types built from a name and made without a reason, as
+            // before 1.21.2: every older mod's entities came out null.
+            Map.entry("net/minecraft/world/entity/EntityType$Builder.build(Ljava/lang/String;)"
+                    + "Lnet/minecraft/world/entity/EntityType;", "entityTypeBuild"),
+            Map.entry("net/minecraft/world/entity/EntityType.create(Lnet/minecraft/world/level/Level;)"
+                    + "Lnet/minecraft/world/entity/Entity;", "entityTypeCreate"),
+            // NeoForge's public way to name a command argument's class.
+            Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
+                    + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
+                    + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;", "argumentRegisterByClass"),
+            // NeoForge's patch to the block entity type: the blocks it is for.
+            Map.entry("net/minecraft/world/level/block/entity/BlockEntityType.getValidBlocks()Ljava/util/Set;",
+                    "blockEntityValidBlocks"),
             // NeoForge's patch to the model location, which the class added
             // back from the game alone does not have: a loose model's location.
             Map.entry(MODEL_LOCATION + ".standalone(Lnet/minecraft/resources/Identifier;)L" + MODEL_LOCATION + ";",
@@ -182,7 +215,15 @@ public final class Shims {
             Map.entry(QUAD + ".hasAmbientOcclusion()Z", "quadAmbientOcclusion"),
             Map.entry(QUAD + ".getDirection()Lnet/minecraft/core/Direction;", "quadDirection"),
             Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";Z)V", "newQuad"),
-            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";ZZ)V", "newQuadWithOcclusion"));
+            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";ZZ)V", "newQuadWithOcclusion"),
+            // A buffer builder made with the draw mode, which 26.x calls a primitive topology.
+            Map.entry(BUFFER_BUILDER + ".<init>(Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;"
+                    + "Lcom/mojang/blaze3d/vertex/VertexFormat$Mode;Lcom/mojang/renderpearl/api/vertex/VertexFormat;)V",
+                    "newBufferBuilder"),
+            Map.entry(BUFFER_BUILDER + ".<init>(Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;"
+                    + "Lcom/mojang/blaze3d/vertex/VertexFormat$Mode;Lcom/mojang/blaze3d/vertex/VertexFormat;)V",
+                    "newBufferBuilder"));
+
 
 
     private static final String RENDER_TYPE = "net/minecraft/client/renderer/rendertype/RenderType";
@@ -231,13 +272,26 @@ public final class Shims {
             Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/8", new String[] { "putBulkData",
                     "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }),
             Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/8", new String[] { "putBulkData",
-                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }));
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }),
+            // NeoForge's forms: with whether to read the quad's own colour,
+            // and with a brightness and a light for each corner.
+            Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/9", new String[] { "putBulkDataReading",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFIIZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/9", new String[] { "putBulkDataReading",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFIIZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/10", new String[] { "putBulkDataCorners",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFLjava/lang/Object;IZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/10", new String[] { "putBulkDataCorners",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFLjava/lang/Object;IZ)V" }));
 
     /**
      * Static fields removed, rebuilt the same way: a shim taking the owner's
      * {@code Class} and answering the value.
      */
     private static final String CAPABILITIES = "net/neoforged/neoforge/capabilities/";
+
+    private static final String SERIALIZERS = "net/minecraft/network/syncher/EntityDataSerializers";
+    private static final String SERIALIZER = "net/minecraft/network/syncher/EntityDataSerializer";
 
     private static final Map<String, String> FIELD_SHIMS = Map.ofEntries(
             // NeoForge 26 kept only FluidIngredient.CODEC; Create builds every
@@ -259,7 +313,20 @@ public final class Shims {
             capability("FluidHandler", "ITEM", "Item", "legacyFluidItem"),
             capability("EnergyStorage", "BLOCK", "Block", "legacyEnergyBlock"),
             capability("EnergyStorage", "ENTITY", "Entity", "legacyEnergyEntity"),
-            capability("EnergyStorage", "ITEM", "Item", "legacyEnergyItem"));
+            capability("EnergyStorage", "ITEM", "Item", "legacyEnergyItem"),
+            // Entity data kinds 1.21.5 removed: an optional UUID (an owner, a
+            // controller) and a compound tag. Create's contraptions define
+            // theirs in their static initialiser, and a null there kept every
+            // contraption, seat and glue entity from being registered.
+            Map.entry(SERIALIZERS + ".OPTIONAL_UUID:L" + SERIALIZER + ";", "serializerOptionalUuid"),
+            Map.entry(SERIALIZERS + ".COMPOUND_TAG:L" + SERIALIZER + ";", "serializerCompoundTag"),
+            // The game's own recipe serializers, each on its recipe class since
+            // RecipeSerializer became a record; mods build theirs on them.
+            Map.entry(CRAFTING + "RecipeSerializer.SHAPED_RECIPE:L" + CRAFTING + "RecipeSerializer;",
+                    "recipeSerializerShaped"),
+            Map.entry(CRAFTING + "RecipeSerializer.SHAPELESS_RECIPE:L" + CRAFTING + "RecipeSerializer;",
+                    "recipeSerializerShapeless"));
+
 
     private static Map.Entry<String, String> capability(String group, String field, String kind, String shim) {
         return Map.entry(CAPABILITIES + "Capabilities$" + group + "." + field + ":L" + CAPABILITIES + kind
@@ -527,6 +594,51 @@ public final class Shims {
 
     // -------------------------------------------------------------- NeoForge
 
+    private static volatile Object[] legacySerializers;
+
+    public static Object serializerOptionalUuid(Class<?> owner) {
+        return legacySerializers(owner)[0];
+    }
+
+    public static Object serializerCompoundTag(Class<?> owner) {
+        return legacySerializers(owner)[1];
+    }
+
+    /**
+     * Both made and registered together, the first time either is asked
+     * for, so a client and a server agree on the numbers they are sent by.
+     */
+    private static Object[] legacySerializers(Class<?> owner) {
+        Object[] made = legacySerializers;
+
+        if (made != null) {
+            return made;
+        }
+
+        synchronized (Shims.class) {
+            if (legacySerializers == null) {
+                Class<?> serializers = game(owner, SERIALIZERS.replace('/', '.'));
+                Class<?> serializer = game(owner, SERIALIZER.replace('/', '.'));
+                Class<?> codecs = game(owner, "net.minecraft.network.codec.ByteBufCodecs");
+                Class<?> streamCodec = game(owner, "net.minecraft.network.codec.StreamCodec");
+                Object uuids = callStatic(codecs, "optional", new Class<?>[] { streamCodec },
+                        staticField(game(owner, "net.minecraft.core.UUIDUtil"), "STREAM_CODEC"));
+                Object[] out = {
+                        callStatic(serializer, "forValueType", new Class<?>[] { streamCodec }, uuids),
+                        callStatic(serializer, "forValueType", new Class<?>[] { streamCodec },
+                                staticField(codecs, "COMPOUND_TAG")) };
+
+                for (Object each : out) {
+                    callStatic(serializers, "registerSerializer", new Class<?>[] { serializer }, each);
+                }
+
+                legacySerializers = out;
+            }
+
+            return legacySerializers;
+        }
+    }
+
     /** {@code FluidStack.FLUID_NON_EMPTY_CODEC}: a fluid, by its registry name. */
     public static Object fluidHolderCodec(Class<?> owner) {
         Object fluids = staticField(game(owner, "net.minecraft.core.registries.BuiltInRegistries"), "FLUID");
@@ -621,6 +733,22 @@ public final class Shims {
 
     // --------------------------------------------------------------- rendering
 
+    /** {@code poseStack.mulPose(quaternion)}: the same turn, about the origin. */
+    public static void poseStackRotate(Object poseStack, Object quaternion) {
+        callWith(poseStack, "rotateAround", new Class<?>[] { game(poseStack.getClass(), "org.joml.Quaternionfc"),
+                float.class, float.class, float.class }, quaternion, 0f, 0f, 0f);
+    }
+
+    /** {@code RenderType.chunkBufferLayers()}: the layers the block layer shims above hand out, once each. */
+    public static Object renderTypeLayers(Class<?> owner) {
+        java.util.LinkedHashSet<Object> layers = new java.util.LinkedHashSet<>();
+        layers.add(renderTypeSolid(owner));
+        layers.add(renderTypeCutout(owner));
+        layers.add(renderTypeTranslucent(owner));
+        layers.remove(null);
+        return List.copyOf(layers);
+    }
+
     public static Object renderTypeSolid(Class<?> owner) {
         return renderTypes(owner, "solidMovingBlock");
     }
@@ -631,6 +759,100 @@ public final class Shims {
 
     public static Object renderTypeTranslucent(Class<?> owner) {
         return renderTypes(owner, "translucentMovingBlock");
+    }
+
+    public static void putBulkDataReading(Object consumer, Object pose, Object quad, float red, float green, float blue,
+            float alpha, int light, int overlay, boolean readAlpha) {
+        studios.milkdromeda.octo.bridge.client.LegacyModels.putBulkData(consumer, pose, quad, red, green, blue, alpha,
+                light, overlay);
+    }
+
+    /** The per-corner form: the corners' average brightness and the first corner's light, which a flat quad shares. */
+    public static void putBulkDataCorners(Object consumer, Object pose, Object quad, Object brightness, float red,
+            float green, float blue, float alpha, Object lights, int overlay, boolean readAlpha) {
+        float shade = 1f;
+
+        if (brightness instanceof float[] values && values.length > 0) {
+            shade = 0f;
+
+            for (float value : values) {
+                shade += value;
+            }
+
+            shade /= values.length;
+        }
+
+        int light = lights instanceof int[] values && values.length > 0 ? values[0] : 0xF000F0;
+        studios.milkdromeda.octo.bridge.client.LegacyModels.putBulkData(consumer, pose, quad, red * shade,
+                green * shade, blue * shade, alpha, light, overlay);
+    }
+
+    /** {@code new BufferBuilder(bytes, mode, format)}: the draw mode becomes the topology of the same name. */
+    public static Object newBufferBuilder(Object bytes, Object mode, Object format) {
+        Class<?> builder = game(bytes.getClass(), "com.mojang.blaze3d.vertex.BufferBuilder");
+        Class<?> topology = game(bytes.getClass(), "com.mojang.renderpearl.api.pipeline.PrimitiveTopology");
+        String name = mode instanceof Enum<?> value ? value.name() : "QUADS";
+
+        if (name.equals("LINE_STRIP")) {
+            name = "DEBUG_LINE_STRIP";
+        }
+
+        Object primitive = staticField(topology, name);
+        format = oldLayout(bytes.getClass(), format);
+
+        for (java.lang.reflect.Constructor<?> constructor : builder.getConstructors()) {
+            Class<?>[] parameters = constructor.getParameterTypes();
+
+            if (parameters.length == 3 && parameters[1] == topology && parameters[2].isInstance(format)) {
+                try {
+                    return constructor.newInstance(bytes, primitive, format);
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException("could not make a buffer builder", e);
+                }
+            }
+        }
+
+        throw new IllegalStateException("no buffer builder takes " + format);
+    }
+
+    private static volatile Object oldBlockFormat;
+
+    /**
+     * The block format laid out as code from before 26.x reads it back. 26.x
+     * dropped the normal from its block vertices — 28 bytes, where 1.21 had
+     * 32 — and code that copies vertex data out of a buffer it built, Catnip's
+     * template meshes among it, reads each vertex at the old offsets and runs
+     * off the end. A buffer such code builds in the block format gets the
+     * old layout back: position, colour, texture, light, normal.
+     */
+    static Object oldLayout(Class<?> anchor, Object format) {
+        try {
+            Class<?> defaults = game(anchor, "com.mojang.blaze3d.vertex.DefaultVertexFormat");
+
+            if (format != staticField(defaults, "BLOCK")) {
+                return format;
+            }
+
+            Object built = oldBlockFormat;
+
+            if (built == null) {
+                Class<?> vertexFormat = game(anchor, "com.mojang.renderpearl.api.vertex.VertexFormat");
+                Class<?> gpuFormat = game(anchor, "com.mojang.renderpearl.api.GpuFormat");
+                Object builder = callStatic(vertexFormat, "builder", new Class<?>[] { int.class }, 0);
+                java.lang.reflect.Method add = builder.getClass().getMethod("addAttribute", String.class, gpuFormat);
+                add.invoke(builder, "Position", staticField(gpuFormat, "RGB32_FLOAT"));
+                add.invoke(builder, "Color", staticField(gpuFormat, "RGBA8_UNORM"));
+                add.invoke(builder, "UV0", staticField(gpuFormat, "RG32_FLOAT"));
+                add.invoke(builder, "UV2", staticField(gpuFormat, "RG16_SINT"));
+                add.invoke(builder, "Normal", staticField(gpuFormat, "RGBA8_SNORM"));
+                built = builder.getClass().getMethod("build").invoke(builder);
+                oldBlockFormat = built;
+            }
+
+            return built;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return format;
+        }
     }
 
     public static Object quadVertices(Object quad) {
@@ -670,6 +892,92 @@ public final class Shims {
             boolean shade, boolean ambientOcclusion) {
         return studios.milkdromeda.octo.bridge.client.LegacyQuads.make((int[]) vertices, tintIndex, direction, sprite,
                 shade, ambientOcclusion);
+    }
+
+    /** {@code registry.asLookup()}: the registry, which is its own lookup now. */
+    private static Map.Entry<String, String> savedData(String storage, String method, String shim) {
+        return Map.entry("net/minecraft/world/level/storage/" + storage + "." + method
+                + "(Lnet/minecraft/world/level/saveddata/SavedData$Factory;Ljava/lang/String;)"
+                + "Lnet/minecraft/world/level/saveddata/SavedData;", shim);
+    }
+
+    public static Object savedDataComputeIfAbsent(Object storage, Object factory, Object name) {
+        return studios.milkdromeda.octo.bridge.SavedDataFactories.computeIfAbsent(storage, factory, (String) name);
+    }
+
+    public static Object savedDataGet(Object storage, Object factory, Object name) {
+        return studios.milkdromeda.octo.bridge.SavedDataFactories.get(storage, factory, (String) name);
+    }
+
+    /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */
+    public static Object entityTypeBuild(Object builder, Object name) {
+        Class<?> resourceKey = game(builder.getClass(), "net.minecraft.resources.ResourceKey");
+        Class<?> identifier = game(builder.getClass(), "net.minecraft.resources.Identifier");
+        Object registry = staticField(game(builder.getClass(), "net.minecraft.core.registries.Registries"),
+                "ENTITY_TYPE");
+        Object id = studios.milkdromeda.octo.bridge.RegistrationContext.currentId("entity_type");
+
+        if (id == null) {
+            String text = String.valueOf(name).toLowerCase(java.util.Locale.ROOT);
+            id = callStatic(identifier, "parse", new Class<?>[] { String.class },
+                    text.indexOf(':') < 0 ? "minecraft:" + text : text);
+        }
+
+        Object key = callStatic(resourceKey, "create", new Class<?>[] { resourceKey, identifier }, registry, id);
+        return callWith(builder, "build", new Class<?>[] { resourceKey }, key);
+    }
+
+    /** {@code EntityType.create(level)}: made as an entity read back from the world is. */
+    public static Object entityTypeCreate(Object type, Object level) {
+        Class<?> levelType = game(type.getClass(), "net.minecraft.world.level.Level");
+        Class<?> reason = game(type.getClass(), "net.minecraft.world.entity.EntitySpawnReason");
+        return callWith(type, "create", new Class<?>[] { levelType, reason }, level, staticField(reason, "LOAD"));
+    }
+
+    public static Object recipeSerializerShaped(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.world.item.crafting.ShapedRecipe"), "SERIALIZER");
+    }
+
+    public static Object recipeSerializerShapeless(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.world.item.crafting.ShapelessRecipe"), "SERIALIZER");
+    }
+
+    /** {@code ArgumentTypeInfos.registerByClass(type, info)}: the info, filed under its argument's class. */
+    @SuppressWarnings("unchecked")
+    public static Object argumentRegisterByClass(Object type, Object info, Class<?> owner) {
+        try {
+            java.lang.reflect.Field field = owner.getDeclaredField("BY_CLASS");
+            field.setAccessible(true);
+
+            synchronized (owner) {
+                ((Map<Object, Object>) field.get(null)).put(type, info);
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Unknown to the game, the argument still parses; it is only not sent to clients.
+        }
+
+        return info;
+    }
+
+    /** {@code BlockEntityType.getValidBlocks()}: the set the type was made with. */
+    public static Object blockEntityValidBlocks(Object type) {
+        for (Class<?> at = type.getClass(); at != null; at = at.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field = at.getDeclaredField("validBlocks");
+                field.setAccessible(true);
+                return field.get(type);
+            } catch (NoSuchFieldException e) {
+                // Declared higher up.
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                break;
+            }
+        }
+
+        return java.util.Set.of();
+    }
+
+    public static Object registryAsLookup(Object registry) {
+        return registry;
     }
 
     /** {@code ModelResourceLocation.standalone(id)}: the location with NeoForge's {@code standalone} variant. */

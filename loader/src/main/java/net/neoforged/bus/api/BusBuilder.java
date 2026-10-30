@@ -50,6 +50,15 @@ public final class BusBuilder {
     }
 
     public IEventBus build() {
+        // NeoForge.EVENT_BUS is the game bus, the one @EventBusSubscriber
+        // classes are registered on: one bus, or a mod listening through one
+        // and a mod posting through the other never meet. Create's client
+        // events, subscribed by annotation, never saw a tick.
+        if (StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass().getName()
+                .equals("net.neoforged.neoforge.common.NeoForge")) {
+            return ForgeBuses.commonNeoBus();
+        }
+
         return ForgeBuses.neoBusFor("octo:" + name + ":" + System.identityHashCode(this));
     }
 }

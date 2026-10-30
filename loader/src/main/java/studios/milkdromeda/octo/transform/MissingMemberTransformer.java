@@ -232,7 +232,7 @@ public final class MissingMemberTransformer implements Transformer {
     @Override
     public boolean handles(String className, TransformContext context) {
         if (translatedModsOnly && (context.mod() == null || !context.mod().isFromAnotherVersion())
-                && !isAlsoCovered(className)) {
+                && !isAlsoCovered(className) && !isForPatchedGame(context)) {
             return false;
         }
 
@@ -276,6 +276,17 @@ public final class MissingMemberTransformer implements Transformer {
             "fabricmc/", "fml/", "quiltmc/", "neoforged/", "minecraftforge/", "liteloader/",
             "artifact/versioning/"));
 
+
+    /**
+     * A Forge or NeoForge mod built for this very version: it was compiled
+     * against the loader's patched game, and the members those patches add
+     * are missing from the game Octo runs just as surely as the members an
+     * older release had. Fabric's are not: they run on the game as it is.
+     */
+    private static boolean isForPatchedGame(TransformContext context) {
+        return context.mod() != null && !context.mod().isBuiltin()
+                && context.mod().format().family() == studios.milkdromeda.octo.mod.ModFormat.Family.FORGE;
+    }
 
     private boolean isAlsoCovered(String className) {
         for (String prefix : alsoCovered) {
@@ -831,6 +842,19 @@ public final class MissingMemberTransformer implements Transformer {
 
                     Type returnType = Type.getReturnType(descriptor);
                     boolean hasReceiver = opcode != Opcodes.INVOKESTATIC;
+
+                    // The game's block renderer family, where this version
+                    // still has the class but not the old method: Create
+                    // tesselates every moving part through ModelBlockRenderer's
+                    // old tesselateBlock. Answered with this version's models,
+                    // as the classes added back whole are (RestoredBridges).
+                    if (classVersion >= Opcodes.V1_5 && RestoredBridges.bridges(owner)) {
+                        bridgedCall(owner, name, descriptor, hasReceiver);
+                        changed = true;
+                        record(context, owner, name + descriptor, className,
+                                "it is drawn with this version's models");
+                        return;
+                    }
 
                     if (hasReceiver && returnsReceiver(owner, name, descriptor)) {
                         // A builder method this version does not have: drop the
@@ -1640,6 +1664,93 @@ public final class MissingMemberTransformer implements Transformer {
                 }
 
                 /** Removes a call's operands, deepest last, plus the receiver. */
+                /** The call's arguments packed into an array and handed to {@code LegacyModels}, with the receiver. */
+                private void bridgedCall(String owner, String name, String descriptor, boolean hasReceiver) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    int[] slots = new int[arguments.length];
+                    int slot = nextFree;
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        slots[i] = slot;
+                        slot += arguments[i].getSize();
+                    }
+
+                    for (int i = arguments.length - 1; i >= 0; i--) {
+                        super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                    }
+
+                    nextFree = slot;
+
+                    if (!hasReceiver) {
+                        super.visitInsn(Opcodes.ACONST_NULL);
+                    }
+
+                    super.visitLdcInsn(owner);
+                    super.visitLdcInsn(name);
+                    super.visitLdcInsn(arguments.length);
+                    super.visitTypeInsn(Opcodes.ANEWARRAY, "java/lang/Object");
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        super.visitInsn(Opcodes.DUP);
+                        super.visitLdcInsn(i);
+                        super.visitVarInsn(arguments[i].getOpcode(Opcodes.ILOAD), slots[i]);
+                        String boxed = boxOf(arguments[i]);
+
+                        if (boxed != null) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, boxed, "valueOf",
+                                    "(" + arguments[i].getDescriptor() + ")L" + boxed + ";", false);
+                        }
+
+                        super.visitInsn(Opcodes.AASTORE);
+                    }
+
+                    String helper = "studios/milkdromeda/octo/bridge/client/LegacyModels";
+                    String call = "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)";
+                    Type returned = Type.getReturnType(descriptor);
+
+                    switch (returned.getSort()) {
+                        case Type.VOID -> super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callV", call + "V", false);
+                        case Type.BOOLEAN -> super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callZ", call + "Z",
+                                false);
+                        case Type.BYTE, Type.CHAR, Type.SHORT, Type.INT -> {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callI", call + "I", false);
+
+                            if (returned.getSort() == Type.BYTE) {
+                                super.visitInsn(Opcodes.I2B);
+                            } else if (returned.getSort() == Type.CHAR) {
+                                super.visitInsn(Opcodes.I2C);
+                            } else if (returned.getSort() == Type.SHORT) {
+                                super.visitInsn(Opcodes.I2S);
+                            }
+                        }
+                        case Type.LONG -> super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callJ", call + "J", false);
+                        case Type.FLOAT -> super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callF", call + "F",
+                                false);
+                        case Type.DOUBLE -> super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "callD", call + "D",
+                                false);
+                        default -> {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, helper, "call", call + "Ljava/lang/Object;",
+                                    false);
+                            super.visitTypeInsn(Opcodes.CHECKCAST, returned.getSort() == Type.ARRAY
+                                    ? returned.getDescriptor() : returned.getInternalName());
+                        }
+                    }
+                }
+
+                private String boxOf(Type type) {
+                    return switch (type.getSort()) {
+                        case Type.BOOLEAN -> "java/lang/Boolean";
+                        case Type.BYTE -> "java/lang/Byte";
+                        case Type.CHAR -> "java/lang/Character";
+                        case Type.SHORT -> "java/lang/Short";
+                        case Type.INT -> "java/lang/Integer";
+                        case Type.LONG -> "java/lang/Long";
+                        case Type.FLOAT -> "java/lang/Float";
+                        case Type.DOUBLE -> "java/lang/Double";
+                        default -> null;
+                    };
+                }
+
                 private void discard(Type[] arguments, boolean hasReceiver) {
                     for (int i = arguments.length - 1; i >= 0; i--) {
                         pop(arguments[i]);
