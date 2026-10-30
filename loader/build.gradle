@@ -18,6 +18,25 @@ sourceSets {
         java.srcDir 'src/java21/java'
         compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
     }
+
+    // The shapes of the game and loader classes the provided classes below
+    // are written against. Compiled against, never shipped: at runtime the
+    // real classes answer, so a stub declares only members the running game
+    // really has, with their real descriptors.
+    gameStubs {
+        java.srcDir 'src/gamestubs/java'
+    }
+
+    // Loader API that the loaders' own jars no longer ship and mods still
+    // link against: NeoForge 26 dropped its item, fluid and energy handlers
+    // for the transfer API. Packed into the jar under octo/provided/ as
+    // resources rather than classes, because they name game classes and so
+    // must be defined by the class loader that holds the game
+    // (OctoClassLoader), never by the one Octo itself runs in.
+    provided {
+        java.srcDir 'src/provided/java'
+        compileClasspath += sourceSets.gameStubs.output + sourceSets.main.output + sourceSets.main.compileClasspath
+    }
 }
 
 tasks.named('compileJava21Java') {
@@ -149,6 +168,13 @@ jar {
 
     into('META-INF/versions/21') {
         from sourceSets.java21.output
+    }
+
+    into('octo/provided') {
+        from(sourceSets.provided.output.classesDirs) {
+            include '**/*.class'
+            rename '(.*)\\.class$', '$1.bin'
+        }
     }
 
     // Upstream licences travel with the upstream code. This is the one place

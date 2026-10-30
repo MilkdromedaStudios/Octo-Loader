@@ -51,6 +51,8 @@ import studios.milkdromeda.octo.transform.CallbackGuard;
 import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
 import studios.milkdromeda.octo.transform.EagerHolderBinding;
 import studios.milkdromeda.octo.transform.ExtraModelHooks;
+import studios.milkdromeda.octo.transform.GameEventHooks;
+import studios.milkdromeda.octo.transform.PayloadHooks;
 import studios.milkdromeda.octo.transform.ExtensibleEnums;
 import studios.milkdromeda.octo.transform.ModPackHook;
 import studios.milkdromeda.octo.transform.RegistrationIds;
@@ -348,6 +350,11 @@ public final class OctoLauncher {
 
         if (apiLibraries.stream().anyMatch(jar -> jar.getFileName().toString().startsWith("neoforge-"))) {
             classLoader.addGlobalTransformer(new ExtensibleEnums());
+            // The game events NeoForge's patches fire: ticks, server life,
+            // commands, levels and players.
+            classLoader.addGlobalTransformer(new GameEventHooks());
+            // And their packets, written, read and handled.
+            classLoader.addGlobalTransformer(new PayloadHooks());
         }
 
         // Their data and assets, which only reach the game as packs.

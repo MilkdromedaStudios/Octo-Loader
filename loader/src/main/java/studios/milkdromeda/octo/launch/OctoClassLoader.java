@@ -326,6 +326,14 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
                 return generated;
             }
 
+            // Loader API the loaders' own jars no longer ship, carried by
+            // Octo: the real thing, written to the contract mods built against.
+            byte[] provided = providedBytes(name.replace('.', '/'));
+
+            if (provided != null) {
+                return defineClass(name, provided, 0, provided.length);
+            }
+
             // A class the game used to have, from the release the mod was
             // built for: the real thing, where a stand-in could only guess.
             Class<?> restored = defineRestored(name);
@@ -614,6 +622,12 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         }
 
         if (resource == null) {
+            byte[] provided = providedBytes(internalName);
+
+            if (provided != null) {
+                return provided;
+            }
+
             byte[] restored = restoredBytes(internalName);
             return restored != null ? restored : standInBytes(internalName);
         }
@@ -793,7 +807,26 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         }
 
         ClassLoader parent = getParent();
-        return parent != null && parent.getResource(internalName + ".class") != null;
+        return parent != null && (parent.getResource(internalName + ".class") != null
+                || parent.getResource(PROVIDED + internalName + ".bin") != null);
+    }
+
+    /** Where Octo's jar carries the loader API it provides, as resources so only this loader defines them. */
+    private static final String PROVIDED = "octo/provided/";
+
+    /** The class file of a provided class, or {@code null} when Octo provides no class of this name. */
+    private byte[] providedBytes(String internalName) {
+        ClassLoader parent = getParent();
+
+        if (parent == null) {
+            return null;
+        }
+
+        try (InputStream in = parent.getResourceAsStream(PROVIDED + internalName + ".bin")) {
+            return in == null ? null : in.readAllBytes();
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     /** {@code jar:file:/mods/x.jar!/com/example/Foo.class} to {@code file:/mods/x.jar}. */
