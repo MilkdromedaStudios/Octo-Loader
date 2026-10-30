@@ -102,6 +102,12 @@
 
   "methods": [
     {
+      "owner": "net/minecraft/world/level/block/state/BlockBehaviour$Properties",
+      "name": "noCollission",
+      "alternatives": ["noCollision"],
+      "note": "the spelling was corrected in 1.21.2; Steam 'n' Rails and others pass Properties::noCollission as a method reference, which as a null made every block built with it fail"
+    },
+    {
       "owner": "net/minecraft/core/Direction",
       "name": "getNormal",
       "alternatives": ["getUnitVec3i"],

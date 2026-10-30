@@ -347,6 +347,7 @@ public final class MissingMemberTransformer implements Transformer {
         private boolean classIsInterface;
         /** Methods to add for method references that pointed at something absent. */
         private final List<org.objectweb.asm.Handle> stubs = new java.util.ArrayList<>();
+        private final Set<String> receiverStubs = new java.util.HashSet<>();
         /** Methods to add that build an object whose constructor is absent, as {@code owner, descriptor}. */
         private final List<String[]> factories = new java.util.ArrayList<>();
         /** Methods to add that reach a member across a static/instance change, for calls with arguments. */
@@ -526,8 +527,18 @@ public final class MissingMemberTransformer implements Transformer {
                     "octo$missing$" + stubs.size(), descriptor, classIsInterface);
             stubs.add(stub);
             changed = true;
-            record(context, owner, handle.getName() + handle.getDesc(), className,
-                    "references to it return a default");
+
+            // A builder's setter, passed as Properties::noOcclusion: handing
+            // back the builder keeps the chain going, as a direct call does.
+            if (tag != Opcodes.H_INVOKESTATIC && returnsReceiver(owner, handle.getName(), handle.getDesc())) {
+                receiverStubs.add(stub.getName());
+                record(context, owner, handle.getName() + handle.getDesc(), className,
+                        "references to it hand back their receiver");
+            } else {
+                record(context, owner, handle.getName() + handle.getDesc(), className,
+                        "references to it return a default");
+            }
+
             return stub;
         }
 
@@ -541,7 +552,10 @@ public final class MissingMemberTransformer implements Transformer {
                 method.visitCode();
                 Type returnType = Type.getReturnType(stub.getDesc());
 
-                if (returnType.getSort() == Type.OBJECT && Nothing.pushLive(method, returnType, className)) {
+                if (receiverStubs.contains(stub.getName())) {
+                    method.visitVarInsn(Opcodes.ALOAD, 0);
+                    method.visitInsn(Opcodes.ARETURN);
+                } else if (returnType.getSort() == Type.OBJECT && Nothing.pushLive(method, returnType, className)) {
                     method.visitInsn(Opcodes.ARETURN);
                 } else {
                     Nothing.push(method, returnType);
@@ -846,6 +860,10 @@ public final class MissingMemberTransformer implements Transformer {
                                     + "." + name + " now");
                             return;
                         }
+                    }
+
+                    if (followWithoutPlace(opcode, owner, name, descriptor, isInterface)) {
+                        return;
                     }
 
                     if (followNewShape(opcode, owner, name, descriptor, isInterface)) {
@@ -1181,6 +1199,97 @@ public final class MissingMemberTransformer implements Transformer {
                  *
                  * @return whether the call was repaired
                  */
+                /**
+                 * The same method, no longer told where: 1.21.2 took the level
+                 * and position from what a block state works out on its own —
+                 * {@code isSolidRender(level, pos)} is {@code isSolidRender()},
+                 * {@code getFaceOcclusionShape(level, pos, side)} is {@code
+                 * getFaceOcclusionShape(side)}. The arguments that said where
+                 * are dropped, and the rest passed on in order.
+                 */
+                private boolean followWithoutPlace(int opcode, String owner, String name, String descriptor,
+                        boolean isInterface) {
+                    // A shim knows better: the new form may answer from a
+                    // cache the old one did not need.
+                    if (name.charAt(0) == '<' || opcode == Opcodes.INVOKESPECIAL
+                            || shimUpward(owner, name, descriptor, opcode) != null) {
+                        return false;
+                    }
+
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    Type wanted = Type.getReturnType(descriptor);
+                    boolean wantsStatic = opcode == Opcodes.INVOKESTATIC;
+
+                    for (String candidate : lookup.overloads(owner, name)) {
+                        Type[] parameters = Type.getArgumentTypes(candidate);
+
+                        if (parameters.length >= arguments.length
+                                || !usableResult(Type.getReturnType(candidate), wanted, false)
+                                || !Boolean.valueOf(wantsStatic).equals(lookup.isStatic(owner, name, candidate))) {
+                            continue;
+                        }
+
+                        boolean[] kept = new boolean[arguments.length];
+                        int next = 0;
+                        boolean fits = true;
+
+                        for (int i = 0; i < arguments.length && fits; i++) {
+                            if (next < parameters.length && accepts(parameters[next], arguments[i])) {
+                                kept[i] = true;
+                                next++;
+                            } else {
+                                fits = isPlace(arguments[i]);
+                            }
+                        }
+
+                        if (!fits || next != parameters.length) {
+                            continue;
+                        }
+
+                        int[] slots = new int[arguments.length];
+                        int slot = nextFree;
+
+                        for (int i = 0; i < arguments.length; i++) {
+                            slots[i] = slot;
+                            slot += arguments[i].getSize();
+                        }
+
+                        for (int i = arguments.length - 1; i >= 0; i--) {
+                            super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                        }
+
+                        nextFree = slot;
+
+                        for (int i = 0; i < arguments.length; i++) {
+                            if (kept[i]) {
+                                super.visitVarInsn(arguments[i].getOpcode(Opcodes.ILOAD), slots[i]);
+                            }
+                        }
+
+                        super.visitMethodInsn(opcode, owner, name, candidate, isInterface);
+
+                        if (wanted.getSort() == Type.VOID && Type.getReturnType(candidate).getSort() != Type.VOID) {
+                            pop(Type.getReturnType(candidate));
+                        }
+
+                        return followed(owner, name, descriptor, name + candidate + ", without where");
+                    }
+
+                    return false;
+                }
+
+                /** A level, or something read like one, or a position in it. */
+                private boolean isPlace(Type argument) {
+                    if (argument.getSort() != Type.OBJECT) {
+                        return false;
+                    }
+
+                    String type = argument.getInternalName();
+                    return type.equals("net/minecraft/core/BlockPos")
+                            || type.equals("net/minecraft/world/level/BlockGetter")
+                            || lookup.isAssignable(type, "net/minecraft/world/level/BlockGetter");
+                }
+
                 private boolean followNewShape(int opcode, String owner, String name, String descriptor,
                         boolean isInterface) {
                     Type[] arguments = Type.getArgumentTypes(descriptor);

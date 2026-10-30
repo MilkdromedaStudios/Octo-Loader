@@ -732,4 +732,39 @@ class GameGapsTest {
         assertNull(GapBridge.construct(Runnable.class, new Object[0]));
         assertNull(GapBridge.construct(java.util.AbstractList.class, new Object[0]));
     }
+
+    @Test
+    @DisplayName("a method no longer told where is called without the position it was given")
+    void placeArgumentsAreDropped() throws Exception {
+        String state = "net/minecraft/octotest/State3";
+        String pos = "net/minecraft/core/BlockPos";
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, CALLER, null, "java/lang/Object", null);
+
+        // new State3().light(new BlockPos(1, 2, 3), new Point3(4)), compiled
+        // when the state still had to be told where it was.
+        MethodVisitor method = method(writer, "light", "()Ljava/lang/Object;");
+        method.visitTypeInsn(Opcodes.NEW, state);
+        method.visitInsn(Opcodes.DUP);
+        method.visitMethodInsn(Opcodes.INVOKESPECIAL, state, "<init>", "()V", false);
+        method.visitTypeInsn(Opcodes.NEW, pos);
+        method.visitInsn(Opcodes.DUP);
+        method.visitInsn(Opcodes.ICONST_1);
+        method.visitInsn(Opcodes.ICONST_2);
+        method.visitInsn(Opcodes.ICONST_3);
+        method.visitMethodInsn(Opcodes.INVOKESPECIAL, pos, "<init>", "(III)V", false);
+        method.visitTypeInsn(Opcodes.NEW, POINT);
+        method.visitInsn(Opcodes.DUP);
+        method.visitLdcInsn(4.0d);
+        method.visitMethodInsn(Opcodes.INVOKESPECIAL, POINT, "<init>", "(D)V", false);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, state, "light",
+                "(L" + pos + ";Lnet/minecraft/octotest/Shape3;)D", false);
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+        method.visitInsn(Opcodes.ARETURN);
+        end(method);
+        writer.visitEnd();
+
+        assertEquals(40.0d, call(repaired(writer.toByteArray()), "light"),
+                "the side is passed on, not a default answered");
+    }
 }
