@@ -589,6 +589,30 @@ public final class MixinTargets implements Transformer {
         }
 
         for (Target target : targets) {
+            if (target.hasMethod(wanted, method.desc)) {
+                return false;
+            }
+        }
+
+        // There under the same name, its parameters narrowed or widened:
+        // FlowingFluid.getNewLiquid takes a ServerLevel where Create's invoker
+        // passes a Level. Mixin matches an invoker's descriptor exactly and
+        // fails the whole accessor mixin, so the invoker calls the method
+        // itself, by reflection, with the arguments it was given.
+        if (wanted.charAt(0) != '<') {
+            for (Target target : targets) {
+                String other = target.onlyOverload(wanted, Type.getArgumentTypes(method.desc).length);
+
+                if (other != null) {
+                    UnmergedCalls.retireToCall(method, invoker, target.name(), wanted, other);
+                    note(context, className, method.name + ": " + wanted + " takes " + other
+                            + " now, so the invoker calls it with what it is given");
+                    return true;
+                }
+            }
+        }
+
+        for (Target target : targets) {
             if (target.hasMethod(wanted, null)) {
                 return false;
             }
@@ -894,6 +918,24 @@ public final class MixinTargets implements Transformer {
          */
         String onlyFieldOfType(String descriptor) {
             return only(fields, descriptor, false);
+        }
+
+        /** @return the descriptor of the only method of that name taking that many arguments, or {@code null} */
+        String onlyOverload(String memberName, int arity) {
+            String found = null;
+
+            for (Member method : methods) {
+                if (method.name().equals(memberName)
+                        && Type.getArgumentTypes(method.descriptor()).length == arity) {
+                    if (found != null && !found.equals(method.descriptor())) {
+                        return null;
+                    }
+
+                    found = method.descriptor();
+                }
+            }
+
+            return found;
         }
 
         /** @return the name of the only method of that shape, or {@code null} */

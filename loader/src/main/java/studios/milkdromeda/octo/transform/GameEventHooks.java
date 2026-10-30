@@ -41,6 +41,7 @@ public final class GameEventHooks implements Transformer {
     private static final String SERVER = "net/minecraft/server/MinecraftServer";
     private static final String SERVER_LEVEL = "net/minecraft/server/level/ServerLevel";
     private static final String CLIENT_LEVEL = "net/minecraft/client/multiplayer/ClientLevel";
+    private static final String CHUNK = "net/minecraft/world/level/chunk/LevelChunk";
     private static final String TICK_DESC = "(Ljava/util/function/BooleanSupplier;)V";
 
     static final List<Point> POINTS = List.of(
@@ -68,6 +69,13 @@ public final class GameEventHooks implements Transformer {
             new Point(CLIENT_LEVEL, "<init>", null, true, "levelLoad", new int[] { 0 }, null),
             new Point("net/minecraft/server/players/PlayerList", "placeNewPlayer", null, true, "playerLoggedIn",
                     new int[] { 2 }, null),
+            new Point("net/minecraft/world/level/chunk/LevelChunk", "clearAllBlockEntities", "()V", false,
+                    "chunkUnloading", new int[] { 0 }, null),
+            // A block or block entity changing, which NeoForge's capability
+            // caches listen for (CapabilityListeners).
+            new Point(CHUNK, "setBlockState", null, false, "blockChanged", new int[] { 0, 1 }, null),
+            new Point(CHUNK, "setBlockEntity", null, false, "blockChanged", new int[] { 0, 1 }, null),
+            new Point(CHUNK, "removeBlockEntity", null, false, "blockChanged", new int[] { 0, 1 }, null),
             new Point("net/minecraft/server/players/PlayerList", "remove",
                     "(Lnet/minecraft/server/level/ServerPlayer;)V", false, "playerLoggedOut", new int[] { 1 }, null));
 

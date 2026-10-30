@@ -1,6 +1,8 @@
 package studios.milkdromeda.octo.bridge.forge;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -108,6 +110,74 @@ public final class NeoGameEvents {
 
     public static void levelUnload(Object level) {
         post(level, EVENT + "level.LevelEvent$Unload", level);
+    }
+
+    /**
+     * A chunk about to drop its block entities because it is unloading, not
+     * because they were broken: NeoForge's game tells each one so first.
+     * Create's block entities clean up after themselves on removal unless
+     * told, and a basin doing that as its chunk unloaded asked for the
+     * chunk beside it — the server waited on itself and never saved.
+     */
+    public static void chunkUnloading(Object chunk) {
+        Map<?, ?> blockEntities = null;
+
+        // Declared on ChunkAccess, which LevelChunk extends.
+        for (Class<?> type = chunk.getClass(); type != null && blockEntities == null; type = type.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field = type.getDeclaredField("blockEntities");
+                field.setAccessible(true);
+                blockEntities = (Map<?, ?>) field.get(chunk);
+            } catch (NoSuchFieldException e) {
+                // Higher up.
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                break;
+            }
+        }
+
+        if (blockEntities == null) {
+            if (REPORTED.add("chunkUnloading")) {
+                LOG.warn("{} has no block entities to tell its chunk is unloading", chunk.getClass().getName());
+            }
+
+            return;
+        }
+
+        for (Object blockEntity : List.copyOf(blockEntities.values())) {
+            try {
+                Method unloaded = UNLOADED.computeIfAbsent(blockEntity.getClass(), NeoGameEvents::unloadedMethod)
+                        .orElse(null);
+
+                if (unloaded != null) {
+                    unloaded.invoke(blockEntity);
+                }
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                Throwable cause = Failures.unwrap(e);
+
+                if (REPORTED.add("onChunkUnloaded:" + blockEntity.getClass().getName())) {
+                    LOG.warn("{} could not be told its chunk is unloading: {}", blockEntity.getClass().getName(),
+                            Failures.describe(cause));
+                }
+            }
+        }
+    }
+
+    /** A block or block entity about to change at a position in a chunk. */
+    public static void blockChanged(Object chunk, Object posOrBlockEntity) {
+        CapabilityListeners.changed(chunk, posOrBlockEntity);
+    }
+
+    private static final Map<Class<?>, Optional<Method>> UNLOADED = new ConcurrentHashMap<>();
+
+    private static Optional<Method> unloadedMethod(Class<?> type) {
+        try {
+            Method method = type.getMethod("onChunkUnloaded");
+            method.setAccessible(true);
+            return Optional.of(method);
+        } catch (NoSuchMethodException | RuntimeException e) {
+            return Optional.empty();
+        }
     }
 
     public static void playerLoggedIn(Object player) {
