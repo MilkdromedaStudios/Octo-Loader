@@ -67,6 +67,18 @@ public final class NeoRegistration {
         // packet a mod sends cannot be written and drops the player.
         ModPayloads.setup(loader);
 
+        // And on a client, their entity renderers: Registrate, and most mods,
+        // register them when NeoForge asks, and nothing asked. Create's
+        // contraptions — everything a bearing turns — had none, and the
+        // first to come into view ended the game.
+        if (studios.milkdromeda.octo.runtime.OctoRuntime.isRunning()
+                && studios.milkdromeda.octo.runtime.OctoRuntime.get().side() == studios.milkdromeda.octo.mod.Side.CLIENT) {
+            step("register the mods' entity renderers", () -> net.neoforged.fml.ModLoader.postEventWrapContainerInModOrder(
+                    (net.neoforged.bus.api.Event) find(loader,
+                            "net.neoforged.neoforge.client.event.EntityRenderersEvent$RegisterRenderers")
+                            .getConstructor().newInstance()));
+        }
+
         LOG.info("NeoForge registration ran: {}", summary(loader));
         return true;
     }

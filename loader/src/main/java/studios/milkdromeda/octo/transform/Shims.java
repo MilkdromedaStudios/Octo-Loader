@@ -194,6 +194,10 @@ public final class Shims {
             Map.entry(STATE + ".getFaceOcclusionShape(Lnet/minecraft/world/level/BlockGetter;"
                     + "Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;)L" + VOXEL_SHAPE + ";",
                     "stateFaceOcclusionShape"),
+            // A palette asked for an id without saying what to do when full:
+            // 26.x wants a resize callback. Defaulted, every block of a saved
+            // Create contraption was entry 0 of an empty palette.
+            Map.entry("net/minecraft/world/level/chunk/HashMapPalette.idFor(Ljava/lang/Object;)I", "paletteIdFor"),
             // NeoForge's public way to name a command argument's class.
             Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
                     + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
@@ -994,19 +998,37 @@ public final class Shims {
         throw new IllegalStateException(block.getClass().getName() + " has no getOcclusionShape(BlockState)");
     }
 
+    public static int paletteIdFor(Object palette, Object value) {
+        Class<?> resize = game(palette.getClass(), "net.minecraft.world.level.chunk.PaletteResize");
+        Object noResize = callStatic(resize, "noResizeExpected", new Class<?>[0]);
+        return (int) callWith(palette, "idFor", new Class<?>[] { Object.class, resize }, value, noResize);
+    }
+
     /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */
     public static Object entityTypeBuild(Object builder, Object name) {
         Class<?> resourceKey = game(builder.getClass(), "net.minecraft.resources.ResourceKey");
         Class<?> identifier = game(builder.getClass(), "net.minecraft.resources.Identifier");
         Object registry = staticField(game(builder.getClass(), "net.minecraft.core.registries.Registries"),
                 "ENTITY_TYPE");
-        Object id = studios.milkdromeda.octo.bridge.RegistrationContext.currentId("entity_type");
+        // The name it is given decides; the entry being registered only lends
+        // its namespace to a bare name. Registrate builds one entity type
+        // while registering another, and taking that one's whole id gave
+        // Create's contraption the stationary contraption's.
+        Object current = studios.milkdromeda.octo.bridge.RegistrationContext.currentId("entity_type");
+        String text = String.valueOf(name).toLowerCase(java.util.Locale.ROOT);
 
-        if (id == null) {
-            String text = String.valueOf(name).toLowerCase(java.util.Locale.ROOT);
-            id = callStatic(identifier, "parse", new Class<?>[] { String.class },
-                    text.indexOf(':') < 0 ? "minecraft:" + text : text);
+        if (text.indexOf(':') < 0) {
+            String namespace = "minecraft";
+
+            if (current != null) {
+                String full = current.toString();
+                namespace = full.indexOf(':') < 0 ? namespace : full.substring(0, full.indexOf(':'));
+            }
+
+            text = namespace + ":" + text;
         }
+
+        Object id = callStatic(identifier, "parse", new Class<?>[] { String.class }, text);
 
         Object key = callStatic(resourceKey, "create", new Class<?>[] { resourceKey, identifier }, registry, id);
         return callWith(builder, "build", new Class<?>[] { resourceKey }, key);

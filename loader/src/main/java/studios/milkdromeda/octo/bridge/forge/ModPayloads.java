@@ -55,6 +55,119 @@ public final class ModPayloads {
         }
     }
 
+    /**
+     * The extra spawn data of an entity that carries some, sent with the rest
+     * of what a player is told about an entity coming into view, as NeoForge's
+     * patched {@code ServerEntity} does. Without it Create's contraptions
+     * reached the client with no blocks in them, and were never drawn.
+     */
+    @SuppressWarnings("unchecked")
+    public static void pairing(Object serverEntity, Object consumer) {
+        try {
+            Object entity = entityOf(serverEntity);
+            ClassLoader loader = serverEntity.getClass().getClassLoader();
+
+            if (entity == null || !Class.forName("net.neoforged.neoforge.entity.IEntityWithComplexSpawn", false,
+                    loader).isInstance(entity)) {
+                return;
+            }
+
+            // The spawn data written here, as NeoForge's payload would: its own
+            // writer wants a connection type this game's buffers do not carry.
+            Object buffer = spawnBuffer(loader, entity, Class.forName("io.netty.buffer.Unpooled", true, loader)
+                    .getMethod("buffer").invoke(null));
+            entity.getClass().getMethod("writeSpawnData", buffer.getClass()).invoke(entity, buffer);
+            int written = (int) buffer.getClass().getMethod("writerIndex").invoke(buffer);
+            byte[] data = new byte[written];
+            buffer.getClass().getMethod("getBytes", int.class, byte[].class).invoke(buffer, 0, data);
+            int id = (int) entity.getClass().getMethod("getId").invoke(entity);
+            Object payload = Class.forName("net.neoforged.neoforge.network.payload.AdvancedAddEntityPayload", true,
+                    loader).getConstructor(int.class, byte[].class).newInstance(id, data);
+            Class<?> payloadType = Class.forName("net.minecraft.network.protocol.common.custom.CustomPacketPayload",
+                    false, loader);
+            Object packet = Class.forName("net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket",
+                    true, loader).getConstructor(payloadType).newInstance(payload);
+            ((java.util.function.Consumer<Object>) consumer).accept(packet);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            report("spawn", Failures.unwrap(e));
+        }
+    }
+
+    private static volatile Object[] spawnType;
+
+    /** {@code AdvancedAddEntityPayload.STREAM_CODEC} when {@code id} is its type's id. */
+    private static Object spawnCodec(ClassLoader loader, Object id) {
+        try {
+            Object[] known = spawnType;
+
+            if (known == null) {
+                Class<?> payload = Class.forName("net.neoforged.neoforge.network.payload.AdvancedAddEntityPayload",
+                        true, loader);
+                Object payloadType = payload.getField("TYPE").get(null);
+                known = new Object[] { payloadType.getClass().getMethod("id").invoke(payloadType),
+                        payload.getField("STREAM_CODEC").get(null) };
+                spawnType = known;
+            }
+
+            return known[0].equals(id) ? known[1] : null;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** {@code new RegistryFriendlyByteBuf(bytes, entity.registryAccess())}. */
+    private static Object spawnBuffer(ClassLoader loader, Object entity, Object bytes)
+            throws ReflectiveOperationException {
+        Object registries = entity.getClass().getMethod("registryAccess").invoke(entity);
+        Class<?> byteBuf = Class.forName("io.netty.buffer.ByteBuf", false, loader);
+        Class<?> registryAccess = Class.forName("net.minecraft.core.RegistryAccess", false, loader);
+        return Class.forName("net.minecraft.network.RegistryFriendlyByteBuf", true, loader)
+                .getConstructor(byteBuf, registryAccess).newInstance(bytes, registries);
+    }
+
+    /** An entity's extra spawn data arriving: read into the entity the client already made. */
+    private static boolean spawnData(Object listener, Object payload) throws Exception {
+        int id = (int) payload.getClass().getMethod("entityId").invoke(payload);
+        byte[] data = (byte[]) payload.getClass().getMethod("customPayload").invoke(payload);
+        Object minecraft = field(listener, "minecraft");
+        ClassLoader loader = listener.getClass().getClassLoader();
+
+        enqueue(minecraft, (Runnable) () -> {
+            try {
+                Object level = field(minecraft, "level");
+                Object entity = level == null ? null : level.getClass().getMethod("getEntity", int.class)
+                        .invoke(level, id);
+
+                if (entity == null) {
+                    return;
+                }
+
+                Object buffer = spawnBuffer(loader, entity, Class.forName("io.netty.buffer.Unpooled", true, loader)
+                        .getMethod("wrappedBuffer", byte[].class).invoke(null, (Object) data));
+                entity.getClass().getMethod("readSpawnData", buffer.getClass()).invoke(entity, buffer);
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                report("spawn", Failures.unwrap(e));
+            }
+        });
+        return true;
+    }
+
+    private static Object entityOf(Object serverEntity) throws ReflectiveOperationException {
+        Field field = ENTITY_FIELD;
+
+        if (field == null) {
+            field = serverEntity.getClass().getDeclaredField("entity");
+            field.setAccessible(true);
+            ENTITY_FIELD = field;
+        }
+
+        return field.get(serverEntity);
+    }
+
+    private static volatile Field ENTITY_FIELD;
+
     private static int count(Class<?> type) throws ReflectiveOperationException {
         int total = 0;
 
@@ -77,6 +190,13 @@ public final class ModPayloads {
 
         if (type == null || id == null || gameCodecs.containsKey(id)) {
             return null;
+        }
+
+        // NeoForge's own entity spawn data, which Octo sends itself (pairing).
+        Object spawn = spawnCodec(type.getClassLoader(), id);
+
+        if (spawn != null) {
+            return spawn;
         }
 
         try {
@@ -118,6 +238,12 @@ public final class ModPayloads {
 
         try {
             Object payload = packet.getClass().getMethod("payload").invoke(packet);
+
+            if (clientbound && payload.getClass().getName()
+                    .equals("net.neoforged.neoforge.network.payload.AdvancedAddEntityPayload")) {
+                return spawnData(listener, payload);
+            }
+
             Object payloadType = payload.getClass().getMethod("type").invoke(payload);
             Object id = payloadType.getClass().getMethod("id").invoke(payloadType);
             Object handler = handler(type, clientbound ? "CLIENTBOUND_HANDLERS" : "SERVERBOUND_HANDLERS", id);

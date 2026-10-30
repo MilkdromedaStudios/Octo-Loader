@@ -163,6 +163,11 @@ public final class NeoGameEvents {
         }
     }
 
+    /** A player being told about an entity coming into view. */
+    public static void pairing(Object serverEntity, Object consumer) {
+        ModPayloads.pairing(serverEntity, consumer);
+    }
+
     /** A block or block entity about to change at a position in a chunk. */
     public static void blockChanged(Object chunk, Object posOrBlockEntity) {
         CapabilityListeners.changed(chunk, posOrBlockEntity);

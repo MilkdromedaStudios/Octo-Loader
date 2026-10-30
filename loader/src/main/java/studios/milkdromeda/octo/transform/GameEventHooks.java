@@ -73,6 +73,9 @@ public final class GameEventHooks implements Transformer {
                     "chunkUnloading", new int[] { 0 }, null),
             // A block or block entity changing, which NeoForge's capability
             // caches listen for (CapabilityListeners).
+            // An entity coming into a player's view: its extra spawn data too.
+            new Point("net/minecraft/server/level/ServerEntity", "sendPairingData", null, true, "pairing",
+                    new int[] { 0, 2 }, null),
             new Point(CHUNK, "setBlockState", null, false, "blockChanged", new int[] { 0, 1 }, null),
             new Point(CHUNK, "setBlockEntity", null, false, "blockChanged", new int[] { 0, 1 }, null),
             new Point(CHUNK, "removeBlockEntity", null, false, "blockChanged", new int[] { 0, 1 }, null),

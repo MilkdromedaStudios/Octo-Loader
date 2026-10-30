@@ -84,6 +84,68 @@ public final class LegacyRenderers {
         recording.submit(collector);
     }
 
+    /** An entity renderer's {@code createRenderState()}: the game's plain entity state. */
+    public static Object newEntityState(Object renderer) {
+        try {
+            return Class.forName("net.minecraft.client.renderer.entity.state.EntityRenderState", true,
+                    renderer.getClass().getClassLoader()).getConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** An entity renderer's {@code extractRenderState}, after the game's own part: the entity is kept. */
+    public static void captureEntity(Object state, Object entity, float partialTick) {
+        CAPTURED.put(state, new Captured(entity, partialTick, null));
+    }
+
+    /**
+     * An entity renderer's {@code submit}: its old {@code render} run into
+     * recording buffers, at the pose the game has already moved to the
+     * entity, and what it drew queued as custom geometry.
+     */
+    public static void submitEntity(Object renderer, Object state, Object poseStack, Object collector) {
+        Captured captured = CAPTURED.get(state);
+
+        if (captured == null || !(renderer instanceof LegacyEntityRenderer legacy)) {
+            return;
+        }
+
+        Game game = game(renderer);
+        Recording recording = new Recording(game);
+
+        try {
+            legacy.octo$renderEntity(captured.blockEntity(), yaw(captured.blockEntity(), captured.partialTick()),
+                    captured.partialTick(), poseStack, recording.buffers(), entityLight(state));
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+
+            if (REPORTED.add(renderer.getClass())) {
+                LOG.warn("{} failed drawing the old way; what it drew before failing is shown: {}",
+                        renderer.getClass().getName(), Failures.describe(Failures.unwrap(e)));
+                OctoLog.detail(Failures.unwrap(e));
+            }
+        }
+
+        recording.submit(collector);
+    }
+
+    private static float yaw(Object entity, float partialTick) {
+        try {
+            return (float) entity.getClass().getMethod("getYRot", float.class).invoke(entity, partialTick);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private static int entityLight(Object state) {
+        try {
+            return state.getClass().getField("lightCoords").getInt(state);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return 0xF000F0;
+        }
+    }
+
     private static Game game(Object renderer) {
         ClassLoader loader = renderer.getClass().getClassLoader();
         return GAMES.computeIfAbsent(loader, Game::new);
