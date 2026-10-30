@@ -43,6 +43,8 @@ public final class Shims {
     private static final String COMPOUND = NBT + "CompoundTag";
     private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
+    private static final String STATE = "net/minecraft/world/level/block/state/BlockState";
+    private static final String VOXEL_SHAPE = "net/minecraft/world/phys/shapes/VoxelShape";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
     private static final String TOOL_RULE = "net/minecraft/world/item/component/Tool$Rule";
     private static final String MODEL_MANAGER = "net/minecraft/client/resources/model/ModelManager";
@@ -130,6 +132,8 @@ public final class Shims {
             Map.entry(TOOL_RULE + ".minesAndDrops(Lnet/minecraft/tags/TagKey;F)L" + TOOL_RULE + ";",
                     "toolRuleMinesAndDrops"),
             Map.entry(TOOL_RULE + ".deniesDrops(Lnet/minecraft/tags/TagKey;)L" + TOOL_RULE + ";", "toolRuleDeniesDrops"),
+            // And the blocks themselves, as a list: every sword's cobweb rule.
+            Map.entry(TOOL_RULE + ".minesAndDrops(Ljava/util/List;F)L" + TOOL_RULE + ";", "toolRuleMinesAndDropsList"),
             Map.entry(TOOL_RULE + ".overrideSpeed(Lnet/minecraft/tags/TagKey;F)L" + TOOL_RULE + ";",
                     "toolRuleOverrideSpeed"),
             // NeoForge's and Forge's creative tab builder, patched in beside
@@ -181,6 +185,15 @@ public final class Shims {
             // Shapes worked out per state: a map until 1.21.2, a function since.
             Map.entry("net/minecraft/world/level/block/Block.getShapeForEachState(Ljava/util/function/Function;)"
                     + "Lcom/google/common/collect/ImmutableMap;", "blockShapesByState"),
+            // A state's occlusion shapes, asked of a level and position until
+            // 1.21.2. The new forms read a cache filled once the block is
+            // registered; a block asking in its own constructor (Copycats+)
+            // got null, so these work it out from the block when it is empty.
+            Map.entry(STATE + ".getOcclusionShape(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)"
+                    + "L" + VOXEL_SHAPE + ";", "stateOcclusionShape"),
+            Map.entry(STATE + ".getFaceOcclusionShape(Lnet/minecraft/world/level/BlockGetter;"
+                    + "Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;)L" + VOXEL_SHAPE + ";",
+                    "stateFaceOcclusionShape"),
             // NeoForge's public way to name a command argument's class.
             Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
                     + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
@@ -701,6 +714,15 @@ public final class Shims {
                 float.class }, blocksOf(owner, tag), speed);
     }
 
+    public static Object toolRuleMinesAndDropsList(Object blocks, float speed, Class<?> owner) {
+        Class<?> holderSet = game(owner, "net.minecraft.core.HolderSet");
+        java.util.function.Function<Object, Object> holder = block -> callWith(block, "builtInRegistryHolder",
+                new Class<?>[0]);
+        Object set = callStatic(holderSet, "direct", new Class<?>[] { java.util.function.Function.class,
+                java.util.Collection.class }, holder, blocks);
+        return callStatic(owner, "minesAndDrops", new Class<?>[] { holderSet, float.class }, set, speed);
+    }
+
     public static Object toolRuleDeniesDrops(Object tag, Class<?> owner) {
         return callStatic(owner, "deniesDrops", new Class<?>[] { game(owner, "net.minecraft.core.HolderSet") },
                 blocksOf(owner, tag));
@@ -930,6 +952,46 @@ public final class Shims {
 
         return callStatic(game(block.getClass(), "com.google.common.collect.ImmutableMap"), "copyOf",
                 new Class<?>[] { Map.class }, out);
+    }
+
+    public static Object stateOcclusionShape(Object state, Object level, Object pos) {
+        Object cached = callWith(state, "getOcclusionShape", new Class<?>[0]);
+        return cached != null ? cached : blockOcclusionShape(state);
+    }
+
+    public static Object stateFaceOcclusionShape(Object state, Object level, Object pos, Object side) {
+        Class<?> direction = game(state.getClass(), "net.minecraft.core.Direction");
+
+        try {
+            Object cached = callWith(state, "getFaceOcclusionShape", new Class<?>[] { direction }, side);
+
+            if (cached != null) {
+                return cached;
+            }
+        } catch (RuntimeException e) {
+            // The cache is not there yet.
+        }
+
+        Object whole = blockOcclusionShape(state);
+        return callWith(whole, "getFaceShape", new Class<?>[] { direction }, side);
+    }
+
+    /** {@code block.getOcclusionShape(state)}, worked out rather than read from the state's cache. */
+    private static Object blockOcclusionShape(Object state) {
+        Object block = callWith(state, "getBlock", new Class<?>[0]);
+        Class<?> stateType = game(state.getClass(), STATE.replace('/', '.'));
+
+        for (Class<?> at = block.getClass(); at != null; at = at.getSuperclass()) {
+            try {
+                Method method = at.getDeclaredMethod("getOcclusionShape", stateType);
+                method.setAccessible(true);
+                return invoke(method, block, state);
+            } catch (NoSuchMethodException e) {
+                // Declared higher up.
+            }
+        }
+
+        throw new IllegalStateException(block.getClass().getName() + " has no getOcclusionShape(BlockState)");
     }
 
     /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */

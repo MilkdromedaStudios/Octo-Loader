@@ -1209,7 +1209,10 @@ public final class MissingMemberTransformer implements Transformer {
                  */
                 private boolean followWithoutPlace(int opcode, String owner, String name, String descriptor,
                         boolean isInterface) {
-                    if (name.charAt(0) == '<' || opcode == Opcodes.INVOKESPECIAL) {
+                    // A shim knows better: the new form may answer from a
+                    // cache the old one did not need.
+                    if (name.charAt(0) == '<' || opcode == Opcodes.INVOKESPECIAL
+                            || shimUpward(owner, name, descriptor, opcode) != null) {
                         return false;
                     }
 
