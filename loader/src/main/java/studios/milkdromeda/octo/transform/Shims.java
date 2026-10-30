@@ -178,6 +178,9 @@ public final class Shims {
                     + "Lnet/minecraft/world/entity/EntityType;", "entityTypeBuild"),
             Map.entry("net/minecraft/world/entity/EntityType.create(Lnet/minecraft/world/level/Level;)"
                     + "Lnet/minecraft/world/entity/Entity;", "entityTypeCreate"),
+            // Shapes worked out per state: a map until 1.21.2, a function since.
+            Map.entry("net/minecraft/world/level/block/Block.getShapeForEachState(Ljava/util/function/Function;)"
+                    + "Lcom/google/common/collect/ImmutableMap;", "blockShapesByState"),
             // NeoForge's public way to name a command argument's class.
             Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
                     + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
@@ -907,6 +910,26 @@ public final class Shims {
 
     public static Object savedDataGet(Object storage, Object factory, Object name) {
         return studios.milkdromeda.octo.bridge.SavedDataFactories.get(storage, factory, (String) name);
+    }
+
+    /** {@code Block.getShapeForEachState(shape)}: each of the block's states with its shape. */
+    @SuppressWarnings("unchecked")
+    public static Object blockShapesByState(Object block, Object shape) {
+        Object definition = callWith(block, "getStateDefinition", new Class<?>[0]);
+        java.util.Collection<?> states = (java.util.Collection<?>) callWith(definition, "getPossibleStates",
+                new Class<?>[0]);
+        Map<Object, Object> out = new java.util.LinkedHashMap<>();
+
+        for (Object state : states) {
+            Object each = ((java.util.function.Function<Object, Object>) shape).apply(state);
+
+            if (each != null) {
+                out.put(state, each);
+            }
+        }
+
+        return callStatic(game(block.getClass(), "com.google.common.collect.ImmutableMap"), "copyOf",
+                new Class<?>[] { Map.class }, out);
     }
 
     /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */
