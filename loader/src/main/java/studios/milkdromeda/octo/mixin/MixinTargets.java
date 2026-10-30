@@ -537,13 +537,17 @@ public final class MixinTargets implements Transformer {
             return false;
         }
 
+        // The field must be there with the type the accessor reads: 26.x's
+        // RenderSystem keeps a shaderLightDirections that is a GPU buffer now,
+        // not the Vector3f[] Catnip's accessor reads, and mixin refuses it.
+        String descriptor = accessedFieldDescriptor(method);
+
         for (Target target : targets) {
-            if (target.hasField(wanted, null)) {
+            if (target.hasField(wanted, descriptor)) {
                 return false;
             }
         }
 
-        String descriptor = accessedFieldDescriptor(method);
         String resolved = null;
 
         for (Target target : targets) {
@@ -564,7 +568,10 @@ public final class MixinTargets implements Transformer {
         }
 
         if (resolved == null) {
-            return false;
+            retire(method, accessor);
+            note(context, className, method.name + ": this version has no field " + wanted
+                    + " nor one like it, so the accessor answers a default");
+            return true;
         }
 
         put(accessor, "value", resolved);
@@ -609,7 +616,72 @@ public final class MixinTargets implements Transformer {
             }
         }
 
-        return false;
+        retire(method, invoker);
+        note(context, className, method.name + ": this version has no method " + wanted
+                + " nor one like it, so the invoker answers a default");
+        return true;
+    }
+
+    /**
+     * An accessor or invoker for a member that is gone, with nothing like it
+     * left to aim at, made an ordinary method that answers a default.
+     *
+     * <p>Left as it was, mixin fails to generate it, and every use of it calls
+     * a method that was never added: Catnip's accessor for {@code
+     * RenderSystem.shaderLightDirections}, which 26.x removed, was a {@code
+     * NoSuchMethodError} in the middle of drawing every Create part. An
+     * ordinary method stays in the accessor interface, which the target
+     * still implements, and answers what a member the game no longer has
+     * answers anywhere else.
+     */
+    private static void retire(MethodNode method, AnnotationNode annotation) {
+        if (method.visibleAnnotations != null) {
+            method.visibleAnnotations.remove(annotation);
+        }
+
+        if (method.invisibleAnnotations != null) {
+            method.invisibleAnnotations.remove(annotation);
+        }
+
+        Type returned = Type.getReturnType(method.desc);
+        org.objectweb.asm.tree.InsnList body = new org.objectweb.asm.tree.InsnList();
+
+        switch (returned.getSort()) {
+            case Type.VOID -> body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.RETURN));
+            case Type.BOOLEAN, Type.BYTE, Type.CHAR, Type.SHORT, Type.INT -> {
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.ICONST_0));
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.IRETURN));
+            }
+            case Type.LONG -> {
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.LCONST_0));
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.LRETURN));
+            }
+            case Type.FLOAT -> {
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.FCONST_0));
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.FRETURN));
+            }
+            case Type.DOUBLE -> {
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DCONST_0));
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DRETURN));
+            }
+            default -> {
+                body.add(new org.objectweb.asm.tree.LdcInsnNode(returned.getDescriptor()));
+                body.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC,
+                        "studios/milkdromeda/octo/mixin/UnmergedCalls", "value",
+                        "(Ljava/lang/String;)Ljava/lang/Object;", false));
+                body.add(new org.objectweb.asm.tree.TypeInsnNode(org.objectweb.asm.Opcodes.CHECKCAST,
+                        returned.getSort() == Type.ARRAY ? returned.getDescriptor() : returned.getInternalName()));
+                body.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.ARETURN));
+            }
+        }
+
+        boolean isStatic = (method.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0;
+        method.access &= ~org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+        method.instructions = body;
+        method.tryCatchBlocks.clear();
+        method.localVariables = null;
+        method.maxStack = 2;
+        method.maxLocals = (Type.getArgumentsAndReturnSizes(method.desc) >> 2) - (isStatic ? 1 : 0);
     }
 
     private static String declaredOrInferred(AnnotationNode annotation, String methodName) {

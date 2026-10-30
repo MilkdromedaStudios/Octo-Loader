@@ -52,6 +52,8 @@ public final class Shims {
     private static final String NEO_MODEL_EVENT = "net/neoforged/neoforge/client/event/ModelEvent";
     private static final String FORGE_MODEL_EVENT = "net/minecraftforge/client/event/ModelEvent";
     private static final String QUAD = "net/minecraft/client/resources/model/geometry/BakedQuad";
+    private static final String BUFFER_BUILDER = "com/mojang/blaze3d/vertex/BufferBuilder";
+    private static final String RENDER_TYPE_NAME = "net/minecraft/client/renderer/rendertype/RenderType";
     private static final String SPRITE = "net/minecraft/client/renderer/texture/TextureAtlasSprite";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
@@ -142,6 +144,11 @@ public final class Shims {
             blockLayer("cutoutMipped", "renderTypeCutout"),
             blockLayer("translucent", "renderTypeTranslucent"),
             blockLayer("tripwire", "renderTypeTranslucent"),
+            // A pose turned by a quaternion: 26.x turns about a point instead.
+            Map.entry("com/mojang/blaze3d/vertex/PoseStack.mulPose(Lorg/joml/Quaternionf;)V", "poseStackRotate"),
+            Map.entry("com/mojang/blaze3d/vertex/PoseStack.mulPose(Lorg/joml/Quaternionfc;)V", "poseStackRotate"),
+            // And the list of them, which mods build a buffer per layer from.
+            Map.entry(RENDER_TYPE_NAME + ".chunkBufferLayers()Ljava/util/List;", "renderTypeLayers"),
             // The game's block renderer, gone with 26.x's models; the one
             // added back from the mod's release is answered by LegacyModels.
             Map.entry("net/minecraft/client/Minecraft.getBlockRenderer()"
@@ -152,6 +159,13 @@ public final class Shims {
             Map.entry(MODEL_MANAGER + ".getModel(Lnet/minecraft/resources/Identifier;)L" + BLOCK_MODEL + ";",
                     "modelManagerModel"),
             Map.entry(MODEL_MANAGER + ".getMissingModel()L" + BLOCK_MODEL + ";", "modelManagerMissing"),
+            // A registry as a lookup: since 1.21.2 a registry is one itself.
+            Map.entry("net/minecraft/core/Registry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
+            Map.entry("net/minecraft/core/DefaultedRegistry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
+            Map.entry("net/minecraft/core/WritableRegistry.asLookup()Lnet/minecraft/core/HolderLookup$RegistryLookup;",
+                    "registryAsLookup"),
             // NeoForge's patch to the model location, which the class added
             // back from the game alone does not have: a loose model's location.
             Map.entry(MODEL_LOCATION + ".standalone(Lnet/minecraft/resources/Identifier;)L" + MODEL_LOCATION + ";",
@@ -182,7 +196,15 @@ public final class Shims {
             Map.entry(QUAD + ".hasAmbientOcclusion()Z", "quadAmbientOcclusion"),
             Map.entry(QUAD + ".getDirection()Lnet/minecraft/core/Direction;", "quadDirection"),
             Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";Z)V", "newQuad"),
-            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";ZZ)V", "newQuadWithOcclusion"));
+            Map.entry(QUAD + ".<init>([IILnet/minecraft/core/Direction;L" + SPRITE + ";ZZ)V", "newQuadWithOcclusion"),
+            // A buffer builder made with the draw mode, which 26.x calls a primitive topology.
+            Map.entry(BUFFER_BUILDER + ".<init>(Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;"
+                    + "Lcom/mojang/blaze3d/vertex/VertexFormat$Mode;Lcom/mojang/renderpearl/api/vertex/VertexFormat;)V",
+                    "newBufferBuilder"),
+            Map.entry(BUFFER_BUILDER + ".<init>(Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;"
+                    + "Lcom/mojang/blaze3d/vertex/VertexFormat$Mode;Lcom/mojang/blaze3d/vertex/VertexFormat;)V",
+                    "newBufferBuilder"));
+
 
 
     private static final String RENDER_TYPE = "net/minecraft/client/renderer/rendertype/RenderType";
@@ -231,7 +253,17 @@ public final class Shims {
             Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/8", new String[] { "putBulkData",
                     "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }),
             Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/8", new String[] { "putBulkData",
-                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }));
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFII)V" }),
+            // NeoForge's forms: with whether to read the quad's own colour,
+            // and with a brightness and a light for each corner.
+            Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/9", new String[] { "putBulkDataReading",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFIIZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/9", new String[] { "putBulkDataReading",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFIIZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/VertexConsumer.putBulkData/10", new String[] { "putBulkDataCorners",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFLjava/lang/Object;IZ)V" }),
+            Map.entry("com/mojang/blaze3d/vertex/BufferBuilder.putBulkData/10", new String[] { "putBulkDataCorners",
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFFFLjava/lang/Object;IZ)V" }));
 
     /**
      * Static fields removed, rebuilt the same way: a shim taking the owner's
@@ -621,6 +653,22 @@ public final class Shims {
 
     // --------------------------------------------------------------- rendering
 
+    /** {@code poseStack.mulPose(quaternion)}: the same turn, about the origin. */
+    public static void poseStackRotate(Object poseStack, Object quaternion) {
+        callWith(poseStack, "rotateAround", new Class<?>[] { game(poseStack.getClass(), "org.joml.Quaternionfc"),
+                float.class, float.class, float.class }, quaternion, 0f, 0f, 0f);
+    }
+
+    /** {@code RenderType.chunkBufferLayers()}: the layers the block layer shims above hand out, once each. */
+    public static Object renderTypeLayers(Class<?> owner) {
+        java.util.LinkedHashSet<Object> layers = new java.util.LinkedHashSet<>();
+        layers.add(renderTypeSolid(owner));
+        layers.add(renderTypeCutout(owner));
+        layers.add(renderTypeTranslucent(owner));
+        layers.remove(null);
+        return List.copyOf(layers);
+    }
+
     public static Object renderTypeSolid(Class<?> owner) {
         return renderTypes(owner, "solidMovingBlock");
     }
@@ -631,6 +679,100 @@ public final class Shims {
 
     public static Object renderTypeTranslucent(Class<?> owner) {
         return renderTypes(owner, "translucentMovingBlock");
+    }
+
+    public static void putBulkDataReading(Object consumer, Object pose, Object quad, float red, float green, float blue,
+            float alpha, int light, int overlay, boolean readAlpha) {
+        studios.milkdromeda.octo.bridge.client.LegacyModels.putBulkData(consumer, pose, quad, red, green, blue, alpha,
+                light, overlay);
+    }
+
+    /** The per-corner form: the corners' average brightness and the first corner's light, which a flat quad shares. */
+    public static void putBulkDataCorners(Object consumer, Object pose, Object quad, Object brightness, float red,
+            float green, float blue, float alpha, Object lights, int overlay, boolean readAlpha) {
+        float shade = 1f;
+
+        if (brightness instanceof float[] values && values.length > 0) {
+            shade = 0f;
+
+            for (float value : values) {
+                shade += value;
+            }
+
+            shade /= values.length;
+        }
+
+        int light = lights instanceof int[] values && values.length > 0 ? values[0] : 0xF000F0;
+        studios.milkdromeda.octo.bridge.client.LegacyModels.putBulkData(consumer, pose, quad, red * shade,
+                green * shade, blue * shade, alpha, light, overlay);
+    }
+
+    /** {@code new BufferBuilder(bytes, mode, format)}: the draw mode becomes the topology of the same name. */
+    public static Object newBufferBuilder(Object bytes, Object mode, Object format) {
+        Class<?> builder = game(bytes.getClass(), "com.mojang.blaze3d.vertex.BufferBuilder");
+        Class<?> topology = game(bytes.getClass(), "com.mojang.renderpearl.api.pipeline.PrimitiveTopology");
+        String name = mode instanceof Enum<?> value ? value.name() : "QUADS";
+
+        if (name.equals("LINE_STRIP")) {
+            name = "DEBUG_LINE_STRIP";
+        }
+
+        Object primitive = staticField(topology, name);
+        format = oldLayout(bytes.getClass(), format);
+
+        for (java.lang.reflect.Constructor<?> constructor : builder.getConstructors()) {
+            Class<?>[] parameters = constructor.getParameterTypes();
+
+            if (parameters.length == 3 && parameters[1] == topology && parameters[2].isInstance(format)) {
+                try {
+                    return constructor.newInstance(bytes, primitive, format);
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException("could not make a buffer builder", e);
+                }
+            }
+        }
+
+        throw new IllegalStateException("no buffer builder takes " + format);
+    }
+
+    private static volatile Object oldBlockFormat;
+
+    /**
+     * The block format laid out as code from before 26.x reads it back. 26.x
+     * dropped the normal from its block vertices — 28 bytes, where 1.21 had
+     * 32 — and code that copies vertex data out of a buffer it built, Catnip's
+     * template meshes among it, reads each vertex at the old offsets and runs
+     * off the end. A buffer such code builds in the block format gets the
+     * old layout back: position, colour, texture, light, normal.
+     */
+    static Object oldLayout(Class<?> anchor, Object format) {
+        try {
+            Class<?> defaults = game(anchor, "com.mojang.blaze3d.vertex.DefaultVertexFormat");
+
+            if (format != staticField(defaults, "BLOCK")) {
+                return format;
+            }
+
+            Object built = oldBlockFormat;
+
+            if (built == null) {
+                Class<?> vertexFormat = game(anchor, "com.mojang.renderpearl.api.vertex.VertexFormat");
+                Class<?> gpuFormat = game(anchor, "com.mojang.renderpearl.api.GpuFormat");
+                Object builder = callStatic(vertexFormat, "builder", new Class<?>[] { int.class }, 0);
+                java.lang.reflect.Method add = builder.getClass().getMethod("addAttribute", String.class, gpuFormat);
+                add.invoke(builder, "Position", staticField(gpuFormat, "RGB32_FLOAT"));
+                add.invoke(builder, "Color", staticField(gpuFormat, "RGBA8_UNORM"));
+                add.invoke(builder, "UV0", staticField(gpuFormat, "RG32_FLOAT"));
+                add.invoke(builder, "UV2", staticField(gpuFormat, "RG16_SINT"));
+                add.invoke(builder, "Normal", staticField(gpuFormat, "RGBA8_SNORM"));
+                built = builder.getClass().getMethod("build").invoke(builder);
+                oldBlockFormat = built;
+            }
+
+            return built;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return format;
+        }
     }
 
     public static Object quadVertices(Object quad) {
@@ -670,6 +812,11 @@ public final class Shims {
             boolean shade, boolean ambientOcclusion) {
         return studios.milkdromeda.octo.bridge.client.LegacyQuads.make((int[]) vertices, tintIndex, direction, sprite,
                 shade, ambientOcclusion);
+    }
+
+    /** {@code registry.asLookup()}: the registry, which is its own lookup now. */
+    public static Object registryAsLookup(Object registry) {
+        return registry;
     }
 
     /** {@code ModelResourceLocation.standalone(id)}: the location with NeoForge's {@code standalone} variant. */

@@ -488,6 +488,7 @@ public final class MixinSupport {
             String binaryName = className.replace('/', '.');
             byte[] result = WovenMethodCheck.check(className, bytes,
                     transformer.transformClassBytes(binaryName, binaryName, bytes));
+            result = UnmergedCalls.fix(className, result, OctoMixinService.loader());
 
             if (result != null && result != bytes && result.length != bytes.length) {
                 context.note("mixins applied to " + binaryName);

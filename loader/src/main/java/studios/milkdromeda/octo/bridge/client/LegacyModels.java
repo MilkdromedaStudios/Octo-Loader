@@ -75,8 +75,10 @@ public final class LegacyModels {
     /** {@code consumer.putBulkData(pose, quad, r, g, b, a, light, overlay)}: the quad, tinted and lit. */
     public static void putBulkData(Object consumer, Object pose, Object quad, float red, float green, float blue,
             float alpha, int light, int overlay) {
+
         Game game = game(consumer);
         game.put(consumer, pose, quad, red, green, blue, alpha, light, overlay, 1f);
+
     }
 
     // ----------------------------------------------------- restored classes
@@ -237,6 +239,9 @@ public final class LegacyModels {
             return Class.forName(name, true, loader);
         }
 
+        /** Failures already logged, so one that repeats every frame is said once or twice. */
+        static final Map<String, Integer> SEEN = new ConcurrentHashMap<>();
+
         Object call(String owner, String method, Object[] args) throws ReflectiveOperationException {
             String simple = owner.substring(owner.lastIndexOf('/') + 1);
 
@@ -392,6 +397,36 @@ public final class LegacyModels {
             }).orElse(null);
         }
 
+        private final Map<Class<?>, java.util.Optional<Method>> ownBulkData = new ConcurrentHashMap<>();
+
+        /**
+         * A consumer's own {@code putBulkData(pose, quad, r, g, b, a, light,
+         * overlay[, readAlpha])}, declared by the consumer's class rather than
+         * inherited from this game's interface; the eight-colour form first.
+         */
+        Method ownBulkData(Class<?> type) {
+            return ownBulkData.computeIfAbsent(type, ignored -> {
+                Method found = null;
+
+                for (Class<?> at = type; at != null && at != Object.class && found == null; at = at.getSuperclass()) {
+                    for (Method method : at.getDeclaredMethods()) {
+                        Class<?>[] parameters = method.getParameterTypes();
+
+                        if (method.getName().equals("putBulkData") && (parameters.length == 8 || parameters.length == 9)
+                                && parameters[0] == pose && parameters[2] == float.class
+                                && parameters[6] == int.class && parameters[7] == int.class
+                                && (parameters.length == 8 || parameters[8] == boolean.class)
+                                && !method.isBridge() && (found == null || parameters.length == 9)) {
+                            method.setAccessible(true);
+                            found = method;
+                        }
+                    }
+                }
+
+                return java.util.Optional.ofNullable(found);
+            }).orElse(null);
+        }
+
         private Object emptyModelData() {
             try {
                 return Class.forName("net.neoforged.neoforge.client.model.data.ModelData", true, loader)
@@ -419,6 +454,7 @@ public final class LegacyModels {
         /** Every quad of the model, on every side and on none, written into the consumer at the pose. */
         void draw(Object model, Object where, Object consumer, int light, int overlay, float red, float green,
                 float blue, boolean shade) throws ReflectiveOperationException {
+
             if (model == null || consumer == null || !vertexConsumer.isInstance(consumer)) {
                 return;
             }
@@ -459,6 +495,30 @@ public final class LegacyModels {
 
         void put(Object consumer, Object at, Object quad, float red, float green, float blue, float alpha, int light,
                 int overlay, float brightness) {
+            Method own = ownBulkData(consumer.getClass());
+
+            if (own != null) {
+                // A consumer of the mod's own era takes quads whole: Catnip's
+                // mesh emitter sorts each into its shaded or unshaded mesh
+                // there, and has nowhere to put a loose vertex.
+                try {
+                    Object pose = poseStack.isInstance(at) ? last.invoke(at) : at;
+                    Object[] args = own.getParameterCount() == 9
+                            ? new Object[] { pose, quad, red * brightness, green * brightness, blue * brightness, alpha,
+                                    light, overlay, false }
+                            : new Object[] { pose, quad, red * brightness, green * brightness, blue * brightness, alpha,
+                                    light, overlay };
+                    own.invoke(consumer, args);
+                    return;
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    if (SEEN.merge("refused:" + consumer.getClass().getName(), 1, Integer::sum) <= 2) {
+                        LOG.warn("a {} refused a quad: {}", consumer.getClass().getName(),
+                                Failures.describe(Failures.unwrap(e)));
+                        OctoLog.detail(Failures.unwrap(e));
+                    }
+                }
+            }
+
             try {
                 Object instance = quadInstance.newInstance();
                 int color = channel(alpha, 1f) << 24 | channel(red, brightness) << 16 | channel(green, brightness) << 8
@@ -467,8 +527,12 @@ public final class LegacyModels {
                 setLight.invoke(instance, light);
                 setOverlay.invoke(instance, overlay);
                 putBakedQuad.invoke(consumer, poseStack.isInstance(at) ? last.invoke(at) : at, quad, instance);
-            } catch (ReflectiveOperationException e) {
-                LOG.debug("could not write a quad: {}", e.toString());
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                if (SEEN.merge("fail:" + e, 1, Integer::sum) <= 2) {
+                    LOG.warn("could not write a quad into a {}: {}", consumer.getClass().getName(),
+                            Failures.describe(Failures.unwrap(e)));
+                    OctoLog.detail(Failures.unwrap(e));
+                }
             }
         }
 
