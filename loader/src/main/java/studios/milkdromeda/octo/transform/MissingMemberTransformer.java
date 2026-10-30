@@ -387,6 +387,32 @@ public final class MissingMemberTransformer implements Transformer {
          *
          * @return that game class, or {@code null} when the call is the mod's own business
          */
+        /**
+         * The shim for the member on {@code owner}, or on the nearest of its
+         * game ancestors that has one: an instance method a shim answers on
+         * {@code Block} is answered on every block class below it too.
+         */
+        private String shimUpward(String owner, String name, String descriptor, int opcode) {
+            String shim = Shims.shimFor(owner, name, descriptor);
+
+            if (shim != null || opcode == Opcodes.INVOKESTATIC) {
+                return shim;
+            }
+
+            String ancestor = lookup.superName(owner);
+
+            for (int depth = 0; shim == null && ancestor != null && depth < 16 && isGameSide(ancestor); depth++) {
+                shim = Shims.shimFor(ancestor, name, descriptor);
+                ancestor = lookup.superName(ancestor);
+            }
+
+            return shim;
+        }
+
+        private boolean isGameSide(String internalName) {
+            return internalName.startsWith("net/minecraft/") || internalName.startsWith("com/mojang/");
+        }
+
         private String inheritedGap(String owner, String name, String descriptor) {
             if (!owner.equals(className) || declared.contains(name + descriptor) || superName == null) {
                 return null;
@@ -394,8 +420,11 @@ public final class MissingMemberTransformer implements Transformer {
 
             String ancestor = superName;
 
-            // Up through the mod's own classes to the first of the game's.
-            for (int depth = 0; ancestor != null && depth < 16 && isOwnClass(context, ancestor); depth++) {
+            // Up through the mods' classes — this mod's, or another's it
+            // builds on: an add-on's block extending Create's — to the first
+            // of the game's.
+            for (int depth = 0; ancestor != null && depth < 16 && !isGameSide(ancestor)
+                    && !ancestor.startsWith("java/"); depth++) {
                 if (!Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor))) {
                     return null;
                 }
@@ -693,6 +722,15 @@ public final class MissingMemberTransformer implements Transformer {
                         boolean isInterface) {
                     justMade = null;
 
+                    // MethodHandle.invoke and VarHandle.get take whatever
+                    // descriptor the call site gives them: never in any
+                    // index, never missing. Defaulted, Steam 'n' Rails lost
+                    // its Registrate to a null and every block it made.
+                    if (owner.equals("java/lang/invoke/MethodHandle") || owner.equals("java/lang/invoke/VarHandle")) {
+                        super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
+                        return;
+                    }
+
                     if (opcode == Opcodes.INVOKESPECIAL && name.equals("<init>")) {
                         constructor(owner, descriptor);
                         return;
@@ -814,7 +852,7 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
-                    String shim = classVersion >= Opcodes.V1_5 ? Shims.shimFor(owner, name, descriptor) : null;
+                    String shim = classVersion >= Opcodes.V1_5 ? shimUpward(owner, name, descriptor, opcode) : null;
 
                     if (shim != null) {
                         // Removed, but the old behaviour is a line of the new
