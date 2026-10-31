@@ -44,6 +44,7 @@ public final class Shims {
     private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
     private static final String STATE = "net/minecraft/world/level/block/state/BlockState";
+    private static final String ITEM_PREDICATE = "net/minecraft/advancements/predicates/ItemPredicate$Builder";
     private static final String VOXEL_SHAPE = "net/minecraft/world/phys/shapes/VoxelShape";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
     private static final String TOOL_RULE = "net/minecraft/world/item/component/Tool$Rule";
@@ -198,6 +199,12 @@ public final class Shims {
             // 26.x wants a resize callback. Defaulted, every block of a saved
             // Create contraption was entry 0 of an empty palette.
             Map.entry("net/minecraft/world/level/chunk/HashMapPalette.idFor(Ljava/lang/Object;)I", "paletteIdFor"),
+            // An item predicate's items or tag, looked up in a registry the
+            // caller now names; the game's own item registry is that one.
+            Map.entry(ITEM_PREDICATE + ".of([Lnet/minecraft/world/level/ItemLike;)L" + ITEM_PREDICATE + ";",
+                    "itemPredicateOfItems"),
+            Map.entry(ITEM_PREDICATE + ".of(Lnet/minecraft/tags/TagKey;)L" + ITEM_PREDICATE + ";",
+                    "itemPredicateOfTag"),
             // NeoForge's public way to name a command argument's class.
             Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
                     + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
@@ -340,6 +347,14 @@ public final class Shims {
             // contraption, seat and glue entity from being registered.
             Map.entry(SERIALIZERS + ".OPTIONAL_UUID:L" + SERIALIZER + ";", "serializerOptionalUuid"),
             Map.entry(SERIALIZERS + ".COMPOUND_TAG:L" + SERIALIZER + ";", "serializerCompoundTag"),
+            // The player condition an advancement trigger reads: a context
+            // predicate until 1.21.2, a loot condition since. Read as a null,
+            // every trigger Create made — and every advancement under one —
+            // failed to load.
+            Map.entry("net/minecraft/advancements/predicates/entity/EntityPredicate.ADVANCEMENT_CODEC:"
+                    + "Lcom/mojang/serialization/Codec;", "advancementPlayerCodec"),
+            Map.entry("net/minecraft/advancements/critereon/EntityPredicate.ADVANCEMENT_CODEC:"
+                    + "Lcom/mojang/serialization/Codec;", "advancementPlayerCodec"),
             // The game's own recipe serializers, each on its recipe class since
             // RecipeSerializer became a record; mods build theirs on them.
             Map.entry(CRAFTING + "RecipeSerializer.SHAPED_RECIPE:L" + CRAFTING + "RecipeSerializer;",
@@ -1002,6 +1017,27 @@ public final class Shims {
         Class<?> resize = game(palette.getClass(), "net.minecraft.world.level.chunk.PaletteResize");
         Object noResize = callStatic(resize, "noResizeExpected", new Class<?>[0]);
         return (int) callWith(palette, "idFor", new Class<?>[] { Object.class, resize }, value, noResize);
+    }
+
+    public static Object advancementPlayerCodec(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.world.level.storage.loot.predicates.LootItemCondition"),
+                "CODEC");
+    }
+
+    public static Object itemPredicateOfItems(Object builder, Object items) {
+        Class<?> getter = game(builder.getClass(), "net.minecraft.core.HolderGetter");
+        Class<?> itemLikes = game(builder.getClass(), "[Lnet.minecraft.world.level.ItemLike;");
+        return callWith(builder, "of", new Class<?>[] { getter, itemLikes }, itemRegistry(builder), items);
+    }
+
+    public static Object itemPredicateOfTag(Object builder, Object tag) {
+        Class<?> getter = game(builder.getClass(), "net.minecraft.core.HolderGetter");
+        Class<?> tagKey = game(builder.getClass(), "net.minecraft.tags.TagKey");
+        return callWith(builder, "of", new Class<?>[] { getter, tagKey }, itemRegistry(builder), tag);
+    }
+
+    private static Object itemRegistry(Object context) {
+        return staticField(game(context.getClass(), "net.minecraft.core.registries.BuiltInRegistries"), "ITEM");
     }
 
     /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */
