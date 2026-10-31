@@ -1125,6 +1125,77 @@ public final class MissingMemberTransformer implements Transformer {
                  *
                  * @return whether the call was written
                  */
+                /**
+                 * A superclass constructor that lost some of its parameters and
+                 * kept the rest in order: 26.x's {@code Level} no longer takes
+                 * the profiler supplier, and Catnip's level wrapper — the world
+                 * every Create contraption lives in — still passed one. The
+                 * arguments it kept are passed on; built from samples instead,
+                 * the level had no registries and no contraption assembled.
+                 */
+                private boolean narrowedSuperCall(String owner, String descriptor) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    String best = null;
+                    boolean[] bestKept = null;
+                    int bestCount = -1;
+
+                    for (String candidate : lookup.overloads(owner, "<init>")) {
+                        Type[] parameters = Type.getArgumentTypes(candidate);
+                        Integer access = lookup.methodAccess(owner, "<init>", candidate);
+
+                        if (parameters.length == 0 || parameters.length >= arguments.length || access == null
+                                || (access & Opcodes.ACC_PRIVATE) != 0) {
+                            continue;
+                        }
+
+                        boolean[] kept = new boolean[arguments.length];
+                        int next = 0;
+
+                        for (int i = 0; i < arguments.length && next < parameters.length; i++) {
+                            if (accepts(parameters[next], arguments[i])) {
+                                kept[i] = true;
+                                next++;
+                            }
+                        }
+
+                        if (next == parameters.length && parameters.length > bestCount) {
+                            best = candidate;
+                            bestKept = kept;
+                            bestCount = parameters.length;
+                        }
+                    }
+
+                    if (best == null) {
+                        return false;
+                    }
+
+                    int[] slots = new int[arguments.length];
+                    int slot = nextFree;
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        slots[i] = slot;
+                        slot += arguments[i].getSize();
+                    }
+
+                    for (int i = arguments.length - 1; i >= 0; i--) {
+                        super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                    }
+
+                    nextFree = slot;
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        if (bestKept[i]) {
+                            super.visitVarInsn(arguments[i].getOpcode(Opcodes.ILOAD), slots[i]);
+                        }
+                    }
+
+                    super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", best, false);
+                    changed = true;
+                    record(context, owner, "<init>" + descriptor, className,
+                            "it takes " + best + " now, with the arguments it kept");
+                    return true;
+                }
+
                 private boolean superConstructorGap(String owner, String descriptor) {
                     if (isOwnClass(context, owner) || !lookup.guards(owner)) {
                         return false;
@@ -1146,6 +1217,10 @@ public final class MissingMemberTransformer implements Transformer {
                     }
 
                     if (reorderedSuperCall(owner, descriptor)) {
+                        return true;
+                    }
+
+                    if (narrowedSuperCall(owner, descriptor)) {
                         return true;
                     }
 

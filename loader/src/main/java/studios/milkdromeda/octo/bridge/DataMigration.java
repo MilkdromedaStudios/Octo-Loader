@@ -43,6 +43,50 @@ public final class DataMigration {
         return ingredients(recipe);
     }
 
+    /**
+     * An advancement as this game reads it, or {@code null} when its
+     * conditions say it is not to be loaded.
+     *
+     * <p>Every recipe a mod adds comes with an advancement that unlocks it,
+     * one criterion asking whether the recipe is known already, under the
+     * {@code recipe} key 26.x no longer reads. Left as it was, each of those
+     * thousands failed to load, Create's alone 1,048 of them.
+     */
+    public static JsonElement advancement(JsonElement advancement, Predicate<String> modLoaded) {
+        if (!(advancement instanceof JsonObject object)) {
+            return advancement;
+        }
+
+        for (String key : new String[] { "neoforge:conditions", "conditions", "forge:conditions" }) {
+            if (object.get(key) instanceof JsonArray conditions && !allHold(conditions, modLoaded)) {
+                return null;
+            }
+        }
+
+        if (object.get("criteria") instanceof JsonObject criteria) {
+            for (var entry : criteria.entrySet()) {
+                if (entry.getValue() instanceof JsonObject criterion
+                        && "minecraft:recipe_unlocked".equals(string(criterion.get("trigger")))
+                        && criterion.get("conditions") instanceof JsonObject conditions
+                        && conditions.has("recipe") && !conditions.has("recipes")) {
+                    // Never met, rather than naming the recipe: 26.x holds
+                    // recipes in a registry, and a name for one this game
+                    // left out is a reference that stops the server. The
+                    // criterion only asks whether the recipe is known already;
+                    // the item beside it is what unlocks it.
+                    criterion.remove("conditions");
+                    criterion.addProperty("trigger", "minecraft:impossible");
+                }
+            }
+        }
+
+        return object;
+    }
+
+    private static String string(JsonElement element) {
+        return element != null && element.isJsonPrimitive() ? element.getAsString() : null;
+    }
+
     private static boolean allHold(JsonArray conditions, Predicate<String> modLoaded) {
         for (JsonElement condition : conditions) {
             if (Boolean.FALSE.equals(holds(condition, modLoaded))) {
@@ -148,6 +192,58 @@ public final class DataMigration {
     }
 
     /** Every old-form ingredient in the tree, written the new way. */
+    /**
+     * A fluid ingredient as NeoForge wrote it until 26.x — {@code {"type":
+     * "neoforge:single", "fluid": ..., "amount": 250}}, {@code "neoforge:tag"}
+     * with a {@code "tag"}, or a compound of single fluids — as 26.x reads one
+     * in a map: the
+     * components ingredient over that fluid or tag, which asks nothing of
+     * components unless told. The amount stays beside it, where the recipe's
+     * own codec reads it. Every Create recipe that takes a fluid was left out
+     * without it: Steam 'n' Rails' 1,063 mixing recipes, chocolate, honey.
+     *
+     * @return the rewritten ingredient, or {@code null} when it is not one
+     */
+    private static JsonElement fluidIngredient(JsonObject object) {
+        String type = string(object.get("type"));
+        JsonElement fluids;
+
+        if ("neoforge:single".equals(type) && string(object.get("fluid")) != null) {
+            fluids = new JsonPrimitive(string(object.get("fluid")));
+        } else if ("neoforge:tag".equals(type) && string(object.get("tag")) != null) {
+            fluids = new JsonPrimitive("#" + string(object.get("tag")));
+        } else if ("neoforge:compound".equals(type) && object.get("ingredients") instanceof JsonArray children) {
+            // Several fluids: one set of them, as long as each is a plain fluid.
+            JsonArray ids = new JsonArray();
+
+            for (JsonElement child : children) {
+                String id = child instanceof JsonObject single ? string(single.get("fluid")) : string(child);
+
+                if (id == null) {
+                    return null;
+                }
+
+                ids.add(id);
+            }
+
+            fluids = ids;
+        } else {
+            return null;
+        }
+
+        JsonObject out = new JsonObject();
+        out.addProperty("neoforge:ingredient_type", "neoforge:components");
+        out.add("fluids", fluids);
+        out.add("components", new JsonObject());
+        out.addProperty("strict", false);
+
+        if (object.has("amount")) {
+            out.add("amount", object.get("amount"));
+        }
+
+        return out;
+    }
+
     static JsonElement ingredients(JsonElement element) {
         if (element instanceof JsonObject object) {
             if (object.size() == 1 && object.get("item") instanceof JsonPrimitive item && item.isString()) {
@@ -156,6 +252,12 @@ public final class DataMigration {
 
             if (object.size() == 1 && object.get("tag") instanceof JsonPrimitive tag && tag.isString()) {
                 return new JsonPrimitive("#" + tag.getAsString());
+            }
+
+            JsonElement fluid = fluidIngredient(object);
+
+            if (fluid != null) {
+                return fluid;
             }
 
             JsonObject out = new JsonObject();

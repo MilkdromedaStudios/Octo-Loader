@@ -182,6 +182,185 @@ public final class UnmergedCalls {
         return out;
     }
 
+    private static final Map<String, Method> TARGETS = new ConcurrentHashMap<>();
+
+    /**
+     * An invoker made an ordinary method that calls its target by
+     * reflection: the annotation removed, so mixin does not try to generate
+     * it, and synthetic, so the interface stays an accessor mixin.
+     */
+    static void retireToCall(MethodNode method, org.objectweb.asm.tree.AnnotationNode invoker, String owner,
+            String name, String targetDescriptor) {
+        if (method.visibleAnnotations != null) {
+            method.visibleAnnotations.remove(invoker);
+        }
+
+        if (method.invisibleAnnotations != null) {
+            method.invisibleAnnotations.remove(invoker);
+        }
+
+        boolean isStatic = (method.access & Opcodes.ACC_STATIC) != 0;
+        Type[] arguments = Type.getArgumentTypes(method.desc);
+        Type returned = Type.getReturnType(method.desc);
+        InsnList body = new InsnList();
+        body.add(new InsnNode(isStatic ? Opcodes.ACONST_NULL : Opcodes.NOP));
+
+        if (!isStatic) {
+            body.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+        }
+
+        body.add(new LdcInsnNode(owner));
+        body.add(new LdcInsnNode(name));
+        body.add(new LdcInsnNode(targetDescriptor));
+        body.add(new LdcInsnNode(returned.getDescriptor()));
+        body.add(new LdcInsnNode(arguments.length));
+        body.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
+        int slot = isStatic ? 0 : 1;
+
+        for (int i = 0; i < arguments.length; i++) {
+            body.add(new InsnNode(Opcodes.DUP));
+            body.add(new LdcInsnNode(i));
+            body.add(new org.objectweb.asm.tree.VarInsnNode(arguments[i].getOpcode(Opcodes.ILOAD), slot));
+            box(body, arguments[i]);
+            body.add(new InsnNode(Opcodes.AASTORE));
+            slot += arguments[i].getSize();
+        }
+
+        body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/mixin/UnmergedCalls", "call",
+                "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
+                        + "[Ljava/lang/Object;)Ljava/lang/Object;", false));
+        unbox(body, returned);
+        body.add(new InsnNode(returned.getOpcode(Opcodes.IRETURN)));
+
+        method.access = (method.access & ~Opcodes.ACC_ABSTRACT) | Opcodes.ACC_SYNTHETIC;
+        method.instructions = body;
+        method.tryCatchBlocks.clear();
+        method.localVariables = null;
+        method.maxStack = 10;
+        method.maxLocals = slot;
+    }
+
+    private static void box(InsnList body, Type type) {
+        String boxed = switch (type.getSort()) {
+            case Type.BOOLEAN -> "java/lang/Boolean";
+            case Type.CHAR -> "java/lang/Character";
+            case Type.BYTE -> "java/lang/Byte";
+            case Type.SHORT -> "java/lang/Short";
+            case Type.INT -> "java/lang/Integer";
+            case Type.LONG -> "java/lang/Long";
+            case Type.FLOAT -> "java/lang/Float";
+            case Type.DOUBLE -> "java/lang/Double";
+            default -> null;
+        };
+
+        if (boxed != null) {
+            body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, boxed, "valueOf",
+                    "(" + type.getDescriptor() + ")L" + boxed + ";", false));
+        }
+    }
+
+    private static void unbox(InsnList body, Type type) {
+        switch (type.getSort()) {
+            case Type.VOID -> body.add(new InsnNode(Opcodes.POP));
+            case Type.BOOLEAN -> {
+                body.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Boolean"));
+                body.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z",
+                        false));
+            }
+            case Type.CHAR -> {
+                body.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Character"));
+                body.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Character", "charValue", "()C",
+                        false));
+            }
+            case Type.BYTE, Type.SHORT, Type.INT, Type.LONG, Type.FLOAT, Type.DOUBLE -> {
+                body.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Number"));
+                String unboxer = switch (type.getSort()) {
+                    case Type.BYTE -> "byteValue";
+                    case Type.SHORT -> "shortValue";
+                    case Type.INT -> "intValue";
+                    case Type.LONG -> "longValue";
+                    case Type.FLOAT -> "floatValue";
+                    default -> "doubleValue";
+                };
+                body.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Number", unboxer,
+                        "()" + type.getDescriptor(), false));
+            }
+            default -> body.add(new TypeInsnNode(Opcodes.CHECKCAST,
+                    type.getSort() == Type.ARRAY ? type.getDescriptor() : type.getInternalName()));
+        }
+    }
+
+    /**
+     * What a retired invoker calls: the target's method, found by name and
+     * descriptor, called with the invoker's arguments. When they do not fit
+     * — a client level where the method now wants a server's — it answers
+     * what a missing member does.
+     */
+    public static Object call(Object self, String owner, String name, String descriptor, String returned,
+            Object[] arguments) {
+        try {
+            ClassLoader loader = self != null ? self.getClass().getClassLoader() : OctoMixinService.loader();
+            Method target = TARGETS.computeIfAbsent(owner + "." + name + descriptor, key -> find(loader, owner,
+                    name, descriptor));
+
+            if (target != null) {
+                return target.invoke(self, arguments);
+            }
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+
+            if (cause instanceof Error error) {
+                throw error;
+            }
+
+            throw new IllegalStateException(cause);
+        } catch (IllegalArgumentException | IllegalAccessException e) {
+            if (REPORTED.add("call:" + owner + "." + name)) {
+                LOG.warn("{}.{} could not be called with what its old invoker was given: {}",
+                        owner.replace('/', '.'), name, e.toString());
+            }
+        }
+
+        return defaultFor(returned);
+    }
+
+    private static Method find(ClassLoader loader, String owner, String name, String descriptor) {
+        try {
+            for (Class<?> at = Class.forName(owner.replace('/', '.'), false, loader); at != null;
+                    at = at.getSuperclass()) {
+                for (Method method : at.getDeclaredMethods()) {
+                    if (method.getName().equals(name) && Type.getMethodDescriptor(method).equals(descriptor)) {
+                        method.setAccessible(true);
+                        return method;
+                    }
+                }
+            }
+        } catch (ClassNotFoundException | LinkageError | RuntimeException e) {
+            LOG.debug("could not find {}.{}{}: {}", owner, name, descriptor, e.toString());
+        }
+
+        return null;
+    }
+
+    private static Object defaultFor(String descriptor) {
+        return switch (descriptor.charAt(0)) {
+            case 'Z' -> Boolean.FALSE;
+            case 'C' -> Character.valueOf((char) 0);
+            case 'B' -> Byte.valueOf((byte) 0);
+            case 'S' -> Short.valueOf((short) 0);
+            case 'I' -> Integer.valueOf(0);
+            case 'J' -> Long.valueOf(0);
+            case 'F' -> Float.valueOf(0);
+            case 'D' -> Double.valueOf(0);
+            case 'V' -> null;
+            default -> value(descriptor);
+        };
+    }
+
     /**
      * What an unmerged accessor answers, by its type: an array with nothing
      * missing from it, and for the light directions a renderer reads, the

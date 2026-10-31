@@ -45,6 +45,18 @@ public final class LegacyRendererBridge implements Transformer {
             + "Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V";
     private static final String BRIDGE = "(Ljava/lang/Object;FLjava/lang/Object;Ljava/lang/Object;IILjava/lang/Object;)V";
 
+    // An entity renderer drawn the same way: render(entity, yaw, partialTick, poseStack, buffers, light).
+    private static final String ENTITY = "net/minecraft/world/entity/Entity";
+    private static final String ENTITY_STATE = "net/minecraft/client/renderer/entity/state/EntityRenderState";
+    private static final String LEGACY_ENTITY = "studios/milkdromeda/octo/bridge/client/LegacyEntityRenderer";
+    private static final String ENTITY_OLD = "(L" + ENTITY + ";FFL" + POSE_STACK + ";L" + BUFFERS + ";I)V";
+    private static final String ENTITY_CREATE = "()L" + ENTITY_STATE + ";";
+    private static final String ENTITY_EXTRACT = "(L" + ENTITY + ";L" + ENTITY_STATE + ";F)V";
+    private static final String ENTITY_SUBMIT = "(L" + ENTITY_STATE + ";L" + POSE_STACK
+            + ";Lnet/minecraft/client/renderer/SubmitNodeCollector;"
+            + "Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V";
+    private static final String ENTITY_BRIDGE = "(Ljava/lang/Object;FFLjava/lang/Object;Ljava/lang/Object;I)V";
+
     @Override
     public String name() {
         return "legacy-renderer-bridge";
@@ -59,9 +71,12 @@ public final class LegacyRendererBridge implements Transformer {
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
         ClassReader reader = new ClassReader(bytes);
 
-        if ((reader.getAccess() & Opcodes.ACC_INTERFACE) != 0
-                || !Arrays.asList(reader.getInterfaces()).contains(RENDERER)) {
+        if ((reader.getAccess() & Opcodes.ACC_INTERFACE) != 0) {
             return bytes;
+        }
+
+        if (!Arrays.asList(reader.getInterfaces()).contains(RENDERER)) {
+            return bridgeEntityRenderer(reader, bytes, className);
         }
 
         ClassNode node = new ClassNode();
@@ -106,6 +121,116 @@ public final class LegacyRendererBridge implements Transformer {
                 writeExtract(cv);
                 writeSubmit(cv);
                 writeBridge(cv, className, drawName, drawDesc, camera);
+                super.visitEnd();
+            }
+        }, 0);
+
+        return writer.toByteArray();
+    }
+
+    /**
+     * An entity renderer that still draws through {@code render(entity, yaw,
+     * partialTick, poseStack, buffers, light)}: given 26.x's render-state
+     * methods, which hand that method what it needs. Create's contraptions —
+     * everything a bearing, piston or gantry moves — were drawn by one, and
+     * were simply not there.
+     */
+    private static byte[] bridgeEntityRenderer(ClassReader reader, byte[] bytes, String className) {
+        ClassNode node = new ClassNode();
+        reader.accept(node, ClassReader.SKIP_CODE);
+        MethodNode old = null;
+
+        for (MethodNode method : node.methods) {
+            if ((method.access & Opcodes.ACC_STATIC) == 0
+                    && (method.name.equals("render") || method.name.equals("submit"))
+                    && method.desc.equals(ENTITY_OLD)) {
+                old = method;
+            }
+
+            if (method.name.equals("createRenderState") && method.desc.equals(ENTITY_CREATE)
+                    || method.name.equals("submit") && method.desc.equals(ENTITY_SUBMIT)) {
+                return bytes;
+            }
+        }
+
+        if (old == null || node.superName == null) {
+            return bytes;
+        }
+
+        String drawName = old.name;
+        String superName = node.superName;
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public void visit(int version, int access, String name, String signature, String superClass,
+                    String[] interfaces) {
+                String[] widened = Arrays.copyOf(interfaces, interfaces.length + 1);
+                widened[interfaces.length] = LEGACY_ENTITY;
+                super.visit(version, access, name, signature, superClass, widened);
+            }
+
+            @Override
+            public void visitEnd() {
+                MethodVisitor create = cv.visitMethod(Opcodes.ACC_PUBLIC, "createRenderState", ENTITY_CREATE, null,
+                        null);
+                create.visitCode();
+                create.visitVarInsn(Opcodes.ALOAD, 0);
+                create.visitMethodInsn(Opcodes.INVOKESTATIC, HELPER, "newEntityState",
+                        "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                create.visitTypeInsn(Opcodes.CHECKCAST, ENTITY_STATE);
+                create.visitInsn(Opcodes.ARETURN);
+                create.visitMaxs(0, 0);
+                create.visitEnd();
+
+                // The game's own part first: position, light, name tag.
+                MethodVisitor extract = cv.visitMethod(Opcodes.ACC_PUBLIC, "extractRenderState", ENTITY_EXTRACT,
+                        null, null);
+                extract.visitCode();
+                extract.visitVarInsn(Opcodes.ALOAD, 0);
+                extract.visitVarInsn(Opcodes.ALOAD, 1);
+                extract.visitVarInsn(Opcodes.ALOAD, 2);
+                extract.visitVarInsn(Opcodes.FLOAD, 3);
+                extract.visitMethodInsn(Opcodes.INVOKESPECIAL, superName, "extractRenderState", ENTITY_EXTRACT,
+                        false);
+                extract.visitVarInsn(Opcodes.ALOAD, 2);
+                extract.visitVarInsn(Opcodes.ALOAD, 1);
+                extract.visitVarInsn(Opcodes.FLOAD, 3);
+                extract.visitMethodInsn(Opcodes.INVOKESTATIC, HELPER, "captureEntity",
+                        "(Ljava/lang/Object;Ljava/lang/Object;F)V", false);
+                extract.visitInsn(Opcodes.RETURN);
+                extract.visitMaxs(0, 0);
+                extract.visitEnd();
+
+                MethodVisitor submit = cv.visitMethod(Opcodes.ACC_PUBLIC, "submit", ENTITY_SUBMIT, null, null);
+                submit.visitCode();
+                submit.visitVarInsn(Opcodes.ALOAD, 0);
+                submit.visitVarInsn(Opcodes.ALOAD, 1);
+                submit.visitVarInsn(Opcodes.ALOAD, 2);
+                submit.visitVarInsn(Opcodes.ALOAD, 3);
+                submit.visitMethodInsn(Opcodes.INVOKESTATIC, HELPER, "submitEntity",
+                        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V", false);
+                submit.visitInsn(Opcodes.RETURN);
+                submit.visitMaxs(0, 0);
+                submit.visitEnd();
+
+                MethodVisitor bridge = cv.visitMethod(Opcodes.ACC_PUBLIC, "octo$renderEntity", ENTITY_BRIDGE, null,
+                        null);
+                bridge.visitCode();
+                bridge.visitVarInsn(Opcodes.ALOAD, 0);
+                bridge.visitVarInsn(Opcodes.ALOAD, 1);
+                bridge.visitTypeInsn(Opcodes.CHECKCAST, ENTITY);
+                bridge.visitVarInsn(Opcodes.FLOAD, 2);
+                bridge.visitVarInsn(Opcodes.FLOAD, 3);
+                bridge.visitVarInsn(Opcodes.ALOAD, 4);
+                bridge.visitTypeInsn(Opcodes.CHECKCAST, POSE_STACK);
+                bridge.visitVarInsn(Opcodes.ALOAD, 5);
+                bridge.visitTypeInsn(Opcodes.CHECKCAST, BUFFERS);
+                bridge.visitVarInsn(Opcodes.ILOAD, 6);
+                bridge.visitMethodInsn(Opcodes.INVOKEVIRTUAL, className, drawName, ENTITY_OLD, false);
+                bridge.visitInsn(Opcodes.RETURN);
+                bridge.visitMaxs(0, 0);
+                bridge.visitEnd();
                 super.visitEnd();
             }
         }, 0);
@@ -192,6 +317,11 @@ public final class LegacyRendererBridge implements Transformer {
      * with defaults that hide the bridge.
      */
     static boolean bridges(java.util.Collection<String> interfaces, java.util.Collection<String> methods) {
+        if ((methods.contains("render" + ENTITY_OLD) || methods.contains("submit" + ENTITY_OLD))
+                && !methods.contains("createRenderState" + ENTITY_CREATE)) {
+            return true;
+        }
+
         return interfaces.contains(RENDERER) && !methods.contains("submit" + SUBMIT)
                 && (methods.contains("render" + OLD) || methods.contains("submit" + OLD)
                         || methods.contains("render" + OLD_WITH_CAMERA) || methods.contains("submit" + OLD_WITH_CAMERA));
@@ -200,6 +330,6 @@ public final class LegacyRendererBridge implements Transformer {
     /** Whether a method, by name and descriptor, is one the bridge writes. */
     static boolean writes(String method) {
         return method.equals("createRenderState" + CREATE_STATE) || method.equals("extractRenderState" + EXTRACT)
-                || method.equals("submit" + SUBMIT);
+                || method.equals("submit" + SUBMIT) || method.equals("createRenderState" + ENTITY_CREATE);
     }
 }

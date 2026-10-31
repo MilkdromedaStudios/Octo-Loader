@@ -39,6 +39,7 @@ public final class NeoRegistration {
         step("declare NeoForge's registries", () -> find(loader, REGISTRIES + "NeoForgeRegistriesSetup")
                 .getMethod("setup", net.neoforged.bus.api.IEventBus.class)
                 .invoke(null, ForgeBuses.neoBusFor(NEOFORGE)));
+        step("register NeoForge's own content", () -> registerNeoForgeContent(loader));
         step("create the mods' registries", () -> call(find(loader, REGISTRIES + "RegistryManager"),
                 "postNewRegistryEvent"));
         boolean unfrozen = step("unfreeze the registries", () -> call(gameData, "unfreezeData"));
@@ -66,8 +67,62 @@ public final class NeoRegistration {
         // packet a mod sends cannot be written and drops the player.
         ModPayloads.setup(loader);
 
+        // And on a client, their entity renderers: Registrate, and most mods,
+        // register them when NeoForge asks, and nothing asked. Create's
+        // contraptions — everything a bearing turns — had none, and the
+        // first to come into view ended the game.
+        if (studios.milkdromeda.octo.runtime.OctoRuntime.isRunning()
+                && studios.milkdromeda.octo.runtime.OctoRuntime.get().side() == studios.milkdromeda.octo.mod.Side.CLIENT) {
+            step("register the mods' entity renderers", () -> net.neoforged.fml.ModLoader.postEventWrapContainerInModOrder(
+                    (net.neoforged.bus.api.Event) find(loader,
+                            "net.neoforged.neoforge.client.event.EntityRenderersEvent$RegisterRenderers")
+                            .getConstructor().newInstance()));
+        }
+
         LOG.info("NeoForge registration ran: {}", summary(loader));
         return true;
+    }
+
+    /**
+     * What NeoForge itself registers from its mod class: the fluid types of
+     * water, lava and empty, its attributes, ingredient and condition types.
+     * NeoForge's mod is not constructed here, so its registers are handed
+     * the bus directly; without them every holder for one stayed unbound,
+     * and Create's setup stopped at the first — lava's fluid type — with
+     * everything it registers after that never registered.
+     */
+    private static void registerNeoForgeContent(ClassLoader loader) throws ReflectiveOperationException {
+        Class<?> mod = find(loader, "net.neoforged.neoforge.common.NeoForgeMod");
+        Class<?> register = find(loader, REGISTRIES + "DeferredRegister");
+
+        if (mod == null || register == null) {
+            return;
+        }
+
+        java.lang.reflect.Method onBus = register.getMethod("register", net.neoforged.bus.api.IEventBus.class);
+        net.neoforged.bus.api.IEventBus bus = ForgeBuses.neoBusFor(NEOFORGE);
+        int registered = 0;
+
+        for (java.lang.reflect.Field field : mod.getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers()) || !register.isAssignableFrom(field.getType())) {
+                continue;
+            }
+
+            try {
+                field.setAccessible(true);
+                Object deferred = field.get(null);
+
+                if (deferred != null) {
+                    onBus.invoke(deferred, bus);
+                    registered++;
+                }
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("NeoForge's {} could not be registered: {}", field.getName(),
+                        Failures.describe(Failures.unwrap(e)));
+            }
+        }
+
+        LOG.debug("{} of NeoForge's own registers handed the bus", registered);
     }
 
     /** How many blocks and items each mod has in the game now: what registration actually achieved. */

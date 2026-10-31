@@ -51,6 +51,7 @@ import studios.milkdromeda.octo.transform.CallbackGuard;
 import studios.milkdromeda.octo.transform.RegistrationEntryGuard;
 import studios.milkdromeda.octo.transform.EagerHolderBinding;
 import studios.milkdromeda.octo.transform.ExtraModelHooks;
+import studios.milkdromeda.octo.transform.EntityPersistentData;
 import studios.milkdromeda.octo.transform.GameEventHooks;
 import studios.milkdromeda.octo.transform.PayloadHooks;
 import studios.milkdromeda.octo.transform.ExtensibleEnums;
@@ -355,6 +356,10 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new GameEventHooks());
             // And their packets, written, read and handled.
             classLoader.addGlobalTransformer(new PayloadHooks());
+            // And the mod data every entity carries.
+            classLoader.addGlobalTransformer(new EntityPersistentData());
+            // And the capability listeners its level keeps.
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ServerLevelCapabilities());
         }
 
         // Their data and assets, which only reach the game as packs.
@@ -838,6 +843,9 @@ public final class OctoLauncher {
                 classLoader.addGlobalTransformer(new NullTagGuard());
                 classLoader.addGlobalTransformer(new GameMethodGuard());
             }
+
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.TextureBounds());
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityRendererGuard());
             classLoader.addGlobalTransformer(new FinalOverrides(index));
             classLoader.addGlobalTransformer(new OpenTypes(extendedByMods(mods)));
             classLoader.addGlobalTransformer(new SupertypeFit(index, false));
