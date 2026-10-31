@@ -856,6 +856,7 @@ public final class OctoLauncher {
 
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.TextureBounds());
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.CraftingSizeHook());
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModAttributesHook());
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityRendererGuard());
             classLoader.addGlobalTransformer(new FinalOverrides(index));
             classLoader.addGlobalTransformer(new OpenTypes(extendedByMods(mods)));
