@@ -44,6 +44,9 @@ public final class Shims {
     private static final String PROVIDER = "net/minecraft/core/HolderLookup$Provider";
     private static final String CRAFTING = "net/minecraft/world/item/crafting/";
     private static final String STATE = "net/minecraft/world/level/block/state/BlockState";
+    private static final String INGREDIENT = "net/minecraft/world/item/crafting/Ingredient";
+    private static final String SIZED_FLUID = "net/neoforged/neoforge/fluids/crafting/SizedFluidIngredient";
+    private static final String CUSTOM_INGREDIENT = "net/neoforged/neoforge/common/crafting/ICustomIngredient";
     private static final String ITEM_PREDICATE = "net/minecraft/advancements/predicates/ItemPredicate$Builder";
     private static final String VOXEL_SHAPE = "net/minecraft/world/phys/shapes/VoxelShape";
     private static final String RECIPE_MANAGER = CRAFTING + "RecipeManager";
@@ -205,6 +208,31 @@ public final class Shims {
                     "itemPredicateOfItems"),
             Map.entry(ITEM_PREDICATE + ".of(Lnet/minecraft/tags/TagKey;)L" + ITEM_PREDICATE + ";",
                     "itemPredicateOfTag"),
+            // NeoForge's patch to the shaped pattern: a larger grid allowed.
+            Map.entry("net/minecraft/world/item/crafting/ShapedRecipePattern.setCraftingSize(II)V", "craftingSize"),
+            // Ingredients made the 1.21.1 way, from stacks or an item tag; and
+            // NeoForge's sized fluid ingredients from a tag or a fluid stack.
+            // Defaulted, Create's sequenced assembly recipes were each a
+            // compound of nulls, and none of them loaded.
+            Map.entry(INGREDIENT + ".of([Lnet/minecraft/world/item/ItemStack;)L" + INGREDIENT + ";",
+                    "ingredientOfStacks"),
+            Map.entry(INGREDIENT + ".of(Lnet/minecraft/tags/TagKey;)L" + INGREDIENT + ";", "ingredientOfTag"),
+            // NeoForge's patch to the ingredient: a custom one inside it, and
+            // the stacks it accepts as an array, as 1.21.1 had them.
+            Map.entry(INGREDIENT + ".<init>(L" + CUSTOM_INGREDIENT + ";)V", "newCustomIngredient"),
+            Map.entry(INGREDIENT + ".getCustomIngredient()L" + CUSTOM_INGREDIENT + ";", "ingredientCustom"),
+            Map.entry("net/minecraft/core/cauldron/CauldronInteraction.newInteractionMap(Ljava/lang/String;)"
+                    + "Lnet/minecraft/core/cauldron/CauldronInteraction$InteractionMap;", "cauldronNewMap"),
+            Map.entry("net/minecraft/core/cauldron/CauldronInteraction.newInteractionMap(Ljava/lang/String;)"
+                    + "Lnet/minecraft/core/cauldron/CauldronInteraction$Dispatcher;", "cauldronNewMap"),
+            Map.entry(INGREDIENT + ".isCustom()Z", "ingredientIsCustom"),
+            Map.entry(INGREDIENT + ".isSimple()Z", "ingredientIsSimple"),
+            Map.entry(INGREDIENT + ".hasNoItems()Z", "ingredientHasNoItems"),
+            Map.entry(INGREDIENT + ".getItems()[Lnet/minecraft/world/item/ItemStack;", "ingredientStacks"),
+            Map.entry(INGREDIENT + ".items()[Lnet/minecraft/world/item/ItemStack;", "ingredientStacks"),
+            Map.entry(SIZED_FLUID + ".of(Lnet/minecraft/tags/TagKey;I)L" + SIZED_FLUID + ";", "sizedFluidOfTag"),
+            Map.entry(SIZED_FLUID + ".of(Lnet/neoforged/neoforge/fluids/FluidStack;)L" + SIZED_FLUID + ";",
+                    "sizedFluidOfStack"),
             // NeoForge's public way to name a command argument's class.
             Map.entry("net/minecraft/commands/synchronization/ArgumentTypeInfos.registerByClass(Ljava/lang/Class;"
                     + "Lnet/minecraft/commands/synchronization/ArgumentTypeInfo;)"
@@ -268,6 +296,312 @@ public final class Shims {
     }
 
     /** @return the shim's name for this member, or {@code null} when there is none */
+    private static final String STACK_D = "Lnet/minecraft/world/item/ItemStack;";
+    private static final String INGREDIENT_D = "L" + CRAFTING + "Ingredient;";
+    private static final String COMMON_D = "L" + CRAFTING + "Recipe$CommonInfo;";
+    private static final String TEMPLATE_D = "Lnet/minecraft/world/item/ItemStackTemplate;";
+    private static final String CRAFTING_BOOK_D = "L" + CRAFTING + "CraftingRecipe$CraftingBookInfo;";
+    private static final String COOKING_BOOK_D = "L" + CRAFTING + "AbstractCookingRecipe$CookingBookInfo;";
+    private static final String COOKING_NEW = "(" + COMMON_D + COOKING_BOOK_D + INGREDIENT_D + TEMPLATE_D + "FI)V";
+    private static final String COOKING_OLD = "(Ljava/lang/String;L" + CRAFTING + "CookingBookCategory;" + INGREDIENT_D
+            + STACK_D + "FI)V";
+
+    /**
+     * Constructors whose old arguments are made into the new ones', so that
+     * a subclass's {@code super(...)} reaches the game's constructor with
+     * every field it reads set: the recipes 1.21.1 built from a group, a
+     * book category and a result stack, which 26.x builds from records.
+     * Each entry is the converter, then the constructor it feeds.
+     */
+    private static final Map<String, String[]> CONVERSIONS = Map.ofEntries(
+            Map.entry(CRAFTING + "ShapedRecipe.<init>(Ljava/lang/String;L" + CRAFTING + "CraftingBookCategory;L"
+                    + CRAFTING + "ShapedRecipePattern;" + STACK_D + "Z)V", new String[] { "shapedArguments",
+                            "(" + COMMON_D + CRAFTING_BOOK_D + "L" + CRAFTING + "ShapedRecipePattern;" + TEMPLATE_D + ")V" }),
+            Map.entry(CRAFTING + "ShapedRecipe.<init>(Ljava/lang/String;L" + CRAFTING + "CraftingBookCategory;L"
+                    + CRAFTING + "ShapedRecipePattern;" + STACK_D + ")V", new String[] { "shapedArgumentsShown",
+                            "(" + COMMON_D + CRAFTING_BOOK_D + "L" + CRAFTING + "ShapedRecipePattern;" + TEMPLATE_D + ")V" }),
+            Map.entry(CRAFTING + "ShapelessRecipe.<init>(Ljava/lang/String;L" + CRAFTING + "CraftingBookCategory;"
+                    + STACK_D + "Lnet/minecraft/core/NonNullList;)V", new String[] { "shapelessArguments",
+                            "(" + COMMON_D + CRAFTING_BOOK_D + TEMPLATE_D + "Ljava/util/List;)V" }),
+            Map.entry(CRAFTING + "SmeltingRecipe.<init>" + COOKING_OLD, new String[] { "cookingArguments", COOKING_NEW }),
+            Map.entry(CRAFTING + "BlastingRecipe.<init>" + COOKING_OLD, new String[] { "cookingArguments", COOKING_NEW }),
+            Map.entry(CRAFTING + "SmokingRecipe.<init>" + COOKING_OLD, new String[] { "cookingArguments", COOKING_NEW }),
+            Map.entry(CRAFTING + "CampfireCookingRecipe.<init>" + COOKING_OLD,
+                    new String[] { "cookingArguments", COOKING_NEW }),
+            Map.entry(CRAFTING + "StonecutterRecipe.<init>(Ljava/lang/String;" + INGREDIENT_D + STACK_D + ")V",
+                    new String[] { "singleItemArguments", "(" + COMMON_D + INGREDIENT_D + TEMPLATE_D + ")V" }));
+
+    /**
+     * What every recipe answered until 1.21.2, asked of the game's recipe
+     * classes: its result, its ingredients, the result for a given input
+     * with the registries, and what is left in the grid. Checked before any
+     * near match, since the near matches answer something else now.
+     */
+    private static final Map<String, String> RECIPE_SHIMS = recipeShims();
+
+    private static Map<String, String> recipeShims() {
+        Map<String, String> out = new java.util.HashMap<>();
+        String provider = "Lnet/minecraft/core/HolderLookup$Provider;";
+
+        for (String owner : List.of("Recipe", "CraftingRecipe", "SmithingRecipe", "NormalCraftingRecipe",
+                "ShapedRecipe", "ShapelessRecipe", "CustomRecipe", "SingleItemRecipe", "AbstractCookingRecipe",
+                "SmeltingRecipe", "BlastingRecipe", "SmokingRecipe", "CampfireCookingRecipe", "StonecutterRecipe",
+                "SmithingTransformRecipe", "SmithingTrimRecipe")) {
+            String type = CRAFTING + owner;
+            out.put(type + ".getResultItem(" + provider + ")" + STACK_D, "recipeResult");
+            out.put(type + ".getIngredients()Lnet/minecraft/core/NonNullList;", "recipeIngredients");
+            out.put(type + ".getGroup()Ljava/lang/String;", "recipeGroup");
+
+            for (String input : List.of("RecipeInput", "CraftingInput", "SingleRecipeInput", "SmithingRecipeInput")) {
+                out.put(type + ".assemble(L" + CRAFTING + input + ";" + provider + ")" + STACK_D, "recipeAssemble");
+                out.put(type + ".getRemainingItems(L" + CRAFTING + input + ";)Lnet/minecraft/core/NonNullList;",
+                        "recipeRemaining");
+            }
+        }
+
+        return Map.copyOf(out);
+    }
+
+    static String preferredShimFor(String owner, String name, String descriptor) {
+        return RECIPE_SHIMS.get(owner + "." + name + descriptor);
+    }
+
+    /** {@code recipe.getResultItem(registries)}: the recipe's own, if it has one; else its result, made. */
+    public static Object recipeResult(Object recipe, Object registries) {
+        Method own = declaredUpTo(recipe.getClass(), "getResultItem", 1);
+
+        if (own != null) {
+            return invoke(own, recipe, registries);
+        }
+
+        for (Class<?> type = recipe.getClass(); type != null; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                String fieldType = field.getType().getName();
+
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                        || !fieldType.equals("net.minecraft.world.item.ItemStackTemplate")
+                                && !fieldType.equals("net.minecraft.world.item.ItemStack")) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(recipe);
+
+                    if (value != null) {
+                        return fieldType.endsWith("Template") ? stackOf(value)
+                                : callWith(value, "copy", new Class<?>[0]);
+                    }
+                } catch (IllegalAccessException | RuntimeException e) {
+                    // Not readable: the next.
+                }
+            }
+        }
+
+        return staticField(game(recipe.getClass(), "net.minecraft.world.item.ItemStack"), "EMPTY");
+    }
+
+    /** {@code recipe.getIngredients()}: the old list of ingredients, an empty one for each empty slot. */
+    public static Object recipeIngredients(Object recipe) {
+        Method own = declaredUpTo(recipe.getClass(), "getIngredients", 0);
+        Class<?> nonNullList = game(recipe.getClass(), "net.minecraft.core.NonNullList");
+
+        if (own != null && nonNullList.isAssignableFrom(own.getReturnType())) {
+            return invoke(own, recipe);
+        }
+
+        // A shaped recipe's own list keeps every slot of its grid, an empty
+        // one for each gap, which is what the old list was; the placement
+        // info has only the slots that take something.
+        if (own == null) {
+            try {
+                Method slots = recipe.getClass().getMethod("getIngredients");
+                own = List.class.isAssignableFrom(slots.getReturnType()) ? slots : null;
+            } catch (NoSuchMethodException e) {
+                own = null;
+            }
+        }
+
+        List<?> found;
+        Object shaped = own == null ? null : invoke(own, recipe);
+
+        if (shaped instanceof List<?> list) {
+            found = list;
+        } else {
+            Object placement = callWith(recipe, "placementInfo", new Class<?>[0]);
+            found = (List<?>) callWith(placement, "ingredients", new Class<?>[0]);
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Object> out = (List<Object>) callStatic(nonNullList, "create", new Class<?>[0]);
+
+        for (Object entry : found) {
+            Object ingredient = entry instanceof Optional<?> optional ? optional.orElse(null) : entry;
+            out.add(ingredient != null ? ingredient : ingredientEmpty(game(recipe.getClass(), INGREDIENT.replace('/', '.'))));
+        }
+
+        return out;
+    }
+
+    public static Object recipeGroup(Object recipe) {
+        Method own = declaredUpTo(recipe.getClass(), "getGroup", 0);
+        return own != null ? invoke(own, recipe) : callWith(recipe, "group", new Class<?>[0]);
+    }
+
+    /** {@code recipe.assemble(input, registries)}: the recipe's own, if it kept that form; else this one's. */
+    public static Object recipeAssemble(Object recipe, Object input, Object registries) {
+        Method own = declaredUpTo(recipe.getClass(), "assemble", 2);
+
+        if (own != null) {
+            return invoke(own, recipe, input, registries);
+        }
+
+        return invoke(oneArgument(recipe.getClass(), "assemble", input), recipe, input);
+    }
+
+    public static Object recipeRemaining(Object recipe, Object input) {
+        return invoke(oneArgument(recipe.getClass(), "getRemainingItems", input), recipe, input);
+    }
+
+    /**
+     * A public method of this name and arity that is not a bridge, declared by
+     * the recipe's own classes rather than the game's: a mod's recipe that
+     * still answers the old way.
+     */
+    private static Method declaredUpTo(Class<?> type, String name, int arity) {
+        for (Class<?> at = type; at != null && !at.getName().startsWith("net.minecraft."); at = at.getSuperclass()) {
+            for (Method method : at.getDeclaredMethods()) {
+                if (method.getName().equals(name) && method.getParameterCount() == arity && !method.isBridge()
+                        && java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
+                    method.setAccessible(true);
+                    return method;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** The most specific public method of this name taking the one argument given. */
+    private static Method oneArgument(Class<?> type, String name, Object argument) {
+        Method best = null;
+
+        for (Method method : type.getMethods()) {
+            if (method.getName().equals(name) && method.getParameterCount() == 1
+                    && method.getParameterTypes()[0].isInstance(argument)
+                    && (best == null || best.getParameterTypes()[0].isAssignableFrom(method.getParameterTypes()[0]))) {
+                best = method;
+            }
+        }
+
+        if (best == null) {
+            throw new IllegalStateException(type.getName() + " has no " + name + " for " + argument);
+        }
+
+        best.setAccessible(true);
+        return best;
+    }
+
+    /** The converter and the constructor it feeds, for a constructor this version no longer has. */
+    static String[] constructorConversion(String owner, String descriptor) {
+        return CONVERSIONS.get(owner + ".<init>" + descriptor);
+    }
+
+    /** A converter's descriptor: the old arguments by the convention above, the new ones as an array. */
+    static String conversionDescriptor(String descriptor) {
+        StringBuilder out = new StringBuilder("(");
+
+        for (Type argument : Type.getArgumentTypes(descriptor)) {
+            out.append(erased(argument));
+        }
+
+        return out.append("Ljava/lang/Class;)[Ljava/lang/Object;").toString();
+    }
+
+    public static Object[] shapedArguments(Object group, Object category, Object pattern, Object result,
+            boolean showNotification, Class<?> owner) {
+        return new Object[] { commonInfo(owner, showNotification), craftingBook(owner, category, group), pattern,
+                template(owner, result) };
+    }
+
+    public static Object[] shapedArgumentsShown(Object group, Object category, Object pattern, Object result,
+            Class<?> owner) {
+        return shapedArguments(group, category, pattern, result, true, owner);
+    }
+
+    public static Object[] shapelessArguments(Object group, Object category, Object result, Object ingredients,
+            Class<?> owner) {
+        return new Object[] { commonInfo(owner, true), craftingBook(owner, category, group), template(owner, result),
+                List.copyOf((java.util.Collection<?>) ingredients) };
+    }
+
+    public static Object[] cookingArguments(Object group, Object category, Object ingredient, Object result,
+            float experience, int cookingTime, Class<?> owner) {
+        Class<?> categoryType = game(owner, "net.minecraft.world.item.crafting.CookingBookCategory");
+        Object book = construct(game(owner, "net.minecraft.world.item.crafting.AbstractCookingRecipe$CookingBookInfo"),
+                new Class<?>[] { categoryType, String.class }, category != null ? category
+                        : staticField(categoryType, "MISC"), group == null ? "" : group);
+        return new Object[] { commonInfo(owner, true), book, ingredient, template(owner, result), experience,
+                cookingTime };
+    }
+
+    public static Object[] singleItemArguments(Object group, Object ingredient, Object result, Class<?> owner) {
+        return new Object[] { commonInfo(owner, true), ingredient, template(owner, result) };
+    }
+
+    private static Object commonInfo(Class<?> context, boolean showNotification) {
+        return construct(game(context, "net.minecraft.world.item.crafting.Recipe$CommonInfo"),
+                new Class<?>[] { boolean.class }, showNotification);
+    }
+
+    private static Object craftingBook(Class<?> context, Object category, Object group) {
+        Class<?> categoryType = game(context, "net.minecraft.world.item.crafting.CraftingBookCategory");
+        return construct(game(context, "net.minecraft.world.item.crafting.CraftingRecipe$CraftingBookInfo"),
+                new Class<?>[] { categoryType, String.class },
+                category != null ? category : staticField(categoryType, "MISC"), group == null ? "" : group);
+    }
+
+    /**
+     * The stacks made from a recipe's template, each kept with the template it
+     * was made from; a stack is its own identity, as it has no equals.
+     */
+    private static final Map<Object, Object> TEMPLATES = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /**
+     * A recipe's result template as a stack, made without the check
+     * {@code create()} makes: while recipes are read, items do not have their
+     * components yet, every stack of more than one failed the check and came
+     * out empty, and a recipe that went on to be built from it lost its
+     * result. The template is remembered, and is what the stack becomes again.
+     */
+    private static Object stackOf(Object template) {
+        Class<?> context = template.getClass();
+        Object stack = construct(game(context, "net.minecraft.world.item.ItemStack"),
+                new Class<?>[] { game(context, "net.minecraft.core.Holder"), int.class,
+                        game(context, "net.minecraft.core.component.DataComponentPatch") },
+                callWith(template, "item", new Class<?>[0]), callWith(template, "count", new Class<?>[0]),
+                callWith(template, "components", new Class<?>[0]));
+        TEMPLATES.put(stack, template);
+        return stack;
+    }
+
+    /** A recipe's result as 26.x keeps it: what the stack is, not the stack. */
+    private static Object template(Class<?> context, Object stack) {
+        if (stack == null) {
+            throw new IllegalArgumentException("a recipe's result was not given");
+        }
+
+        Object kept = TEMPLATES.get(stack);
+
+        if (kept != null) {
+            return kept;
+        }
+
+        Class<?> stackType = game(context, "net.minecraft.world.item.ItemStack");
+        return callStatic(game(context, "net.minecraft.world.item.ItemStackTemplate"), "fromNonEmptyStack",
+                new Class<?>[] { stackType }, stack);
+    }
+
     static String shimFor(String owner, String name, String descriptor) {
         String exact = SHIMS.get(owner + "." + name + descriptor);
 
@@ -326,6 +660,16 @@ public final class Shims {
             // one of its machine recipes could be read.
             Map.entry("net/neoforged/neoforge/fluids/crafting/FluidIngredient.MAP_CODEC_NONEMPTY:"
                     + "Lcom/mojang/serialization/MapCodec;", "fluidIngredientMapCodec"),
+            // An ingredient of nothing, which this game's ingredients cannot
+            // be: one that accepts nothing, for mods that still start with it.
+            // The game's cauldron interactions, on their own class since 1.21.9.
+            cauldron("EMPTY", "CauldronInteraction$InteractionMap"), cauldron("EMPTY", "CauldronInteraction$Dispatcher"),
+            cauldron("WATER", "CauldronInteraction$InteractionMap"), cauldron("WATER", "CauldronInteraction$Dispatcher"),
+            cauldron("LAVA", "CauldronInteraction$InteractionMap"), cauldron("LAVA", "CauldronInteraction$Dispatcher"),
+            cauldron("POWDER_SNOW", "CauldronInteraction$InteractionMap"),
+            cauldron("POWDER_SNOW", "CauldronInteraction$Dispatcher"),
+            Map.entry(INGREDIENT + ".EMPTY:L" + INGREDIENT + ";", "ingredientEmpty"),
+            Map.entry(INGREDIENT + ".LIST_CODEC_NONEMPTY:Lcom/mojang/serialization/Codec;", "ingredientListCodec"),
             Map.entry("net/neoforged/neoforge/fluids/FluidStack.FLUID_NON_EMPTY_CODEC:Lcom/mojang/serialization/Codec;",
                     "fluidHolderCodec"),
             // The capabilities NeoForge 26 replaced with its transfer API.
@@ -1038,6 +1382,133 @@ public final class Shims {
 
     private static Object itemRegistry(Object context) {
         return staticField(game(context.getClass(), "net.minecraft.core.registries.BuiltInRegistries"), "ITEM");
+    }
+
+    public static void craftingSize(int width, int height, Class<?> owner) {
+        studios.milkdromeda.octo.bridge.CraftingSize.set(width, height);
+    }
+
+    /** {@code Ingredient.of(stacks...)}: an ingredient of the stacks' items. */
+    public static Object ingredientOfStacks(Object stacks, Class<?> owner) {
+        Class<?> itemLike = game(owner, "net.minecraft.world.level.ItemLike");
+        int length = java.lang.reflect.Array.getLength(stacks);
+        Object items = java.lang.reflect.Array.newInstance(itemLike, length);
+
+        for (int i = 0; i < length; i++) {
+            Object stack = java.lang.reflect.Array.get(stacks, i);
+            java.lang.reflect.Array.set(items, i, callWith(stack, "getItem", new Class<?>[0]));
+        }
+
+        return callStatic(owner, "of", new Class<?>[] { items.getClass() }, items);
+    }
+
+    private static Map.Entry<String, String> cauldron(String field, String type) {
+        return Map.entry("net/minecraft/core/cauldron/CauldronInteraction." + field + ":Lnet/minecraft/core/cauldron/"
+                + type + ";", "cauldron" + field.charAt(0) + field.substring(1).toLowerCase(java.util.Locale.ROOT)
+                        .replace("_snow", "Snow"));
+    }
+
+    public static Object cauldronEmpty(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.core.cauldron.CauldronInteractions"), "EMPTY");
+    }
+
+    public static Object cauldronWater(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.core.cauldron.CauldronInteractions"), "WATER");
+    }
+
+    public static Object cauldronLava(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.core.cauldron.CauldronInteractions"), "LAVA");
+    }
+
+    public static Object cauldronPowderSnow(Class<?> owner) {
+        return staticField(game(owner, "net.minecraft.core.cauldron.CauldronInteractions"), "POWDER_SNOW");
+    }
+
+    /** {@code CauldronInteraction.newInteractionMap(name)}: a dispatcher of its own, empty. */
+    public static Object cauldronNewMap(Object name, Class<?> owner) {
+        return construct(game(owner, "net.minecraft.core.cauldron.CauldronInteraction$Dispatcher"), new Class<?>[0]);
+    }
+
+    /** {@code new Ingredient(custom)}: NeoForge's {@code ICustomIngredient.toVanilla()}. */
+    public static Object newCustomIngredient(Object custom) {
+        try {
+            return studios.milkdromeda.octo.bridge.CustomIngredients.make(custom);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("a custom ingredient could not be made into one this game has", e);
+        }
+    }
+
+    public static Object ingredientCustom(Object ingredient) {
+        return studios.milkdromeda.octo.bridge.CustomIngredients.customOf(ingredient);
+    }
+
+    public static boolean ingredientIsCustom(Object ingredient) {
+        return ingredientCustom(ingredient) != null;
+    }
+
+    public static boolean ingredientIsSimple(Object ingredient) {
+        Object custom = ingredientCustom(ingredient);
+        return custom == null || (boolean) callWith(custom, "isSimple", new Class<?>[0]);
+    }
+
+    public static boolean ingredientHasNoItems(Object ingredient) {
+        return ((java.util.stream.Stream<?>) callWith(ingredient, "items", new Class<?>[0])).findAny().isEmpty();
+    }
+
+    /** {@code ingredient.getItems()}: a stack of one of each item it accepts. */
+    public static Object ingredientStacks(Object ingredient) {
+        try {
+            return studios.milkdromeda.octo.bridge.CustomIngredients.stacks(ingredient);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("an ingredient's items could not be listed", e);
+        }
+    }
+
+    public static Object ingredientEmpty(Class<?> owner) {
+        try {
+            return studios.milkdromeda.octo.bridge.CustomIngredients.empty(owner.getClassLoader());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("an empty ingredient could not be made", e);
+        }
+    }
+
+    public static Object ingredientListCodec(Class<?> owner) {
+        Object codec = staticField(owner, "CODEC");
+        return callWith(codec, "listOf", new Class<?>[0]);
+    }
+
+    /** {@code Ingredient.of(tag)}: an ingredient of the tag's items, bound once tags load. */
+    public static Object ingredientOfTag(Object tag, Class<?> owner) {
+        return callStatic(owner, "of", new Class<?>[] { game(owner, "net.minecraft.core.HolderSet") },
+                tagSet(owner, "ITEM", tag));
+    }
+
+    /** {@code SizedFluidIngredient.of(tag, amount)}. */
+    public static Object sizedFluidOfTag(Object tag, int amount, Class<?> owner) {
+        Class<?> fluidIngredient = game(owner, "net.neoforged.neoforge.fluids.crafting.FluidIngredient");
+        Object ingredient = callStatic(fluidIngredient, "of",
+                new Class<?>[] { game(owner, "net.minecraft.core.HolderSet") }, tagSet(owner, "FLUID", tag));
+        return construct(owner, new Class<?>[] { fluidIngredient, int.class }, ingredient, amount);
+    }
+
+    /** {@code SizedFluidIngredient.of(stack)}: the stack's fluid, in the stack's amount. */
+    public static Object sizedFluidOfStack(Object stack, Class<?> owner) {
+        Class<?> fluidIngredient = game(owner, "net.neoforged.neoforge.fluids.crafting.FluidIngredient");
+        Class<?> fluidType = game(owner, "net.minecraft.world.level.material.Fluid");
+        Object fluids = java.lang.reflect.Array.newInstance(fluidType, 1);
+        java.lang.reflect.Array.set(fluids, 0, callWith(stack, "getFluid", new Class<?>[0]));
+        Object ingredient = callStatic(fluidIngredient, "of", new Class<?>[] { fluids.getClass() }, fluids);
+        int amount = (int) callWith(stack, "getAmount", new Class<?>[0]);
+        return construct(owner, new Class<?>[] { fluidIngredient, int.class }, ingredient, amount);
+    }
+
+    /** A tag's entries in one of the game's built-in registries, as a set bound once tags load. */
+    private static Object tagSet(Class<?> context, String registry, Object tag) {
+        Class<?> builtIn = game(context, "net.minecraft.core.registries.BuiltInRegistries");
+        Class<?> registryType = game(context, "net.minecraft.core.Registry");
+        Object lookup = callStatic(builtIn, "acquireBootstrapRegistrationLookup", new Class<?>[] { registryType },
+                staticField(builtIn, registry));
+        return callWith(lookup, "getOrThrow", new Class<?>[] { game(context, "net.minecraft.tags.TagKey") }, tag);
     }
 
     /** {@code EntityType.Builder.build(name)}: built under the id it is being registered as. */

@@ -70,15 +70,15 @@ class DataMigrationTest {
     @Test
     @DisplayName("an old fluid ingredient becomes the components ingredient over the same fluid or tag")
     void fluidIngredientsAreRewritten() {
-        assertEquals(json("{'type':'create:compacting','ingredients':[{'neoforge:ingredient_type':'neoforge:components',"
+        assertEquals(json("{'type':'create:compacting','ingredients':[{'type':'neoforge:components','neoforge:ingredient_type':'neoforge:components',"
                 + "'fluids':'create:chocolate','components':{},'strict':false,'amount':250}]}"),
                 migrate("{'type':'create:compacting','ingredients':[{'type':'neoforge:single','amount':250,"
                         + "'fluid':'create:chocolate'}]}"));
-        assertEquals(json("{'ingredients':['minecraft:glass_bottle',{'neoforge:ingredient_type':'neoforge:components',"
+        assertEquals(json("{'ingredients':['minecraft:glass_bottle',{'type':'neoforge:components','neoforge:ingredient_type':'neoforge:components',"
                 + "'fluids':'#c:honey','components':{},'strict':false,'amount':250}]}"),
                 migrate("{'ingredients':[{'item':'minecraft:glass_bottle'},{'type':'neoforge:tag','amount':250,"
                         + "'tag':'c:honey'}]}"));
-        assertEquals(json("{'ingredients':[{'neoforge:ingredient_type':'neoforge:components','fluids':['a:blue','a:red'],"
+        assertEquals(json("{'ingredients':[{'type':'neoforge:components','neoforge:ingredient_type':'neoforge:components','fluids':['a:blue','a:red'],"
                 + "'components':{},'strict':false,'amount':1000}]}"),
                 migrate("{'ingredients':[{'type':'neoforge:compound','amount':1000,"
                         + "'ingredients':[{'fluid':'a:blue'},{'fluid':'a:red'}]}]}"));
@@ -92,5 +92,15 @@ class DataMigrationTest {
                         + "'conditions':{'recipe':'create:acacia_window'}}}}"), Set.of("create")::contains));
         assertNull(DataMigration.advancement(json("{'neoforge:conditions':[{'type':'neoforge:mod_loaded',"
                 + "'modid':'absent'}],'criteria':{}}"), Set.of("create")::contains));
+    }
+
+    @Test
+    @DisplayName("a components fluid ingredient gains the key 26.x dispatches on, and keeps its components")
+    void componentsFluidIngredientGainsItsKey() {
+        assertEquals(json("{'ingredients':[{'type':'neoforge:components','amount':125,"
+                + "'components':{'minecraft:custom_data':{'Color':'green'}},'fluids':'railways:paint',"
+                + "'neoforge:ingredient_type':'neoforge:components'}]}"),
+                migrate("{'ingredients':[{'type':'neoforge:components','amount':125,"
+                        + "'components':{'minecraft:custom_data':{'Color':'green'}},'fluids':'railways:paint'}]}"));
     }
 }
