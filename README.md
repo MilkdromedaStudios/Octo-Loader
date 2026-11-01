@@ -119,7 +119,7 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 <details>
 <summary><b>Microsoft sign-in in your own build</b></summary>
 
-Signing in needs a Microsoft (Azure) app registration that Mojang has approved for Minecraft: register an app for personal Microsoft accounts with public client flows allowed, then [ask Mojang for Minecraft API access](https://aka.ms/mce-reviewappid). Give the build its client ID, which is not a secret, as the repository variable `OCTO_MSA_CLIENT_ID` (or `-PmsaClientId=...` locally). A player can also set one in Settings. A build without one plays through the official Minecraft Launcher.
+Signing in needs a Microsoft (Azure) app registration that Mojang has approved for Minecraft: register an app for personal Microsoft accounts with public client flows allowed, then [ask Mojang for Minecraft API access](https://aka.ms/mce-reviewappid). Step by step, with screenshots of where to click: **[docs/MICROSOFT-SIGN-IN.md](docs/MICROSOFT-SIGN-IN.md)**. Give the build its client ID, which is not a secret, as the repository variable `OCTO_MSA_CLIENT_ID` (or `-PmsaClientId=...` locally). A player can also set one in Settings. A build without one plays through the official Minecraft Launcher.
 
 </details>
 
