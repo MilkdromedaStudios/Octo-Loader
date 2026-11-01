@@ -1,0 +1,135 @@
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+
+description = 'Octo Client — the client mod Octo Launcher plays with: its own menu, a modern look, zoom, HUD loadouts, a minimap, music and performance.'
+
+base {
+    archivesName = 'octo-client'
+}
+
+// The Minecraft this mod is written against. From 26.1 the game ships with
+// its real names, so the mod compiles against the game's own jar, which the
+// build downloads from Mojang the way a launcher does (checked against
+// Mojang's SHA-1) and never ships.
+def minecraftVersion = '26.3'
+
+// The game is Java 25 bytecode, which only a Java 25 compiler can read. Gradle
+// finds one installed (setup-java on CI; locally, point
+// org.gradle.java.installations.paths at one).
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+def minecraftCache = new File(gradle.gradleUserHomeDir, "caches/octo-minecraft/${minecraftVersion}")
+
+static String sha1(File file) {
+    MessageDigest digest = MessageDigest.getInstance('SHA-1')
+    file.withInputStream { input ->
+        byte[] buffer = new byte[65536]
+        int read
+        while ((read = input.read(buffer)) > 0) {
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().encodeHex().toString()
+}
+
+static void fetch(String url, File target, String expected) {
+    if (target.isFile() && (expected == null || sha1(target) == expected)) {
+        return
+    }
+
+    target.parentFile.mkdirs()
+    File part = new File(target.path + '.part')
+    new URL(url).withInputStream { input -> part.withOutputStream { output -> output << input } }
+
+    if (expected != null && sha1(part) != expected) {
+        part.delete()
+        throw new GradleException("${url} did not match its SHA-1")
+    }
+
+    target.delete()
+    part.renameTo(target)
+}
+
+// The game's jar and every Java library it is built against: the class path
+// the mod compiles with. Natives are left out; nothing here runs the game.
+def minecraftClasspath = providers.provider {
+    File versionFile = new File(minecraftCache, "${minecraftVersion}.json")
+
+    if (!versionFile.isFile()) {
+        def manifest = new JsonSlurper().parse(new URL('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'))
+        def entry = manifest.versions.find { it.id == minecraftVersion }
+
+        if (entry == null) {
+            throw new GradleException("Mojang lists no Minecraft ${minecraftVersion}")
+        }
+
+        fetch(entry.url, versionFile, entry.sha1)
+    }
+
+    def version = new JsonSlurper().parse(versionFile)
+    List<File> files = []
+    File client = new File(minecraftCache, "client.jar")
+    fetch(version.downloads.client.url, client, version.downloads.client.sha1)
+    files << client
+
+    version.libraries.each { library ->
+        def artifact = library.downloads?.artifact
+
+        if (artifact == null || artifact.path.contains('natives') || library.name.split(':').size() > 3) {
+            return
+        }
+
+        File jar = new File(minecraftCache, "libraries/${artifact.path}")
+        fetch(artifact.url, jar, artifact.sha1)
+        files << jar
+    }
+
+    return files
+}
+
+dependencies {
+    // The game, as the mod sees it at runtime.
+    compileOnly files(minecraftClasspath)
+
+    // What Octo Loader provides a mod: the Fabric entrypoints, Mixin and
+    // MixinExtras. Provided at runtime by the loader, never shipped.
+    compileOnly project(':loader')
+    compileOnly "net.fabricmc:sponge-mixin:${rootProject.mixin_version}"
+    compileOnly "io.github.llamalad7:mixinextras-common:${rootProject.mixinextras_version}"
+    compileOnly "com.google.code.gson:gson:${rootProject.gson_version}"
+
+    testImplementation files(minecraftClasspath)
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand version: project.version, minecraft: minecraftVersion
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': 'Octo Client',
+                'Implementation-Version': project.version,
+                'Octo-Client-Minecraft': minecraftVersion
+        )
+    }
+}
+
+// The file the launcher carries inside itself.
+tasks.register('clientJar', Copy) {
+    dependsOn tasks.jar
+    from tasks.jar.archiveFile
+    into layout.buildDirectory.dir('client')
+    rename { 'octo-client.jar' }
+}

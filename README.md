@@ -59,6 +59,29 @@
 
 <p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
 
+## Octo Client
+
+**Octo Launcher plays with its own client mod.** Octo Client changes how Minecraft looks and adds what players expect from a client, all set in one menu: press **Right Shift**, or **Octo Client** on the title or pause screen.
+
+<p align="center">
+  <img src="docs/screenshots/octo-client-title.png" alt="The title screen with Octo Client: dark rounded buttons, the OCTO CLIENT badge and an Octo Client button" width="49%">
+  <img src="docs/screenshots/octo-client-menu.png" alt="The Octo Client menu: categories on the left, switches and choices on the right, in Octo Launcher's colours" width="49%">
+  <img src="docs/screenshots/octo-client-hud.png" alt="In game: the Essentials HUD loadout at the top left and the minimap with coordinates at the top right" width="49%">
+  <img src="docs/screenshots/octo-client-zoom.png" alt="Holding C zooms four times closer" width="49%">
+</p>
+
+| | |
+|---|---|
+| **A modern look** | Every button and slider in the game is redrawn in Octo's style: dark, rounded, lit with your accent colour when you point at it. It's drawn with the game's own flat fills, so it costs no more than the textures it replaces. Five accent colours, and softer button clicks. |
+| **The Octo menu** | A settings screen, not a hack-client board of panels: categories down the side, a switch, choice or slider for each setting, saved as you change it. |
+| **Zoom** | Hold **C** to zoom (2× to 12×), eased in and out. While zooming, the mouse wheel goes further in or out. |
+| **HUD loadouts** | Pick a loadout: *Minimal*, *Essentials*, *PvP* (CPS, ping, armour, keystrokes), *Builder*, *Explorer*, or *Custom* with your own modules (FPS, coordinates, direction, biome, clock, speed, ping, CPS, memory, armour, keystrokes). |
+| **Minimap** | North-up, coloured like Minecraft's maps and shaded by height, three sizes and three ranges. It works in the Nether too. It redraws a few rows each tick, so it never costs a frame. |
+| **Your music** | Put `.ogg` files in `.minecraft/octo/music` and turn on **Your music**: they play instead of Minecraft's music, in order or shuffled, with their name shown as each starts. It uses the game's own Ogg decoder and sound device. |
+| **Frame-rate savers** | A lower frame rate while another window is in front. An entity distance, so far-off mobs and items aren't drawn (players can stay visible). Fewer particles in busy scenes. |
+
+Octo Client is built for Minecraft **26.3**. Octo Launcher carries it and loads it when you play 26.3 with Octo, from its own folder, never your `mods` folder. Turn it off under **Settings → Octo Client**. Its settings are in `.minecraft/config/octo-client.json`.
+
 ## Why Octo?
 
 |  |  |

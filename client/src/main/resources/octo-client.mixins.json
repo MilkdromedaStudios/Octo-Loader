@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "studios.milkdromeda.octo.client.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "AbstractButtonMixin",
+    "AbstractSliderButtonMixin",
+    "AbstractWidgetMixin",
+    "CameraMixin",
+    "EntityRenderDispatcherMixin",
+    "FramerateLimitTrackerMixin",
+    "HudMixin",
+    "MinecraftMixin",
+    "MouseHandlerMixin",
+    "MusicManagerMixin",
+    "ParticleEngineMixin",
+    "PauseScreenMixin",
+    "SoundEngineMixin",
+    "TitleScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

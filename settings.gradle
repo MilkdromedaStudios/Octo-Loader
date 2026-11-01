@@ -5,6 +5,12 @@ pluginManagement {
     }
 }
 
+// Octo Client compiles against Minecraft 26.3, which is Java 25: Gradle
+// downloads a Java 25 compiler for it when this computer has none.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
@@ -34,3 +40,4 @@ include 'loader'
 include 'installer'
 include 'common'
 include 'launcher'
+include 'client'

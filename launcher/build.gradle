@@ -12,6 +12,22 @@ java {
     disableAutoTargetJvm()
 }
 
+evaluationDependsOn(':client')
+
+// Octo Client, carried inside the launcher and loaded with the game it is
+// built for. The launcher itself still runs on Java 17.
+tasks.register('embedClient', Copy) {
+    dependsOn ':client:jar'
+    from project(':client').tasks.jar.archiveFile
+    into layout.buildDirectory.dir('embedded/octo')
+    rename { 'octo-client.jar' }
+}
+
+processResources {
+    dependsOn tasks.embedClient
+    from(layout.buildDirectory.dir('embedded'))
+}
+
 // Which build this is, for the updater to compare with the newest release's
 // tag: the version tag for a named release (OCTO_BUILD), build-<commit> for a
 // build of main, "dev" anywhere else (a dev build is never offered updates).

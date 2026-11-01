@@ -57,7 +57,15 @@ final class SettingsPage implements App.Page {
                             app.save();
                             app.changed();
                         })));
-        column.add(group("Game", memoryRow(),
+        column.add(group("Game",
+                switchRow("Octo Client", "Octo's own client mod: its menu (Right Shift), zoom, a minimap, HUD "
+                        + "loadouts, your own music, and frame-rate savers. For Minecraft "
+                        + java.util.Objects.requireNonNullElse(studios.milkdromeda.octo.launcher.OctoClientMod
+                                .minecraftVersion(), "26.3") + ".", settings.octoClient, value -> {
+                                    settings.octoClient = value;
+                                    app.save();
+                                }),
+                memoryRow(),
                 folderRow("Java", "Empty: the Java Mojang makes for each version, downloaded by itself. Or "
                         + "choose a java program of your own.", settings.javaPath, false, value -> {
                             settings.javaPath = value;

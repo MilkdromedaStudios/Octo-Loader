@@ -34,6 +34,8 @@ public final class LauncherSettings {
     public int backupsToKeep = 10;
     /** List snapshots and pre-releases with the releases. */
     public boolean showSnapshots = false;
+    /** Start the game with Octo Client, for the Minecraft versions it is built for. */
+    public boolean octoClient = true;
     /** Play through the official Minecraft Launcher instead of starting the game from Octo. */
     public boolean useOfficialLauncher = false;
     /** The most memory the game may use, in megabytes. */
