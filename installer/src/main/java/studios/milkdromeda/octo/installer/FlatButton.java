@@ -12,9 +12,9 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 
 /** A flat, rounded button with the three states a pointer expects. */
-final class FlatButton extends JButton {
+public final class FlatButton extends JButton {
     /** How much weight the button carries on the page. */
-    enum Kind {
+    public enum Kind {
         /** The one thing the user came here to do. */
         PRIMARY,
         /** Everything else. */
@@ -25,7 +25,7 @@ final class FlatButton extends JButton {
 
     private final Kind kind;
 
-    FlatButton(String text, Kind kind) {
+    public FlatButton(String text, Kind kind) {
         super(text);
         this.kind = kind;
 

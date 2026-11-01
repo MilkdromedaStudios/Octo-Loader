@@ -30,25 +30,25 @@ import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 
 /** The small set of styled controls the window is built from. */
-final class FlatControls {
+public final class FlatControls {
     private FlatControls() {
     }
 
-    static JLabel title(String text) {
+    public static JLabel title(String text) {
         JLabel label = new JLabel(text);
         label.setFont(Theme.ui(Font.BOLD, 19f));
         label.setForeground(Theme.TEXT);
         return label;
     }
 
-    static JLabel caption(String text) {
+    public static JLabel caption(String text) {
         JLabel label = new JLabel(text);
         label.setFont(Theme.ui(Font.PLAIN, 12f));
         label.setForeground(Theme.TEXT_MUTED);
         return label;
     }
 
-    static JLabel fieldLabel(String text) {
+    public static JLabel fieldLabel(String text) {
         JLabel label = new JLabel(text.toUpperCase(java.util.Locale.ROOT));
         label.setFont(Theme.ui(Font.BOLD, 10.5f));
         label.setForeground(Theme.TEXT_FAINT);
@@ -61,7 +61,7 @@ final class FlatControls {
      * <p>Colour alone would be the whole message for anyone who cannot tell the
      * green from the red, so the text carries it too.
      */
-    static JLabel chip(String text, Color colour) {
+    public static JLabel chip(String text, Color colour) {
         JLabel chip = new JLabel(text) {
             @Override
             protected void paintComponent(Graphics graphics) {
@@ -84,7 +84,7 @@ final class FlatControls {
         return chip;
     }
 
-    static JTextField field(String value) {
+    public static JTextField field(String value) {
         JTextField field = new JTextField(value);
         field.setFont(Theme.ui(Font.PLAIN, 13f));
         field.setForeground(Theme.TEXT);
@@ -95,7 +95,7 @@ final class FlatControls {
         return field;
     }
 
-    static <T> JComboBox<T> comboBox() {
+    public static <T> JComboBox<T> comboBox() {
         JComboBox<T> box = new JComboBox<>();
         box.setFont(Theme.ui(Font.PLAIN, 13f));
         box.setForeground(Theme.TEXT);
@@ -123,14 +123,14 @@ final class FlatControls {
         };
     }
 
-    static Border inputBorder() {
+    public static Border inputBorder() {
         return BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER, 1, true),
                 BorderFactory.createEmptyBorder(9, 12, 9, 12));
     }
 
     /** A panel with the surface colour and rounded corners. */
-    static JPanel card() {
+    public static JPanel card() {
         JPanel panel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics graphics) {
@@ -148,7 +148,7 @@ final class FlatControls {
     }
 
     /** A one-pixel rule, for separating the header and the log from the page. */
-    static Component divider() {
+    public static Component divider() {
         JPanel rule = new JPanel();
         rule.setBackground(Theme.BORDER);
         rule.setPreferredSize(new Dimension(1, 1));
@@ -156,21 +156,21 @@ final class FlatControls {
         return rule;
     }
 
-    static JPanel column() {
+    public static JPanel column() {
         JPanel panel = new JPanel();
         panel.setLayout(new javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS));
         panel.setOpaque(false);
         return panel;
     }
 
-    static JPanel row() {
+    public static JPanel row() {
         JPanel panel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0));
         panel.setOpaque(false);
         return panel;
     }
 
     /** Styles a scroll pane to match, including the bars. */
-    static JScrollPane scroller(Component view) {
+    public static JScrollPane scroller(Component view) {
         JScrollPane pane = new JScrollPane(view);
         pane.setBorder(BorderFactory.createEmptyBorder());
         pane.setViewportBorder(BorderFactory.createEmptyBorder());
@@ -239,7 +239,7 @@ final class FlatControls {
      *
      * @param onSelect receives the index whenever the selection changes
      */
-    static JPanel segmented(List<String> options, IntConsumer onSelect) {
+    public static JPanel segmented(List<String> options, IntConsumer onSelect) {
         JPanel panel = new JPanel(new java.awt.GridLayout(1, options.size(), 4, 0)) {
             @Override
             protected void paintComponent(Graphics graphics) {
@@ -330,7 +330,7 @@ final class FlatControls {
     }
 
     /** Left-aligns and colours a plain list, used by the version picker's popup. */
-    static void styleList(JList<?> list) {
+    public static void styleList(JList<?> list) {
         DefaultListCellRenderer renderer = new DefaultListCellRenderer();
         renderer.setHorizontalAlignment(SwingConstants.LEFT);
         list.setBackground(Theme.SURFACE_RAISED);
@@ -339,7 +339,7 @@ final class FlatControls {
         list.setSelectionForeground(Theme.ON_ACCENT);
     }
 
-    static Color mix(Color from, Color to, float amount) {
+    public static Color mix(Color from, Color to, float amount) {
         return new Color(
                 Math.round(from.getRed() + (to.getRed() - from.getRed()) * amount),
                 Math.round(from.getGreen() + (to.getGreen() - from.getGreen()) * amount),

@@ -30,6 +30,10 @@ public final class ClientInstaller {
     private final Path gameDirectory;
     private final String loaderVersion;
     private final Log log;
+    /** A loader jar to install instead of the one inside this jar: a newer one, downloaded. */
+    private Path loaderJar;
+    /** Whether the vanilla version must already be downloaded; the official launcher fetches it if not. */
+    private boolean requireVanilla = true;
 
     /** Where progress is reported: the console, or the window. */
     public interface Log {
@@ -42,6 +46,22 @@ public final class ClientInstaller {
         this.log = log;
     }
 
+    /** Installs this loader jar rather than the embedded one. */
+    public ClientInstaller loaderJar(Path jar) {
+        this.loaderJar = jar;
+        return this;
+    }
+
+    /**
+     * Lets the profile be written for a version not downloaded yet: the
+     * official launcher downloads what a profile inherits from the first time
+     * it is played.
+     */
+    public ClientInstaller requireVanilla(boolean value) {
+        this.requireVanilla = value;
+        return this;
+    }
+
     /**
      * @param minecraftVersion the installed vanilla version to sit on top of
      * @return the id of the profile that was written
@@ -50,13 +70,20 @@ public final class ClientInstaller {
         Path vanillaJson = gameDirectory.resolve("versions").resolve(minecraftVersion)
                 .resolve(minecraftVersion + ".json");
 
-        if (!Files.isRegularFile(vanillaJson)) {
+        if (requireVanilla && !Files.isRegularFile(vanillaJson)) {
             throw new IOException("Minecraft " + minecraftVersion + " is not installed in " + gameDirectory
                     + ". Run it once in the launcher first, then install Octo.");
         }
 
         Path library = MinecraftPaths.libraryPath(gameDirectory, GROUP, ARTIFACT, loaderVersion);
-        EmbeddedLoader.extractTo(library);
+
+        if (loaderJar != null) {
+            Files.createDirectories(library.getParent());
+            Files.copy(loaderJar, library, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } else {
+            EmbeddedLoader.extractTo(library);
+        }
+
         log.info("installed loader to " + gameDirectory.relativize(library));
 
         String versionId = ARTIFACT + "-" + minecraftVersion;
@@ -137,10 +164,21 @@ public final class ClientInstaller {
             JsonObject profiles = root.has("profiles") && root.get("profiles").isJsonObject()
                     ? root.getAsJsonObject("profiles") : new JsonObject();
 
-            JsonObject profile = new JsonObject();
-            profile.addProperty("name", "Octo Loader " + minecraftVersion);
+            // Kept, if it is there: the player's own settings in it (memory in
+            // javaArgs, a resolution, a renamed profile) outlive an update.
+            String key = "octo-loader-" + minecraftVersion;
+            JsonObject profile = profiles.get(key) instanceof JsonObject existing ? existing : new JsonObject();
+
+            if (!profile.has("name")) {
+                profile.addProperty("name", "Octo Loader " + minecraftVersion);
+            }
+
             profile.addProperty("type", "custom");
-            profile.addProperty("created", Instant.now().toString());
+
+            if (!profile.has("created")) {
+                profile.addProperty("created", Instant.now().toString());
+            }
+
             profile.addProperty("lastVersionId", versionId);
             // The official launcher substitutes this value into the
             // ${game_directory} argument in the version profile.  Recording it
@@ -148,7 +186,7 @@ public final class ClientInstaller {
             profile.addProperty("gameDir", gameDirectory.toAbsolutePath().normalize().toString());
             profile.addProperty("icon", profileIcon());
 
-            profiles.add("octo-loader-" + minecraftVersion, profile);
+            profiles.add(key, profile);
             root.add("profiles", profiles);
 
             Files.writeString(profilesFile, gson.toJson(root) + "\n", StandardCharsets.UTF_8);

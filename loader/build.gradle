@@ -48,6 +48,8 @@ tasks.named('compileJava21Java') {
 sourceSets.test.runtimeClasspath = files(sourceSets.java21.output) + sourceSets.test.runtimeClasspath
 
 dependencies {
+    // World backups and content records, shared with Octo Launcher.
+    implementation project(':common')
     implementation "org.ow2.asm:asm:${rootProject.asm_version}"
     implementation "org.ow2.asm:asm-tree:${rootProject.asm_version}"
     implementation "org.ow2.asm:asm-commons:${rootProject.asm_version}"

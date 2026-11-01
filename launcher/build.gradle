@@ -1,0 +1,42 @@
+description = 'Octo Launcher — the desktop app: Octo installations, Minecraft versions, world backups and updates.'
+
+dependencies {
+    implementation project(':installer')
+    implementation project(':common')
+    implementation "com.google.code.gson:gson:${rootProject.gson_version}"
+}
+
+java {
+    disableAutoTargetJvm()
+}
+
+// Which build this is, for the updater to compare with the newest release's
+// tag: the version tag for a named release (OCTO_BUILD), build-<commit> for a
+// build of main, "dev" anywhere else (a dev build is never offered updates).
+def buildId = System.getenv('OCTO_BUILD') ?: (System.getenv('GITHUB_SHA') ? "build-${System.getenv('GITHUB_SHA')}" : 'dev')
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/maven/**'
+    exclude 'module-info.class'
+
+    manifest {
+        attributes(
+                'Main-Class': 'studios.milkdromeda.octo.launcher.Launcher',
+                'Implementation-Title': 'Octo Launcher',
+                'Implementation-Version': project.version,
+                'Octo-Build': buildId
+        )
+    }
+}
+
+// The file the release workflow uploads and the updater looks for.
+tasks.register('launcherJar', Copy) {
+    dependsOn tasks.jar
+    from tasks.jar.archiveFile
+    into layout.buildDirectory.dir('launcher')
+    rename { 'octo-launcher.jar' }
+}

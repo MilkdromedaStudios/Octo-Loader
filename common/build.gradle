@@ -1,0 +1,5 @@
+description = 'Octo Common — the world backups and content records the loader and Octo Launcher share.'
+
+dependencies {
+    implementation "com.google.code.gson:gson:${rootProject.gson_version}"
+}

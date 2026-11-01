@@ -807,6 +807,10 @@ public final class OctoLauncher {
     private void installGameGapBypass(List<LoadedMod> mods, OctoClassLoader classLoader) {
         boolean translated = mods.stream().anyMatch(LoadedMod::isFromAnotherVersion);
 
+        // Whatever the mods, and with none: the world guard is what keeps a
+        // world whole when the mod set it was saved with is not all there.
+        classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.WorldGuardHooks());
+
         if (!translated && apiLibraries.isEmpty() || !context.compat().stubMissingApi()) {
             return;
         }

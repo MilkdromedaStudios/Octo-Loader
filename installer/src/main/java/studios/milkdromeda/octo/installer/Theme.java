@@ -25,44 +25,44 @@ import javax.swing.UIManager;
  * class: a player who installs Octo and then reads its report should not be
  * looking at two different applications.
  */
-final class Theme {
+public final class Theme {
     /** Window and page background. */
-    static final Color BACKGROUND = new Color(0x0F, 0x11, 0x16);
+    public static final Color BACKGROUND = new Color(0x0F, 0x11, 0x16);
     /** Cards and inputs sitting on the background. */
-    static final Color SURFACE = new Color(0x17, 0x1A, 0x21);
+    public static final Color SURFACE = new Color(0x17, 0x1A, 0x21);
     /** Rows and inputs raised off a card. */
-    static final Color SURFACE_RAISED = new Color(0x1E, 0x22, 0x2B);
-    static final Color SURFACE_HOVER = new Color(0x26, 0x2B, 0x36);
-    static final Color BORDER = new Color(0x2A, 0x2F, 0x3A);
+    public static final Color SURFACE_RAISED = new Color(0x1E, 0x22, 0x2B);
+    public static final Color SURFACE_HOVER = new Color(0x26, 0x2B, 0x36);
+    public static final Color BORDER = new Color(0x2A, 0x2F, 0x3A);
 
-    static final Color TEXT = new Color(0xE9, 0xEC, 0xF2);
-    static final Color TEXT_MUTED = new Color(0x98, 0xA0, 0xB0);
-    static final Color TEXT_FAINT = new Color(0x6C, 0x74, 0x84);
+    public static final Color TEXT = new Color(0xE9, 0xEC, 0xF2);
+    public static final Color TEXT_MUTED = new Color(0x98, 0xA0, 0xB0);
+    public static final Color TEXT_FAINT = new Color(0x6C, 0x74, 0x84);
 
     /** The one saturated colour, used for the primary action and focus rings. */
-    static final Color ACCENT = new Color(0x7C, 0x6B, 0xF5);
-    static final Color ACCENT_HOVER = new Color(0x8E, 0x7E, 0xF7);
-    static final Color ACCENT_PRESSED = new Color(0x6A, 0x59, 0xE0);
-    static final Color ON_ACCENT = new Color(0x0E, 0x0F, 0x14);
+    public static final Color ACCENT = new Color(0x7C, 0x6B, 0xF5);
+    public static final Color ACCENT_HOVER = new Color(0x8E, 0x7E, 0xF7);
+    public static final Color ACCENT_PRESSED = new Color(0x6A, 0x59, 0xE0);
+    public static final Color ON_ACCENT = new Color(0x0E, 0x0F, 0x14);
 
-    static final Color SUCCESS = new Color(0x4A, 0xDE, 0x9B);
-    static final Color DANGER = new Color(0xFF, 0x6B, 0x6B);
+    public static final Color SUCCESS = new Color(0x4A, 0xDE, 0x9B);
+    public static final Color DANGER = new Color(0xFF, 0x6B, 0x6B);
 
-    static final int RADIUS = 12;
+    public static final int RADIUS = 12;
 
     private Theme() {
     }
 
-    static Font ui(int style, float size) {
+    public static Font ui(int style, float size) {
         return base().deriveFont(style, size);
     }
 
-    static Font mono(float size) {
+    public static Font mono(float size) {
         return new Font(pick(List.of("JetBrains Mono", "Cascadia Mono", "SF Mono", "Consolas", "Menlo",
                 "DejaVu Sans Mono"), Font.MONOSPACED), Font.PLAIN, 12).deriveFont(size);
     }
 
-    static java.awt.Graphics2D smooth(java.awt.Graphics graphics) {
+    public static java.awt.Graphics2D smooth(java.awt.Graphics graphics) {
         java.awt.Graphics2D canvas = (java.awt.Graphics2D) graphics.create();
         canvas.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
                 java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
@@ -98,7 +98,7 @@ final class Theme {
      * the same colours, so they do not arrive as a white rectangle in the middle
      * of a dark window.
      */
-    static void applyToDialogs() {
+    public static void applyToDialogs() {
         Font font = ui(Font.PLAIN, 13f);
 
         for (String key : List.of("Panel", "OptionPane", "Label", "Button", "ComboBox", "TextField", "List",
