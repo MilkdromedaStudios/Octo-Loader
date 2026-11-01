@@ -33,12 +33,13 @@ public final class Launcher {
         List<String> arguments = new ArrayList<>(List.of(args));
 
         if (!arguments.isEmpty() && arguments.get(0).equals("--apply-update")) {
-            Updates.apply(Path.of(arguments.get(1)), Path.of(arguments.get(2)), Long.parseLong(arguments.get(3)));
+            Updates.apply(Path.of(arguments.get(1)), Path.of(arguments.get(2)), Long.parseLong(arguments.get(3)),
+                    arguments.size() > 4 ? arguments.get(4) : null);
             return;
         }
 
         if (arguments.isEmpty() && !GraphicsEnvironment.isHeadless()) {
-            LauncherUi.show();
+            studios.milkdromeda.octo.launcher.ui.ClientWindow.show();
             return;
         }
 

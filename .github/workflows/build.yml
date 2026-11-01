@@ -84,3 +84,56 @@ jobs:
             release/checksums.txt
           draft: false
           prerelease: false
+
+  # The Windows installer, OctoLauncher-Setup.exe: jpackage only builds a
+  # Windows installer on Windows, so it is made here and added to the same
+  # release. It installs Octo Launcher for the player (no administrator
+  # prompt), with its own Java, a Start menu entry and a desktop shortcut.
+  windows-installer:
+    needs: build
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make sure WiX 3 is on the path
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            $wix = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter "WiX Toolset v3*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $wix) {
+              choco install wixtoolset --version 3.14.1 -y --no-progress
+              $wix = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter "WiX Toolset v3*" -Directory | Select-Object -First 1
+            }
+            "$($wix.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+
+      - name: Build the installer
+        shell: bash
+        run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=1.0.${{ github.run_number }}
+
+      - name: Collect it
+        shell: bash
+        run: |
+          mkdir release
+          cp launcher/build/native/*.exe release/OctoLauncher-Setup.exe
+          cd release
+          sha256sum OctoLauncher-Setup.exe > checksums-windows.txt
+          cat checksums-windows.txt
+
+      - name: Add it to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.sha }}
+          files: |
+            release/OctoLauncher-Setup.exe
+            release/checksums-windows.txt

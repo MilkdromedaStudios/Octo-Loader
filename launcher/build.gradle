@@ -40,3 +40,68 @@ tasks.register('launcherJar', Copy) {
     into layout.buildDirectory.dir('launcher')
     rename { 'octo-launcher.jar' }
 }
+
+// A native app with its own Java, built by jpackage from the JDK running the
+// build: an installer on Windows (.exe or .msi), a .dmg on macOS, a .deb or a
+// plain app folder on Linux. jpackage only builds for the system it runs on,
+// so the release workflow builds the Windows installer on Windows.
+//
+//   ./gradlew :launcher:nativePackage                          app folder for this system
+//   ./gradlew :launcher:nativePackage -PpackageType=exe        Windows installer (needs WiX 3)
+//   ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=1.0.42
+tasks.register('nativePackage', Exec) {
+    dependsOn tasks.named('launcherJar')
+    def type = project.findProperty('packageType') ?: 'app-image'
+    def appVersion = project.findProperty('appVersion') ?: project.version
+    def windows = System.getProperty('os.name').toLowerCase().contains('win')
+    def mac = System.getProperty('os.name').toLowerCase().contains('mac')
+    def output = layout.buildDirectory.dir('native').get().asFile
+    def jpackage = new File(System.getProperty('java.home'), windows ? 'bin/jpackage.exe' : 'bin/jpackage')
+
+    doFirst {
+        project.delete(output)
+    }
+
+    def command = [jpackage.absolutePath,
+            '--type', type,
+            '--name', 'Octo Launcher',
+            '--app-version', appVersion,
+            '--vendor', 'Milkdromeda Studios',
+            '--description', 'Octo Launcher: mods from any loader and version, world backups, and play.',
+            '--copyright', 'Milkdromeda Studios',
+            '--input', layout.buildDirectory.dir('launcher').get().asFile.absolutePath,
+            '--main-jar', 'octo-launcher.jar',
+            '--main-class', 'studios.milkdromeda.octo.launcher.Launcher',
+            // The modules the app uses, and nothing else: a small runtime.
+            '--add-modules', 'java.base,java.desktop,java.net.http,java.logging,java.naming,java.xml,java.sql,'
+                    + 'jdk.crypto.ec,jdk.zipfs,jdk.unsupported,jdk.charsets',
+            // jpackage's own defaults but one: the runtime keeps bin/java,
+            // which the updater runs to swap the app's jar once it has closed.
+            '--jlink-options', '--strip-debug --no-man-pages --no-header-files --compress=zip-6',
+            '--java-options', '-Xmx768m',
+            '--java-options', '-Dsun.java2d.uiScale.enabled=true',
+            '--dest', output.absolutePath]
+
+    if (windows) {
+        command += ['--icon', file('packaging/octo.ico').absolutePath]
+
+        if (type != 'app-image') {
+            // Installed for the player alone, under %LOCALAPPDATA%: no
+            // administrator prompt, and the app can update itself in place.
+            command += ['--win-per-user-install', '--win-dir-chooser', '--win-menu', '--win-menu-group', 'Octo',
+                    '--win-shortcut', '--win-shortcut-prompt',
+                    '--win-upgrade-uuid', '5f0b8c1e-6a7d-4b2e-9c3f-0c7a1e4d8b21',
+                    '--about-url', 'https://github.com/MilkdromedaStudios/Octo-Loader']
+        }
+    } else if (mac) {
+        command += ['--icon', file('packaging/octo.png').absolutePath, '--mac-package-name', 'Octo Launcher']
+    } else {
+        command += ['--icon', file('packaging/octo.png').absolutePath]
+
+        if (type == 'deb') {
+            command += ['--linux-shortcut', '--linux-menu-group', 'Game', '--linux-package-name', 'octo-launcher']
+        }
+    }
+
+    commandLine command
+}
