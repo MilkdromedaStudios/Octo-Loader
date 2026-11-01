@@ -42,21 +42,26 @@ final class SettingsPage implements App.Page {
         JPanel column = Widgets.stack(18);
         column.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
 
-        column.add(group("Account", accountRow,
-                switchRow("Play through the Minecraft Launcher instead", "Octo selects itself there, and the "
-                        + "Minecraft Launcher signs you in and starts the game.", settings.useOfficialLauncher,
-                        value -> {
-                            settings.useOfficialLauncher = value;
-                            app.save();
-                            app.changed();
-                        }),
-                textRow("Microsoft app ID", clientIdHint(), settings.microsoftClientId,
-                        buildHasClientId() ? "Set by this build" : "Not set",
-                        value -> {
-                            settings.microsoftClientId = value;
-                            app.save();
-                            app.changed();
-                        })));
+        JComponent officialRow = switchRow("Play through the Minecraft Launcher instead", "Octo selects itself "
+                + "there, and the Minecraft Launcher signs you in and starts the game.", settings.useOfficialLauncher,
+                value -> {
+                    settings.useOfficialLauncher = value;
+                    app.save();
+                    app.changed();
+                });
+
+        // A build made with its own Microsoft app signs in with it: nothing to set. Only a build
+        // without one asks for an app ID here.
+        if (buildHasClientId()) {
+            column.add(group("Account", accountRow, officialRow));
+        } else {
+            column.add(group("Account", accountRow, officialRow,
+                    textRow("Microsoft app ID", clientIdHint(), settings.microsoftClientId, "Not set", value -> {
+                        settings.microsoftClientId = value;
+                        app.save();
+                        app.changed();
+                    })));
+        }
         column.add(group("Game",
                 switchRow("Octo Client", "Octo's own client mod: its menu (Right Shift), zoom, a minimap, HUD "
                         + "loadouts, your own music, and frame-rate savers. For Minecraft "
@@ -162,9 +167,7 @@ final class SettingsPage implements App.Page {
     }
 
     private String clientIdHint() {
-        return buildHasClientId()
-                ? "This build signs in with its own. Set one here only to use a different Azure app."
-                : "The Azure app (client) ID Octo signs in with, approved by Mojang for Minecraft. This build has "
+        return "The Azure app (client) ID Octo signs in with, approved by Mojang for Minecraft. This build has "
                         + "none of its own.";
     }
 

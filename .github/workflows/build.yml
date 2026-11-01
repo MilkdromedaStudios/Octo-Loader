@@ -29,7 +29,7 @@ jobs:
 
       - name: Package the installer and Octo Launcher
         env:
-          OCTO_MSA_CLIENT_ID: ${{ vars.OCTO_MSA_CLIENT_ID }}
+          OCTO_MSA_CLIENT_ID: ${{ secrets.CLIENT_ID || vars.OCTO_MSA_CLIENT_ID }}
         run: ./gradlew :installer:installerJar :launcher:launcherJar
 
       - name: Smoke-test the built loader
@@ -122,7 +122,7 @@ jobs:
       - name: Build the installer
         shell: bash
         env:
-          OCTO_MSA_CLIENT_ID: ${{ vars.OCTO_MSA_CLIENT_ID }}
+          OCTO_MSA_CLIENT_ID: ${{ secrets.CLIENT_ID || vars.OCTO_MSA_CLIENT_ID }}
         run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=1.0.${{ github.run_number }}
 
       - name: Collect it

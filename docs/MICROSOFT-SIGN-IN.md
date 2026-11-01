@@ -65,21 +65,25 @@ Launcher for sign-in yet."* That's expected.
 
 ## 5. Give the ID to the builds
 
-So every build of Octo Launcher has the ID built in:
+So every build of Octo Launcher has the ID built in, and players just press
+**Sign in**:
 
 1. Open the repository on GitHub:
    **<https://github.com/MilkdromedaStudios/Octo-Loader>**.
 2. Go to **Settings → Secrets and variables → Actions**.
-3. Open the **Variables** tab. It's a *variable*, **not** a secret, because
-   the ID is public.
-4. Click **New repository variable**:
-   - **Name:** `OCTO_MSA_CLIENT_ID`
-   - **Value:** the client ID from step 3
-5. Click **Add variable**.
+3. Click **New repository secret**:
+   - **Name:** `CLIENT_ID`
+   - **Secret:** the client ID from step 3
+4. Click **Add secret**.
 
-The next build (any push to `main`, or a release) includes it. Builds pick it
-up through the `OCTO_MSA_CLIENT_ID` environment variable in
-`.github/workflows/build.yml` and `release.yml`.
+The next build (any push to `main`, or a release) builds the ID into the
+launcher. `.github/workflows/build.yml` and `release.yml` pass it to Gradle
+as `OCTO_MSA_CLIENT_ID`. A repository *variable* named `OCTO_MSA_CLIENT_ID`
+works too, when there is no `CLIENT_ID` secret.
+
+The ID is still not a secret once it's in the launcher: anyone can read it
+from the app, as with every launcher. Keeping it a GitHub secret only keeps it
+out of the workflow files.
 
 ### Trying it before a new build
 
@@ -100,7 +104,7 @@ For a local build: `./gradlew :launcher:launcherJar -PmsaClientId=<your client I
 
 | What you see | What it means |
 |---|---|
-| *"Microsoft does not know this build's app registration (unauthorized_client)"* | The client ID is wrong, or **Allow public client flows** (step 2) is off. |
+| *"Microsoft turned down this build's app registration (unauthorized_client)"* | The client ID is wrong, or **Allow public client flows** (step 2) is off. |
 | *"Minecraft has not approved this build of Octo Launcher for sign-in yet"* | Steps 1–3 are right; Mojang hasn't approved the app yet (step 4). |
 | *"This Microsoft account has no Xbox profile yet"* | Sign in once at xbox.com with that account, then try again. |
 | *"This Microsoft account does not own Minecraft: Java Edition"* | Use the account that bought the game. |

@@ -361,8 +361,8 @@ public final class MicrosoftAuth {
         String description = string(error, "error_description");
 
         if ("unauthorized_client".equals(code) || "invalid_client".equals(code)) {
-            return "Microsoft does not know this build's app registration (" + code + "). Set its client ID in "
-                    + "Settings, or use the Minecraft Launcher.";
+            return "Microsoft turned down this build's app registration (" + code + "): its Azure app must "
+                    + "allow public client flows. Play through the Minecraft Launcher in the meantime.";
         }
 
         return description != null ? description.split("\\r?\\n")[0] : "Microsoft's sign-in said: " + code;

@@ -34,11 +34,12 @@ public final class Play {
 
     /**
      * The Microsoft app registration sign-in uses: one set for this run, the
-     * player's own from Settings, or the one this build was made with.
+     * one this build was made with, or, for a build made without one, the
+     * player's own from Settings.
      */
     public static String clientId(LauncherSettings settings) {
         String[] candidates = { System.getenv("OCTO_MSA_CLIENT_ID"), System.getProperty("octo.msa.clientId"),
-                settings.microsoftClientId, Launcher.manifest("Octo-Msa-Client-Id") };
+                Launcher.manifest("Octo-Msa-Client-Id"), settings.microsoftClientId };
 
         for (String candidate : candidates) {
             if (candidate != null && !candidate.isBlank()) {
