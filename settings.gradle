@@ -32,3 +32,5 @@ rootProject.name = 'octo-loader'
 
 include 'loader'
 include 'installer'
+include 'common'
+include 'launcher'

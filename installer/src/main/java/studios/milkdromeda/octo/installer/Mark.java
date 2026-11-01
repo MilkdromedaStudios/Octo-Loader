@@ -26,7 +26,7 @@ import javax.swing.JComponent;
  * disk and the window that reports on it afterwards are the same product, and
  * should look like it.
  */
-final class Mark extends JComponent {
+public final class Mark extends JComponent {
     private static final Color BODY = new Color(0x6610E8);
     private static final Color OUTER_ARM = new Color(0x9B1CFF);
     private static final Color INNER_ARM = new Color(0x00B2FF);
@@ -36,7 +36,7 @@ final class Mark extends JComponent {
 
     private final int size;
 
-    Mark(int size) {
+    public Mark(int size) {
         this.size = size;
         setPreferredSize(new Dimension(size, size));
         setMinimumSize(new Dimension(size, size));
@@ -51,11 +51,11 @@ final class Mark extends JComponent {
     }
 
     /** The window and task bar icon, at the sizes a desktop asks for. */
-    static List<Image> icons() {
+    public static List<Image> icons() {
         return List.of(image(16), image(32), image(64), image(128));
     }
 
-    static Image image(int size) {
+    public static Image image(int size) {
         BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D canvas = Theme.smooth(image.getGraphics());
         paint(canvas, size);

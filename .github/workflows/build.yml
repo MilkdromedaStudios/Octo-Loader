@@ -27,8 +27,8 @@ jobs:
       - name: Build and test
         run: ./gradlew build --stacktrace
 
-      - name: Package the installer
-        run: ./gradlew :installer:installerJar
+      - name: Package the installer and Octo Launcher
+        run: ./gradlew :installer:installerJar :launcher:launcherJar
 
       - name: Smoke-test the built loader
         run: |
@@ -67,6 +67,7 @@ jobs:
         run: |
           mkdir release
           cp installer/build/installer/installer.jar release/installer.jar
+          cp launcher/build/launcher/octo-launcher.jar release/octo-launcher.jar
           cp loader/build/libs/octo-loader-*.jar release/
           cd release
           sha256sum *.jar > checksums.txt
@@ -78,6 +79,7 @@ jobs:
           name: Octo Loader Build ${{ github.sha }}
           files: |
             release/installer.jar
+            release/octo-launcher.jar
             release/octo-loader-*.jar
             release/checksums.txt
           draft: false

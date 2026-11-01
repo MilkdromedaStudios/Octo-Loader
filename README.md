@@ -40,6 +40,8 @@
 | 🕰️ **Play mods from other versions** | A mod built for 1.21.1, 1.20.1 or 1.12.2 is unzipped, rewritten for the game you are running, re-jarred and loaded. Your original file is never touched. |
 | 🎨 **Old mods still render** | Block entity renderers, block models and baked quads written for the old renderer are bridged to 26.x's renderer, so moving parts such as Create's shafts and cogwheels draw. |
 | 🚀 **Fast after the first launch** | Rebuilt mods are cached. The next launch with the same mods loads them straight from the cache. |
+| 🧷 **Worlds survive mod changes** | When a mod goes missing, fails to build or renames its blocks, Octo backs the world up before it opens and keeps every chunk using that mod's content exactly as it is on disk. Put the mod back and nothing is lost. |
+| 🐙 **Octo Launcher** | A desktop app that installs Octo for any Minecraft version, backs worlds up and restores them, keeps itself and the loader up to date, and opens the official Minecraft Launcher for sign-in and play. |
 | 🛟 **The game always starts** | A mod that cannot load does not stop you playing. Octo starts the game and shows you what is missing and why. |
 | 🔍 **No guessing** | Every change made to a mod is listed in the log and the mod report, so you can always see what was adapted. |
 
@@ -66,6 +68,46 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 ```
 
 </details>
+
+## Octo Launcher
+
+`octo-launcher.jar` (on every [release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)) is the app around Minecraft. Double-click it.
+
+| Page | What it does |
+|---|---|
+| **Play** | Pick a Minecraft version and press **Play**. Octo installs or refreshes itself for that version, backs up the world you played last, selects the **Octo Loader** installation in the official Minecraft Launcher and opens it. |
+| **Versions** | Every version Mojang lists. **Install Octo** adds an installation for one, even if it isn't downloaded yet: the Minecraft Launcher downloads it the first time you play. **Remove Octo** takes it away again. |
+| **Worlds** | Every world, when it was played, its backups, and anything the world guard found. **Back up now**, **Restore** a backup (the world as it is now is backed up first), and **Accept removal** of a mod you took out on purpose. |
+| **Settings** | Your Minecraft folder, where the Minecraft Launcher is if Octo can't find it, automatic updates, backup before each launch, and how many automatic backups to keep. |
+
+**Signing in, downloading and starting the game stay with the official Minecraft Launcher**, using your Microsoft account. Octo never sees your sign-in. It only prepares the installation and opens that launcher with the installation selected. Run the Minecraft Launcher once and sign in before your first **Play**.
+
+**Updates.** When it opens, Octo Launcher checks the latest release. A newer loader is downloaded and installed into every Octo installation. A newer Octo Launcher shows a banner: **Update** downloads it and restarts into it. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
+
+<details>
+<summary><b>From the terminal</b></summary>
+
+```bash
+java -jar octo-launcher.jar play 26.3                      # install Octo for 26.3 and open the Minecraft Launcher
+java -jar octo-launcher.jar versions                       # versions, and which have Octo
+java -jar octo-launcher.jar worlds                         # worlds, backups, and missing content
+java -jar octo-launcher.jar backup "My World"              # back a world up now
+java -jar octo-launcher.jar restore <backup.zip> "My World"
+java -jar octo-launcher.jar update                         # newest loader, installed everywhere
+```
+
+</details>
+
+## Keeping worlds safe
+
+Minecraft saves each block under its mod's name for it. If that mod is missing the next time the world opens (you removed it, it failed to build, it renamed its blocks), the game doesn't know the name, puts **air** there, and saves the air. The blocks, the items in their chests and the mod's mobs are gone for good. Octo's world guard stops that, in the game itself, with or without the launcher:
+
+- **Each world remembers its mods.** `<world>/octo/content.json` lists the mods it was last opened with and every block, item and entity they added.
+- **Backups before anything changes.** If content the world uses is missing, the world is backed up before a single chunk is read. It's also backed up when its mods are added, removed or updated (`-Docto.backups.onModChange=false` turns that off). Backups are whole-world zips in `<Minecraft folder>/backups/<world>/`. Octo keeps the newest 10 automatic ones per world (`-Docto.backups.keep=N`) and never removes one you made.
+- **Chunks it can't read are kept as they are.** A chunk, or chunk of entities, that holds a block, block entity, entity or item the game doesn't know is never saved over while that content is missing. Put the mod back and everything is there again. Changes you make inside those chunks meanwhile are not kept. `<world>/octo/guard-report.txt` lists what is missing.
+- **Removing a mod on purpose?** Accept its removal on Octo Launcher's **Worlds** page (or add its id to `<world>/octo/accepted-removals.txt`). Its content is dropped the next time those chunks save, as it would be without Octo.
+
+`-Docto.worldGuard=false` turns the world guard off.
 
 ## Installing mods
 
