@@ -39,7 +39,7 @@
   <img src="docs/screenshots/octo-launcher-home.png" alt="Octo Launcher's home page: a Launch game banner with a creeper drawn from your own Minecraft, the latest Octo releases, popular mods to install in one click, your worlds and Octo's status" width="100%">
 </p>
 
-**The easiest way to play with Octo.** Sign in with your Microsoft account, and Octo Launcher downloads Minecraft and starts it, with your mods. Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
+**The easiest way to play with Octo.** Sign in with your Microsoft account, and Octo Launcher downloads Minecraft and starts it, with your mods and [Octo Client](#octo-client). Change your skin and cape in a click. Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
 
 | Windows | Any system with Java 17+ |
 |---|---|
@@ -57,7 +57,11 @@
   <img src="docs/screenshots/octo-launcher-files.png" alt="Delete Minecraft files: game files, mods, packs, worlds and backups, each with its size" width="32.5%">
 </p>
 
-<p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
+<p align="center">
+  <img src="docs/screenshots/octo-launcher-skins.png" alt="Skins: Alex in 3D from behind wearing the Migrator cape, the skin library, and the account's capes: Pan, Migrator and Cherry Blossom" width="65%">
+</p>
+
+<p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files · skins and capes. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
 
 ## Octo Client
 
@@ -129,6 +133,7 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 |---|---|
 | **Home** | Press **Launch game**. Octo downloads the version you picked if it isn't yet, installs or refreshes itself for it, backs up the world you played last, and starts Minecraft, signed in as you. A bar shows how the download is going; the button says **Playing** while the game runs, and if the game crashes, Octo says so and where its output is. The creeper in the banner is drawn in 3D from the texture in your own Minecraft (Octo ships no Mojang assets). Below that: the latest Octo releases, popular mods you can install in one click, your worlds, your mods, and Octo's status. |
 | **Mods** | The mod manager. Click any mod for its page: screenshots, downloads, followers, the full description and links. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
+| **Skins** | You as other players see you, in 3D: drag to turn yourself round. Keep a library of skins (from a PNG, or from any player's name) and wear one in a click, with classic or slim arms. Your capes, Pan, Migrator, Cherry Blossom and whichever others your account has, are listed with their real art: pick one to wear, or none. Changes go to your Minecraft account through Minecraft's own profile service. |
 | **Worlds** | Every world with its backups. **Back up now**, **Restore** any backup (the world as it is now is backed up first), and see what the world guard is protecting. **Accept removal** drops content from a mod you took out on purpose. |
 | **Versions** | Every version Mojang lists. **Download** any of them, with Octo, or delete one you no longer play (your worlds and mods stay). |
 | **Settings** | Your account; memory for the game, its Java and Java options; **Repair** (checks every file against Mojang's checksums) and **Delete files**; your Minecraft folder; automatic updates; backups before each launch, and how many to keep. |

@@ -49,7 +49,17 @@ public final class MinecraftProfile {
     private final Endpoints endpoints;
 
     public MinecraftProfile() {
-        this(Endpoints.LIVE);
+        this(endpoints());
+    }
+
+    /**
+     * Mojang's own, unless {@code -Docto.profile.base=http://host:port} names a
+     * stand-in serving the same paths, for trying the Skins page.
+     */
+    private static Endpoints endpoints() {
+        String base = System.getProperty("octo.profile.base");
+        return base == null || base.isBlank() ? Endpoints.LIVE : new Endpoints(base + "/minecraft/profile",
+                base + "/users/profiles/minecraft/", base + "/session/minecraft/profile/");
     }
 
     public MinecraftProfile(Endpoints endpoints) {
@@ -146,10 +156,23 @@ public final class MinecraftProfile {
 
     private static HttpResponse<String> sendRaw(HttpRequest request) throws IOException {
         try {
-            return Net.client().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            try {
+                return Net.client().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                // A connection kept open from before can have gone stale (a network change,
+                // a server restart): a request that changes nothing is sent once more.
+                if (!request.method().equals("GET")) {
+                    throw e;
+                }
+
+                return Net.client().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("cancelled", e);
+        } catch (IOException e) {
+            throw new IOException("Could not reach Minecraft's profile service. Check your internet connection and "
+                    + "try again.", e);
         }
     }
 

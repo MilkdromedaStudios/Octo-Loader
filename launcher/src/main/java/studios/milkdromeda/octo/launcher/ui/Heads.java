@@ -30,6 +30,17 @@ final class Heads {
     private Heads() {
     }
 
+    /** Forgets a player's skin, after they changed it, so their face is read again. */
+    static void forget(String accountId) {
+        SKINS.remove(accountId);
+
+        try {
+            java.nio.file.Files.deleteIfExists(LauncherSettings.home().resolve("heads").resolve(accountId + ".png"));
+        } catch (IOException e) {
+            // Read again from the new skin either way.
+        }
+    }
+
     /** The face at a size: a monogram now, the face when the skin has been read. */
     static void load(Account account, int size, int radius, Consumer<Image> ready) {
         ready.accept(Widgets.monogram(account.name(), Widgets.colourFor(account.name()), size, radius));
