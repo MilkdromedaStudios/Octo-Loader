@@ -91,8 +91,7 @@ service in their place.
 
 ## Bundled with Octo Launcher
 
-`octo-launcher.jar`, the Windows installer and the npm package's download also
-carry:
+`octo-launcher.jar` and the Windows installer also carry:
 
 | Component | Licence | Where |
 |---|---|---|

@@ -14,7 +14,7 @@ run/
 .project
 .settings/
 bin/
-!npm/bin/
+!archive/npm/bin/
 
 # Runtime logs
 logs/
