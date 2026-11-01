@@ -13,6 +13,12 @@ import studios.milkdromeda.octo.launcher.LauncherSettings;
 public interface App {
     LauncherSettings settings();
 
+    /** The Microsoft accounts signed in here. */
+    studios.milkdromeda.octo.launcher.auth.Accounts accounts();
+
+    /** Signs an account out, forgetting its sign-in on this computer. */
+    void signOut(studios.milkdromeda.octo.launcher.auth.Account account);
+
     JFrame frame();
 
     /** Shows a page by name: Home, Mods, Worlds, Versions, Settings. */

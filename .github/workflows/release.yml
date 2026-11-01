@@ -57,6 +57,7 @@ jobs:
         # The launcher compares this with the newest release's tag to know it is current.
         env:
           OCTO_BUILD: ${{ steps.version.outputs.tag }}
+          OCTO_MSA_CLIENT_ID: ${{ vars.OCTO_MSA_CLIENT_ID }}
         run: ./gradlew :installer:installerJar :launcher:launcherJar
 
       # Nothing goes out under a version number without the built jar having
@@ -202,6 +203,7 @@ jobs:
         shell: bash
         env:
           OCTO_BUILD: ${{ steps.version.outputs.tag }}
+          OCTO_MSA_CLIENT_ID: ${{ vars.OCTO_MSA_CLIENT_ID }}
         run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=${{ steps.version.outputs.version }}
 
       - name: Collect it

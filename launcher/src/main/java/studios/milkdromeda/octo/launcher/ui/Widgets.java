@@ -187,7 +187,9 @@ public final class Widgets {
         /** Text and an icon, no surface until hovered. */
         GHOST,
         /** Red text: removes something. */
-        DANGER
+        DANGER,
+        /** Filled red: the button that deletes, at the end of asking. */
+        DESTRUCTIVE
     }
 
     /** A rounded button that lightens when hovered and dims when it cannot be pressed. */
@@ -206,7 +208,8 @@ public final class Widgets {
             this.kind = kind;
             this.radius = radius;
             setFont(Style.font(Font.BOLD, 13f));
-            setForeground(kind == Kind.PRIMARY ? Color.WHITE : kind == Kind.DANGER ? Style.RED : Style.TEXT);
+            setForeground(kind == Kind.PRIMARY || kind == Kind.DESTRUCTIVE ? Color.WHITE
+                    : kind == Kind.DANGER ? Style.RED : Style.TEXT);
             setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
             setContentAreaFilled(false);
             setBorderPainted(false);
@@ -274,6 +277,11 @@ public final class Widgets {
                     g.setColor(Style.LINE);
                     g.drawRoundRect(0, 0, w - 1, h - 1, radius, radius);
                 }
+                case DESTRUCTIVE -> {
+                    g.setColor(pressed ? Style.mix(Style.RED, Color.BLACK, 0.2f)
+                            : hover ? Style.mix(Style.RED, Color.WHITE, 0.08f) : Style.mix(Style.RED, Color.BLACK, 0.06f));
+                    g.fillRoundRect(0, 0, w, h, radius, radius);
+                }
                 case GHOST, DANGER -> {
                     if (hover) {
                         g.setColor(kind == Kind.DANGER ? Style.alpha(Style.RED, 28) : Style.HOVER);
@@ -295,7 +303,8 @@ public final class Widgets {
     }
 
     public static Button button(String text, Icons.Glyph glyph, Kind kind) {
-        Color colour = kind == Kind.PRIMARY ? Color.WHITE : kind == Kind.DANGER ? Style.RED : Style.TEXT;
+        Color colour = kind == Kind.PRIMARY || kind == Kind.DESTRUCTIVE ? Color.WHITE
+                : kind == Kind.DANGER ? Style.RED : Style.TEXT;
         return new Button(text, glyph == null ? null : Icons.of(glyph, 16, colour), kind);
     }
 
