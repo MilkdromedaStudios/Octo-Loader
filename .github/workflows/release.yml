@@ -220,39 +220,3 @@ jobs:
           files: |
             release/OctoLauncher-Setup.exe
             release/checksums-windows.txt
-
-  # `npm install -g octo-launcher`: the npm package is a small launcher that
-  # downloads the newest octo-launcher.jar (checked against checksums.txt) and
-  # runs it with the Java you have, or one it downloads. Published with the
-  # release's version when the repository has an NPM_TOKEN secret.
-  npm:
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Check the package
-        working-directory: npm
-        run: |
-          npm test
-          node --check bin/octo-launcher.js
-
-      - name: Publish
-        working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          npm version "${TAG#v}" --no-git-tag-version --allow-same-version
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::notice::No NPM_TOKEN secret: the npm package was checked but not published."
-            npm pack
-            exit 0
-          fi
-          npm publish --access public

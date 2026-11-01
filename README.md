@@ -41,9 +41,9 @@
 
 **The easiest way to play with Octo.** Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
 
-| Windows | npm (Windows, macOS, Linux) | Any system with Java 17+ |
-|---|---|---|
-| Download **[`OctoLauncher-Setup.exe`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and run it. No admin prompt, Java included, Start menu and desktop shortcuts. | `npm install -g octo-launcher`<br>`octo-launcher` | Download **[`octo-launcher.jar`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and double-click it. |
+| Windows | Any system with Java 17+ |
+|---|---|
+| Download **[`OctoLauncher-Setup.exe`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and run it. No admin prompt, Java included, Start menu and desktop shortcuts. | Download **[`octo-launcher.jar`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and double-click it. |
 
 <p align="center">
   <img src="docs/screenshots/octo-launcher-mods.png" alt="The mod manager: Modrinth mods with their icons, loaders and one-click Install" width="32.5%">
@@ -93,8 +93,6 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 ## Octo Launcher
 
 **Windows:** download `OctoLauncher-Setup.exe` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest) and run it. It installs for you alone, with no administrator prompt. It brings its own Java and adds a Start menu entry and a desktop shortcut.
-
-**npm, on any system:** `npm install -g octo-launcher`, then `octo-launcher`. The first run downloads Octo Launcher from the latest release and checks it against the release's checksums. If you don't have Java 17 or newer, it also downloads Eclipse Temurin 21, checked against Adoptium's checksum. Everything stays in `~/.octo-launcher`. `HTTPS_PROXY` is respected.
 
 **Or the jar:** download `octo-launcher.jar` and double-click it (Java 17 or newer).
 
