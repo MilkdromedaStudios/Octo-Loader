@@ -33,10 +33,11 @@ processResources {
 // build of main, "dev" anywhere else (a dev build is never offered updates).
 def buildId = System.getenv('OCTO_BUILD') ?: (System.getenv('GITHUB_SHA') ? "build-${System.getenv('GITHUB_SHA')}" : 'dev')
 
-// The Microsoft (Azure) app registration Octo signs players in with: its
-// client ID, which is public, from the OCTO_MSA_CLIENT_ID repository variable
-// or -PmsaClientId. Without one, the launcher plays through the official
-// Minecraft Launcher, or uses an ID the player sets in Settings.
+// The Microsoft (Azure) app registration Octo signs players in with. Its
+// client ID is public once built in; the workflows pass the CLIENT_ID
+// repository secret (or the OCTO_MSA_CLIENT_ID variable) as
+// OCTO_MSA_CLIENT_ID, or use -PmsaClientId. Without one, the launcher plays
+// through the official Minecraft Launcher, or uses an ID set in Settings.
 def msaClientId = System.getenv('OCTO_MSA_CLIENT_ID') ?: (project.findProperty('msaClientId') ?: '')
 
 jar {
