@@ -59,6 +59,9 @@ public final class ClientWindow implements App {
     private final JPanel toasts = Widgets.column();
     private final Widgets.Button updateChip = Widgets.button("Update ready", Icons.Glyph.UPDATE, Widgets.Kind.PRIMARY);
     private Updates.Release pendingUpdate;
+    private final studios.milkdromeda.octo.launcher.auth.Accounts accounts =
+            studios.milkdromeda.octo.launcher.Play.accounts();
+    private final JPanel accountHolder = Widgets.row(0);
 
     public static void show() {
         try {
@@ -74,6 +77,10 @@ public final class ClientWindow implements App {
             UIManager.put("MenuItem.selectionBackground", Style.HOVER);
             UIManager.put("MenuItem.selectionForeground", Style.TEXT);
             UIManager.put("MenuItem.font", Style.font(Font.PLAIN, 13f));
+            UIManager.put("Separator.foreground", Style.LINE);
+            UIManager.put("Separator.background", Style.RAISED);
+            UIManager.put("Separator.highlight", Style.RAISED);
+            UIManager.put("Separator.shadow", Style.LINE);
             ToolTipManager.sharedInstance().setInitialDelay(350);
         } catch (Exception e) {
             // The window paints itself.
@@ -84,6 +91,7 @@ public final class ClientWindow implements App {
 
     private void open() {
         studios.milkdromeda.octo.launcher.mods.Modrinth.userAgent(launcherUserAgent());
+        studios.milkdromeda.octo.launcher.game.Net.userAgent(launcherUserAgent());
         frame.setUndecorated(true);
         frame.setIconImages(Mark.icons());
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -150,6 +158,15 @@ public final class ClientWindow implements App {
                     page -> page.projects().stream().findFirst().ifPresent(this::showMod));
         }
 
+        // -Docto.launcher.open=sign-in or delete-files: opens that sheet, for checking it.
+        switch (System.getProperty("octo.launcher.open", "")) {
+            case "sign-in" -> SignInSheet.show(this, account -> { });
+            case "delete-files" -> DeleteSheet.show(this);
+            default -> {
+                // Nothing.
+            }
+        }
+
         if (settings.checkForUpdates) {
             checkForUpdates();
         }
@@ -192,6 +209,8 @@ public final class ClientWindow implements App {
         updateChip.addActionListener(event -> applyUpdate());
         right.add(updateChip);
         right.add(Box.createHorizontalStrut(10));
+        right.add(accountHolder);
+        right.add(Box.createHorizontalStrut(8));
         right.add(windowButton(Icons.Glyph.MINIMIZE, () -> frame.setState(Frame.ICONIFIED), false));
         right.add(windowButton(Icons.Glyph.MAXIMIZE, this::toggleMaximized, false));
         right.add(windowButton(Icons.Glyph.CLOSE, () -> {
@@ -510,7 +529,89 @@ public final class ClientWindow implements App {
 
     @Override
     public void changed() {
+        showAccount();
         byName.values().forEach(Page::refresh);
+    }
+
+    @Override
+    public studios.milkdromeda.octo.launcher.auth.Accounts accounts() {
+        return accounts;
+    }
+
+    /** The account in the title bar: its face and name, or a button to sign in. */
+    private void showAccount() {
+        accountHolder.removeAll();
+        studios.milkdromeda.octo.launcher.auth.Account active = accounts.active();
+
+        if (active == null) {
+            if (studios.milkdromeda.octo.launcher.Play.launchesItself(settings)) {
+                Widgets.Button signIn = Widgets.button("Sign in", Icons.Glyph.USER, Widgets.Kind.SECONDARY);
+                signIn.setFont(Style.font(Font.BOLD, 12.5f));
+                signIn.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 14));
+                signIn.addActionListener(event -> SignInSheet.show(this, account -> { }));
+                accountHolder.add(signIn);
+            }
+        } else {
+            Widgets.Button chip = new Widgets.Button(active.name(), null, Widgets.Kind.GHOST, 10);
+            chip.setFont(Style.font(Font.BOLD, 13f));
+            chip.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 10));
+            Heads.load(active, 24, 6, image -> chip.setIcon(new javax.swing.ImageIcon(image)));
+            chip.addActionListener(event -> accountMenu(chip));
+            accountHolder.add(chip);
+        }
+
+        accountHolder.revalidate();
+        accountHolder.repaint();
+    }
+
+    private void accountMenu(JComponent under) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setBorder(BorderFactory.createLineBorder(Style.LINE));
+        studios.milkdromeda.octo.launcher.auth.Account active = accounts.active();
+
+        for (studios.milkdromeda.octo.launcher.auth.Account account : accounts.all()) {
+            boolean current = active != null && account.id().equals(active.id());
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(account.name() + (current ? "    Playing" : ""));
+            item.setFont(Style.font(current ? Font.BOLD : Font.PLAIN, 13f));
+            item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
+            Heads.load(account, 20, 5, image -> item.setIcon(new javax.swing.ImageIcon(image)));
+            item.addActionListener(event -> run(() -> {
+                accounts.use(account.id());
+                return account;
+            }, used -> changed()));
+            menu.add(item);
+        }
+
+        menu.addSeparator();
+        javax.swing.JMenuItem add = new javax.swing.JMenuItem("Add another account", Icons.of(Icons.Glyph.PLUS, 16,
+                Style.MUTED));
+        add.setFont(Style.font(Font.PLAIN, 13f));
+        add.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
+        add.addActionListener(event -> SignInSheet.show(this, account -> { }));
+        menu.add(add);
+
+        if (active != null) {
+            javax.swing.JMenuItem out = new javax.swing.JMenuItem("Sign out " + active.name(),
+                    Icons.of(Icons.Glyph.SIGN_OUT, 16, Style.RED));
+            out.setFont(Style.font(Font.PLAIN, 13f));
+            out.setForeground(Style.RED);
+            out.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
+            out.addActionListener(event -> signOut(active));
+            menu.add(out);
+        }
+
+        menu.show(under, under.getWidth() - menu.getPreferredSize().width, under.getHeight() + 6);
+    }
+
+    @Override
+    public void signOut(studios.milkdromeda.octo.launcher.auth.Account account) {
+        run(() -> {
+            accounts.remove(account.id());
+            return account;
+        }, gone -> {
+            toast("Signed out " + gone.name() + ". Their sign-in is removed from this computer.", Style.MUTED);
+            changed();
+        });
     }
 
     @Override
@@ -583,8 +684,8 @@ public final class ClientWindow implements App {
             this.colour = colour;
             setOpaque(false);
             setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 14));
-            JLabel text = Widgets.wrapped(message, 13f, Style.TEXT, 300);
-            add(text, BorderLayout.CENTER);
+            // Wrapped to the toast's own width, a long path on a line of its own.
+            add(new Text(message, Style.font(Font.PLAIN, 13f), Style.TEXT, 0, 340), BorderLayout.CENTER);
             setAlignmentX(Component.RIGHT_ALIGNMENT);
             setMaximumSize(new Dimension(380, 200));
         }

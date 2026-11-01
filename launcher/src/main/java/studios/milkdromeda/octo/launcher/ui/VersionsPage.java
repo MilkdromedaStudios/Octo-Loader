@@ -16,10 +16,10 @@ import javax.swing.JPanel;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
-import studios.milkdromeda.octo.installer.ClientInstaller;
-import studios.milkdromeda.octo.installer.Installer;
+import studios.milkdromeda.octo.launcher.Play;
 import studios.milkdromeda.octo.launcher.Updates;
 import studios.milkdromeda.octo.launcher.Versions;
+import studios.milkdromeda.octo.launcher.game.GameFiles;
 
 /** Versions: Octo installed for whichever Minecraft versions the player wants. */
 final class VersionsPage implements App.Page {
@@ -35,8 +35,8 @@ final class VersionsPage implements App.Page {
         view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
         JPanel title = Widgets.stack(4);
         title.add(Widgets.heading("Versions"));
-        title.add(Widgets.line("Install Octo for any Minecraft version. The Minecraft Launcher downloads the game "
-                + "the first time you play it.", Style.font(Font.PLAIN, 13f), Style.MUTED));
+        title.add(Widgets.line("Any Minecraft version, with Octo. Downloaded once, checked against Mojang's "
+                + "checksums, and ready to play.", Style.font(Font.PLAIN, 13f), Style.MUTED));
         view.add(title, BorderLayout.NORTH);
 
         JPanel body = Widgets.clear(new BorderLayout(0, 14));
@@ -153,8 +153,9 @@ final class VersionsPage implements App.Page {
         row.add(middle, BorderLayout.CENTER);
 
         JPanel actions = Widgets.row(8);
+        boolean here = version.withOcto() || version.downloaded();
 
-        if (version.withOcto()) {
+        if (here) {
             Widgets.Button choose = Widgets.button(selected ? "Selected" : "Select", Icons.Glyph.CHECK,
                     Widgets.Kind.SECONDARY);
             choose.setEnabled(!selected);
@@ -164,23 +165,42 @@ final class VersionsPage implements App.Page {
                 app.changed();
             });
             actions.add(choose);
-            Widgets.Button remove = Widgets.iconButton(Icons.Glyph.TRASH, "Remove Octo for " + version.id(),
+            Widgets.Button remove = Widgets.iconButton(Icons.Glyph.TRASH, "Delete Minecraft " + version.id(),
                     Widgets.Kind.DANGER);
             remove.addActionListener(event -> {
-                if (JOptionPane.showConfirmDialog(app.frame(), "Remove the Octo installation for " + version.id()
-                        + "?\nYour worlds and mods are not touched.", "Remove", JOptionPane.OK_CANCEL_OPTION)
+                if (JOptionPane.showConfirmDialog(app.frame(), "Delete Minecraft " + version.id() + "?\nIts game "
+                        + "files and Octo's installation for it go. Your worlds and mods stay, and you can download "
+                        + "it again any time.", "Delete version", JOptionPane.OK_CANCEL_OPTION)
                         == JOptionPane.OK_OPTION) {
                     app.run(() -> {
-                        new ClientInstaller(app.settings().gameDir(), Installer.VERSION, message -> { })
-                                .uninstall(version.id());
+                        Play.deleteVersion(app.settings(), version.id());
                         return version.id();
                     }, id -> {
-                        app.toast("Removed Octo for " + id + ".", Style.MUTED);
+                        app.toast("Deleted Minecraft " + id + ".", Style.MUTED);
                         app.changed();
                     });
                 }
             });
             actions.add(remove);
+        } else if (Play.launchesItself(app.settings())) {
+            Widgets.Button download = Widgets.button("Download", Icons.Glyph.DOWNLOAD, Widgets.Kind.SECONDARY);
+            download.addActionListener(event -> {
+                download.setEnabled(false);
+                download.setText("Starting...");
+                GameFiles.Progress progress = (stage, done, total) -> javax.swing.SwingUtilities.invokeLater(() ->
+                        download.setText(total > 0 ? Math.round(done * 100.0 / total) + "%" : "Checking..."));
+                app.run(() -> Play.download(app.settings(), version.id(), false, progress), id -> {
+                    app.settings().selectedVersion = version.id();
+                    app.save();
+                    app.toast("Minecraft " + version.id() + " is downloaded, with Octo. Press Launch on Home to "
+                            + "play.", Style.GREEN);
+                    app.changed();
+                }, failure -> {
+                    download.setEnabled(true);
+                    download.setText("Download");
+                });
+            });
+            actions.add(download);
         } else {
             Widgets.Button install = Widgets.button("Install Octo", Icons.Glyph.DOWNLOAD, Widgets.Kind.PRIMARY);
             install.addActionListener(event -> {

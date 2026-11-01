@@ -39,7 +39,7 @@
   <img src="docs/screenshots/octo-launcher-home.png" alt="Octo Launcher's home page: a Launch game banner with a creeper drawn from your own Minecraft, the latest Octo releases, popular mods to install in one click, your worlds and Octo's status" width="100%">
 </p>
 
-**The easiest way to play with Octo.** Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
+**The easiest way to play with Octo.** Sign in with your Microsoft account, and Octo Launcher downloads Minecraft and starts it, with your mods. Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
 
 | Windows | Any system with Java 17+ |
 |---|---|
@@ -51,7 +51,13 @@
   <img src="docs/screenshots/octo-launcher-worlds.png" alt="Worlds: backups, restore, and the world guard protecting a world whose mod is missing" width="32.5%">
 </p>
 
-<p align="center"><sub>Mods · a mod's page · worlds. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
+<p align="center">
+  <img src="docs/screenshots/octo-launcher-signin.png" alt="Signing in with Microsoft: a code to enter on Microsoft's own page" width="32.5%">
+  <img src="docs/screenshots/octo-launcher-download.png" alt="Launch game downloading Minecraft's Java, with a progress bar" width="32.5%">
+  <img src="docs/screenshots/octo-launcher-files.png" alt="Delete Minecraft files: game files, mods, packs, worlds and backups, each with its size" width="32.5%">
+</p>
+
+<p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
 
 ## Why Octo?
 
@@ -62,7 +68,7 @@
 | 🎨 **Old mods still render** | Block entity renderers, block models and baked quads written for the old renderer are bridged to 26.x's renderer, so moving parts such as Create's shafts and cogwheels draw. |
 | 🚀 **Fast after the first launch** | Rebuilt mods are cached. The next launch with the same mods loads them straight from the cache. |
 | 🧷 **Worlds survive mod changes** | When a mod goes missing, fails to build or renames its blocks, Octo backs the world up before it opens and keeps every chunk using that mod's content exactly as it is on disk. Put the mod back and nothing is lost. |
-| 🐙 **Octo Launcher** | A Windows app (installer included) and cross-platform jar: one-click mod installs from Modrinth with their dependencies, turning mods on and off, updates, world backups and restores, and a big Launch button that hands over to the official Minecraft Launcher for sign-in. |
+| 🐙 **Octo Launcher** | A Windows app (installer included) and cross-platform jar: one-click mod installs from Modrinth with their dependencies, turning mods on and off, updates, world backups and restores, and a big Launch button: sign in with Microsoft, and it downloads Minecraft and its Java and starts the game with Octo. |
 | 🛟 **The game always starts** | A mod that cannot load does not stop you playing. Octo starts the game and shows you what is missing and why. |
 | 🔍 **No guessing** | Every change made to a mod is listed in the log and the mod report, so you can always see what was adapted. |
 
@@ -98,13 +104,24 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 
 | Page | What it does |
 |---|---|
-| **Home** | Press **Launch game**. Octo installs or refreshes itself for the version you picked, backs up the world you played last, and opens the official Minecraft Launcher with the Octo installation selected. The creeper in the banner is drawn in 3D from the texture in your own Minecraft (Octo ships no Mojang assets). Below that: the latest Octo releases, popular mods you can install in one click, your worlds, your mods, and Octo's status. |
+| **Home** | Press **Launch game**. Octo downloads the version you picked if it isn't yet, installs or refreshes itself for it, backs up the world you played last, and starts Minecraft, signed in as you. A bar shows how the download is going; the button says **Playing** while the game runs, and if the game crashes, Octo says so and where its output is. The creeper in the banner is drawn in 3D from the texture in your own Minecraft (Octo ships no Mojang assets). Below that: the latest Octo releases, popular mods you can install in one click, your worlds, your mods, and Octo's status. |
 | **Mods** | The mod manager. Click any mod for its page: screenshots, downloads, followers, the full description and links. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
 | **Worlds** | Every world with its backups. **Back up now**, **Restore** any backup (the world as it is now is backed up first), and see what the world guard is protecting. **Accept removal** drops content from a mod you took out on purpose. |
-| **Versions** | Every version Mojang lists. **Install Octo** for any of them, even one not downloaded yet: the Minecraft Launcher downloads it the first time you play. |
-| **Settings** | Your Minecraft folder, where the Minecraft Launcher is, automatic updates, backups before each launch, and how many automatic backups to keep. |
+| **Versions** | Every version Mojang lists. **Download** any of them, with Octo, or delete one you no longer play (your worlds and mods stay). |
+| **Settings** | Your account; memory for the game, its Java and Java options; **Repair** (checks every file against Mojang's checksums) and **Delete files**; your Minecraft folder; automatic updates; backups before each launch, and how many to keep. |
 
-**Signing in, downloading the game and starting it stay with the official Minecraft Launcher**, using your Microsoft account. Octo never sees your sign-in. Run the Minecraft Launcher once and sign in before your first launch.
+**Signing in.** Press **Sign in** in the title bar. Octo shows a code: enter it on Microsoft's own page ([microsoft.com/link](https://www.microsoft.com/link)) and sign in there, so your password only ever goes to Microsoft. Octo then signs in to Xbox Live and Minecraft the way Minecraft itself does, and checks the account owns Minecraft: Java Edition (Xbox Game Pass counts). The sign-in is kept in `~/.octo-launcher/accounts.json`, readable by your user alone, and renewed by itself, so you sign in once. Sign in more than one account and switch between them in the title bar; **Sign out** removes an account and its sign-in from your computer.
+
+**Playing.** Octo downloads Minecraft from Mojang the way the official launcher does, into the same Minecraft folder: the game, its libraries, its sounds and textures, and the Java that Mojang builds for that version. Every file is checked against Mojang's SHA-1, and nothing already there is downloaded twice. Minecraft 1.12.2 and older start without mods, on their own Java 8, because Octo Loader needs 1.13 or newer. Prefer the official launcher? Turn on **Play through the Minecraft Launcher** in Settings, and Launch opens it with Octo selected instead.
+
+**Deleting files.** **Settings → Delete files** lists what is in your Minecraft folder by kind, with its size: the downloaded game (it downloads again when you next play), mods and their settings, packs, screenshots and logs, worlds, and world backups. Pick what goes. Worlds and backups can't be downloaded again, so deleting them asks you to type DELETE first. Only those folders are touched, never the Minecraft folder itself, and Octo refuses to delete anything in a folder that isn't a Minecraft folder.
+
+<details>
+<summary><b>Microsoft sign-in in your own build</b></summary>
+
+Signing in needs a Microsoft (Azure) app registration that Mojang has approved for Minecraft: register an app for personal Microsoft accounts with public client flows allowed, then [ask Mojang for Minecraft API access](https://aka.ms/mce-reviewappid). Give the build its client ID, which is not a secret, as the repository variable `OCTO_MSA_CLIENT_ID` (or `-PmsaClientId=...` locally). A player can also set one in Settings. A build without one plays through the official Minecraft Launcher.
+
+</details>
 
 **Updates.** When it opens, Octo Launcher checks the latest release. A newer loader is downloaded and installed into every Octo installation. A newer launcher shows **Update** in the title bar, which downloads it and restarts into it, whether it was installed with the Windows installer or run as a jar. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
 
@@ -112,7 +129,9 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 <summary><b>From the terminal</b></summary>
 
 ```bash
-java -jar octo-launcher.jar play 26.3                      # install Octo for 26.3 and open the Minecraft Launcher
+java -jar octo-launcher.jar sign-in                        # sign in with a Microsoft account
+java -jar octo-launcher.jar play 26.3                      # download 26.3 if needed and start it with Octo
+java -jar octo-launcher.jar download 26.3 --repair         # check every file of 26.3 and fix what is damaged
 java -jar octo-launcher.jar versions                       # versions, and which have Octo
 java -jar octo-launcher.jar worlds                         # worlds, backups, and missing content
 java -jar octo-launcher.jar backup "My World"              # back a world up now

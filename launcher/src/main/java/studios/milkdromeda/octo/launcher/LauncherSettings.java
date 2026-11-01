@@ -34,9 +34,24 @@ public final class LauncherSettings {
     public int backupsToKeep = 10;
     /** List snapshots and pre-releases with the releases. */
     public boolean showSnapshots = false;
+    /** Play through the official Minecraft Launcher instead of starting the game from Octo. */
+    public boolean useOfficialLauncher = false;
+    /** The most memory the game may use, in megabytes. */
+    public int memoryMb = 4096;
+    /** A Java of the player's own to run the game with; empty means the one Mojang makes for each version. */
+    public String javaPath = "";
+    /** More options for Java, as typed. */
+    public String jvmArguments = "";
+    /** The Microsoft app registration to sign in with, when this build has none of its own. */
+    public String microsoftClientId = "";
 
     public Path gameDir() {
         return Path.of(gameDirectory);
+    }
+
+    /** Where Octo keeps the Java it downloads for Minecraft. */
+    public static Path runtimes() {
+        return home().resolve("runtime");
     }
 
     public static Path home() {

@@ -106,7 +106,41 @@ public final class Versions {
         return out;
     }
 
+    private static volatile JsonObject recent;
+    private static volatile long recentAt;
+
+    /** A version's entry in Mojang's list (its JSON's address and SHA-1), or {@code null}. */
+    public static JsonObject entry(String id) {
+        JsonObject manifest = recent;
+
+        if (manifest == null || System.currentTimeMillis() - recentAt > 5 * 60_000) {
+            manifest = manifest();
+        }
+
+        if (manifest != null && manifest.get("versions") instanceof com.google.gson.JsonArray list) {
+            for (JsonElement element : list) {
+                if (element instanceof JsonObject version && version.get("id") != null
+                        && version.get("id").getAsString().equals(id)) {
+                    return version;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static JsonObject manifest() {
+        JsonObject read = readManifest();
+
+        if (read != null) {
+            recent = read;
+            recentAt = System.currentTimeMillis();
+        }
+
+        return read;
+    }
+
+    private static JsonObject readManifest() {
         Path cache = LauncherSettings.home().resolve("version_manifest_v2.json");
 
         try {

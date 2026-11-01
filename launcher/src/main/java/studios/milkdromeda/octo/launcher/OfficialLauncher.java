@@ -15,13 +15,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 /**
- * The official Minecraft Launcher, which does what only it should: signs the
- * player in with their Microsoft account, downloads the game, its libraries,
- * assets and Java, and starts it.
+ * The official Minecraft Launcher, for players who would rather play through
+ * it (or a build of Octo with no Microsoft sign-in of its own): it signs them
+ * in, downloads the game and starts it.
  *
  * <p>Octo Launcher prepares everything around that — the Octo installation,
  * the loader, the world backups — selects the installation, and hands over.
- * The player's sign-in never passes through Octo.
  */
 public final class OfficialLauncher {
     /** The Microsoft Store and Xbox app's Minecraft Launcher, by its application id. */

@@ -18,12 +18,16 @@ import studios.milkdromeda.octo.installer.Installer;
 import studios.milkdromeda.octo.launcher.Launcher;
 import studios.milkdromeda.octo.launcher.LauncherSettings;
 import studios.milkdromeda.octo.launcher.OfficialLauncher;
+import studios.milkdromeda.octo.launcher.Play;
+import studios.milkdromeda.octo.launcher.auth.Account;
 
 /** Settings: folders, updates, backups, and what this build is. */
 final class SettingsPage implements App.Page {
     private final App app;
     private final JPanel view = Widgets.clear(new BorderLayout(0, 18));
     private final JLabel keepValue = Widgets.text(" ", 14f, Font.BOLD, Style.TEXT);
+    private final JLabel memoryValue = Widgets.text(" ", 14f, Font.BOLD, Style.TEXT);
+    private final JPanel accountRow = Widgets.clear(new BorderLayout(16, 0));
 
     SettingsPage(App app) {
         this.app = app;
@@ -38,6 +42,33 @@ final class SettingsPage implements App.Page {
         JPanel column = Widgets.stack(18);
         column.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
 
+        column.add(group("Account", accountRow,
+                switchRow("Play through the Minecraft Launcher instead", "Octo selects itself there, and the "
+                        + "Minecraft Launcher signs you in and starts the game.", settings.useOfficialLauncher,
+                        value -> {
+                            settings.useOfficialLauncher = value;
+                            app.save();
+                            app.changed();
+                        }),
+                textRow("Microsoft app ID", clientIdHint(), settings.microsoftClientId,
+                        buildHasClientId() ? "Set by this build" : "Not set",
+                        value -> {
+                            settings.microsoftClientId = value;
+                            app.save();
+                            app.changed();
+                        })));
+        column.add(group("Game", memoryRow(),
+                folderRow("Java", "Empty: the Java Mojang makes for each version, downloaded by itself. Or "
+                        + "choose a java program of your own.", settings.javaPath, false, value -> {
+                            settings.javaPath = value;
+                            app.save();
+                        }),
+                textRow("Java options", "Added when the game starts, as typed: for example -XX:+UseZGC.",
+                        settings.jvmArguments, "None", value -> {
+                            settings.jvmArguments = value;
+                            app.save();
+                        })));
+        column.add(group("Game files", repairRow(), deleteRow()));
         column.add(group("Minecraft", folderRow("Minecraft folder", "Where saves, mods and versions live.",
                 settings.gameDirectory, true, value -> {
                     settings.gameDirectory = value;
@@ -80,6 +111,138 @@ final class SettingsPage implements App.Page {
     @Override
     public void refresh() {
         keepValue.setText(Integer.toString(app.settings().backupsToKeep));
+        memoryValue.setText(memory(app.settings().memoryMb));
+        showAccount();
+    }
+
+    private void showAccount() {
+        accountRow.removeAll();
+        Account active = app.accounts().active();
+
+        if (active == null) {
+            accountRow.add(labels("Not signed in", "Sign in with the Microsoft account that has Minecraft: Java "
+                    + "Edition. Octo keeps the sign-in on this computer, for your user only."), BorderLayout.CENTER);
+            Widgets.Button signIn = Widgets.button("Sign in with Microsoft", Icons.Glyph.USER, Widgets.Kind.PRIMARY);
+            signIn.addActionListener(event -> SignInSheet.show(app, account -> { }));
+            JPanel holder = Widgets.clear(new BorderLayout());
+            holder.add(signIn, BorderLayout.NORTH);
+            accountRow.add(holder, BorderLayout.EAST);
+        } else {
+            JLabel face = new JLabel();
+            Heads.load(active, 44, 10, image -> face.setIcon(new javax.swing.ImageIcon(image)));
+            JPanel faceHolder = Widgets.clear(new BorderLayout());
+            faceHolder.add(face, BorderLayout.NORTH);
+            accountRow.add(faceHolder, BorderLayout.WEST);
+            int others = app.accounts().all().size() - 1;
+            accountRow.add(labels(active.name(), "Signed in with Microsoft. Minecraft: Java Edition"
+                    + (others > 0 ? ". " + others + (others == 1 ? " other account" : " other accounts")
+                            + " signed in too: switch in the title bar." : ".")), BorderLayout.CENTER);
+            Widgets.Button out = Widgets.button("Sign out", Icons.Glyph.SIGN_OUT, Widgets.Kind.SECONDARY);
+            out.addActionListener(event -> app.signOut(active));
+            JPanel holder = Widgets.clear(new BorderLayout());
+            holder.add(out, BorderLayout.NORTH);
+            accountRow.add(holder, BorderLayout.EAST);
+        }
+
+        accountRow.revalidate();
+        accountRow.repaint();
+    }
+
+    private static boolean buildHasClientId() {
+        String own = Launcher.manifestValue("Octo-Msa-Client-Id");
+        return own != null && !own.isBlank();
+    }
+
+    private String clientIdHint() {
+        return buildHasClientId()
+                ? "This build signs in with its own. Set one here only to use a different Azure app."
+                : "The Azure app (client) ID Octo signs in with, approved by Mojang for Minecraft. This build has "
+                        + "none of its own.";
+    }
+
+    private JComponent textRow(String title, String hint, String value, String placeholder,
+            Consumer<String> onChange) {
+        JPanel row = Widgets.stack(10);
+        row.add(labels(title, hint));
+        Widgets.Field field = new Widgets.Field(placeholder, null);
+        field.setText(value);
+        field.addActionListener(event -> onChange.accept(field.getText().strip()));
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                onChange.accept(field.getText().strip());
+            }
+        });
+        row.add(field);
+        return row;
+    }
+
+    private JComponent memoryRow() {
+        JPanel row = Widgets.clear(new BorderLayout(16, 0));
+        row.add(labels("Memory for Minecraft", "The most the game may use. 4 GB suits most mod packs; big ones "
+                + "like more."), BorderLayout.CENTER);
+        JPanel stepper = Widgets.row(6);
+        stepper.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+        Widgets.Button less = Widgets.iconButton(Icons.Glyph.MINIMIZE, "Less", Widgets.Kind.SECONDARY);
+        Widgets.Button more = Widgets.iconButton(Icons.Glyph.PLUS, "More", Widgets.Kind.SECONDARY);
+        less.addActionListener(event -> changeMemory(-512));
+        more.addActionListener(event -> changeMemory(512));
+        stepper.add(less);
+        memoryValue.setPreferredSize(new Dimension(60, 30));
+        memoryValue.setHorizontalAlignment(JLabel.CENTER);
+        stepper.add(memoryValue);
+        stepper.add(more);
+        row.add(stepper, BorderLayout.EAST);
+        return row;
+    }
+
+    private void changeMemory(int change) {
+        LauncherSettings settings = app.settings();
+        settings.memoryMb = Math.max(1024, Math.min(32768, settings.memoryMb + change));
+        memoryValue.setText(memory(settings.memoryMb));
+        app.save();
+    }
+
+    static String memory(int megabytes) {
+        return megabytes % 1024 == 0 ? megabytes / 1024 + " GB"
+                : String.format(java.util.Locale.ROOT, "%.1f GB", megabytes / 1024.0);
+    }
+
+    private JComponent repairRow() {
+        JPanel repair = Widgets.clear(new BorderLayout(16, 0));
+        repair.add(labels("Repair Minecraft", "Checks every file of the version you play against Mojang's "
+                + "checksums and downloads again any that are damaged or missing."), BorderLayout.CENTER);
+        Widgets.Button repairButton = Widgets.button("Repair", Icons.Glyph.REFRESH, Widgets.Kind.SECONDARY);
+        repairButton.addActionListener(event -> {
+            repairButton.setEnabled(false);
+            repairButton.setText("Checking...");
+            app.run(() -> Play.download(app.settings(), app.settings().selectedVersion, true,
+                    studios.milkdromeda.octo.launcher.game.GameFiles.Progress.NONE), id -> {
+                        repairButton.setEnabled(true);
+                        repairButton.setText("Repair");
+                        app.toast("Every file is as Mojang made it. Ready to play.", Style.GREEN);
+                        app.changed();
+                    }, failure -> {
+                        repairButton.setEnabled(true);
+                        repairButton.setText("Repair");
+                    });
+        });
+        JPanel repairHolder = Widgets.clear(new BorderLayout());
+        repairHolder.add(repairButton, BorderLayout.NORTH);
+        repair.add(repairHolder, BorderLayout.EAST);
+        return repair;
+    }
+
+    private JComponent deleteRow() {
+        JPanel delete = Widgets.clear(new BorderLayout(16, 0));
+        delete.add(labels("Delete Minecraft files", "Free up space: the downloaded game, mods, packs, and if you "
+                + "choose, worlds and their backups."), BorderLayout.CENTER);
+        Widgets.Button deleteButton = Widgets.button("Delete files...", Icons.Glyph.TRASH, Widgets.Kind.DANGER);
+        deleteButton.addActionListener(event -> DeleteSheet.show(app));
+        JPanel deleteHolder = Widgets.clear(new BorderLayout());
+        deleteHolder.add(deleteButton, BorderLayout.NORTH);
+        delete.add(deleteHolder, BorderLayout.EAST);
+        return delete;
     }
 
     private JComponent group(String title, JComponent... rows) {
@@ -205,7 +368,8 @@ final class SettingsPage implements App.Page {
     private JComponent about() {
         JPanel row = Widgets.clear(new BorderLayout(16, 0));
         row.add(labels("Octo Launcher " + Installer.VERSION, "Build " + Launcher.build()
-                + ". Sign-in, downloads and the game itself are handled by the official Minecraft Launcher."),
+                + ". Sign-in goes through Microsoft's own page; the game, its libraries and its Java come from "
+                + "Mojang, each file checked against Mojang's checksums."),
                 BorderLayout.CENTER);
         Widgets.Button data = Widgets.button("Data folder", Icons.Glyph.FOLDER, Widgets.Kind.SECONDARY);
         data.addActionListener(event -> ModsPage.open(LauncherSettings.home()));

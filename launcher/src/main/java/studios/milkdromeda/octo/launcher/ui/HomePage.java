@@ -39,6 +39,7 @@ import studios.milkdromeda.octo.launcher.Play;
 import studios.milkdromeda.octo.launcher.Updates;
 import studios.milkdromeda.octo.launcher.Versions;
 import studios.milkdromeda.octo.launcher.Worlds;
+import studios.milkdromeda.octo.launcher.game.GameFiles;
 import studios.milkdromeda.octo.launcher.mods.ModLibrary;
 import studios.milkdromeda.octo.launcher.mods.Modrinth;
 
@@ -58,6 +59,10 @@ final class HomePage implements App.Page {
     private final JPanel worlds = Widgets.stack(4);
     private final JPanel modsBody = Widgets.stack(10);
     private final JPanel octoBody = Widgets.stack(8);
+    private final Text launchHint = Widgets.line(" ", Style.font(Font.PLAIN, 12.5f), Style.MUTED);
+    private final ProgressBar progressBar = new ProgressBar();
+    private Play.Running running;
+    private boolean preparing;
     private List<Versions.Version> versions = List.of();
     private Hero heroArt;
     private boolean mobLoaded;
@@ -133,6 +138,7 @@ final class HomePage implements App.Page {
                     }
 
                     showVersion();
+                    showLaunchHint();
                     loadMob();
                     showWorlds(worldList);
                     showMods(mods);
@@ -167,8 +173,12 @@ final class HomePage implements App.Page {
         actions.add(versionButton);
         text.add(actions);
         text.add(gap(12));
-        text.add(Widgets.line("Opens the Minecraft Launcher with Octo selected. Sign in and play there.",
-                Style.font(Font.PLAIN, 12.5f), Style.MUTED));
+        text.add(launchHint);
+        progressBar.setVisible(false);
+        JPanel barHolder = Widgets.clear(new BorderLayout());
+        barHolder.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        barHolder.add(progressBar, BorderLayout.WEST);
+        text.add(barHolder);
         hero.add(text, BorderLayout.CENTER);
         return hero;
     }
@@ -333,7 +343,105 @@ final class HomePage implements App.Page {
         menu.show(versionButton, 0, versionButton.getHeight() + 6);
     }
 
+    /** The line under Launch: who plays, and how the game starts. */
+    private void showLaunchHint() {
+        if (preparing || running != null && running.process().isAlive()) {
+            return;
+        }
+
+        if (!Play.launchesItself(app.settings())) {
+            launchHint.setText("Opens the Minecraft Launcher with Octo selected. Sign in and play there.");
+        } else if (app.accounts().active() == null) {
+            launchHint.setText("Sign in with Microsoft to play. Octo downloads Minecraft and starts it for you.");
+        } else {
+            launchHint.setText("Playing as " + app.accounts().active().name() + ". Minecraft starts with Octo and "
+                    + "your mods.");
+        }
+    }
+
     private void launch() {
+        if (preparing || running != null && running.process().isAlive()) {
+            return;
+        }
+
+        if (!Play.launchesItself(app.settings())) {
+            openOfficialLauncher();
+            return;
+        }
+
+        if (app.accounts().active() == null) {
+            SignInSheet.show(app, account -> launch());
+            return;
+        }
+
+        preparing = true;
+        launch.setEnabled(false);
+        launch.setText("Getting ready...");
+        progressBar.setVisible(true);
+        progressBar.set(-1);
+        launchHint.setText("Checking your sign-in...");
+        GameFiles.Progress progress = (stage, done, total) -> javax.swing.SwingUtilities.invokeLater(() -> {
+            if (!preparing) {
+                return;
+            }
+
+            launchHint.setText(stage + (total > 0 ? "   " + DeleteSheet.bytes(done) + " of "
+                    + DeleteSheet.bytes(total) : ""));
+            progressBar.set(total > 0 ? done / (double) total : -1);
+            launch.setText(total > 0 ? Math.round(done * 100.0 / total) + "%" : "Getting ready...");
+        });
+        app.run(() -> Play.launch(app.settings(), app.accounts(), app.settings().selectedVersion, progress),
+                started -> {
+                    preparing = false;
+                    running = started;
+                    progressBar.setVisible(false);
+                    launch.setText("Playing");
+                    launchHint.setText(started.withOcto() ? "Minecraft " + started.version() + " is running. Have fun."
+                            : "Minecraft " + started.version() + " is running, without mods: Octo needs 1.13 or "
+                                    + "newer.");
+                    watch(started);
+                }, failure -> {
+                    preparing = false;
+                    progressBar.setVisible(false);
+                    launch.setEnabled(true);
+                    launch.setText("Launch game");
+                    showLaunchHint();
+                });
+    }
+
+    /** Waits for the game to close, then gets Launch ready again and says if it crashed. */
+    private void watch(Play.Running game) {
+        long started = System.currentTimeMillis();
+        Thread waiter = new Thread(() -> {
+            int code;
+
+            try {
+                code = game.process().waitFor();
+            } catch (InterruptedException e) {
+                return;
+            }
+
+            int exit = code;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                running = null;
+                launch.setEnabled(true);
+                launch.setText("Launch game");
+                showLaunchHint();
+
+                if (exit != 0) {
+                    app.toast("Minecraft closed with an error (code " + exit + ")"
+                            + (System.currentTimeMillis() - started < 60_000 ? " while starting" : "")
+                            + ". Its output is in " + SettingsPage.tidy(game.log()) + ".", Style.RED);
+                }
+
+                app.changed();
+            });
+        }, "octo-game-watch");
+        waiter.setDaemon(true);
+        waiter.start();
+    }
+
+    private void openOfficialLauncher() {
         launch.setEnabled(false);
         launch.setText("Getting ready...");
         app.run(() -> Play.prepareAndOpen(app.settings(), app.settings().selectedVersion, message -> { }), result -> {
@@ -347,6 +455,79 @@ final class HomePage implements App.Page {
         });
         reset.setRepeats(false);
         reset.start();
+    }
+
+    /** A thin bar: how far, or a sweep while it is not known. */
+    static final class ProgressBar extends JComponent {
+        private double value = -1;
+        private float sweep;
+        private final javax.swing.Timer timer = new javax.swing.Timer(16, event -> {
+            sweep = (sweep + 0.012f) % 1f;
+            repaint();
+        });
+
+        ProgressBar() {
+            setPreferredSize(new Dimension(360, 6));
+        }
+
+        void set(double fraction) {
+            value = fraction;
+
+            if (fraction < 0 && isShowing()) {
+                timer.start();
+            } else {
+                timer.stop();
+            }
+
+            repaint();
+        }
+
+        @Override
+        public void addNotify() {
+            super.addNotify();
+
+            if (value < 0) {
+                timer.start();
+            }
+        }
+
+        @Override
+        public void removeNotify() {
+            timer.stop();
+            super.removeNotify();
+        }
+
+        @Override
+        public void setVisible(boolean visible) {
+            super.setVisible(visible);
+
+            if (!visible) {
+                timer.stop();
+            } else if (value < 0) {
+                timer.start();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g = Style.smooth(graphics);
+            int w = getWidth();
+            int h = getHeight();
+            g.setColor(Style.alpha(Color.WHITE, 26));
+            g.fillRoundRect(0, 0, w, h, h, h);
+            g.setPaint(Style.accent(0, w));
+
+            if (value < 0) {
+                int part = w / 3;
+                int x = (int) (sweep * (w + part)) - part;
+                g.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, h, h));
+                g.fillRoundRect(x, 0, part, h, h, h);
+            } else {
+                g.fillRoundRect(0, 0, (int) Math.max(h, w * Math.min(1, value)), h, h, h);
+            }
+
+            g.dispose();
+        }
     }
 
     // ------------------------------------------------------------- news

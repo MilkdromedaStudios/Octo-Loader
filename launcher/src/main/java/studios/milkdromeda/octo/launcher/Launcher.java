@@ -16,9 +16,10 @@ import studios.milkdromeda.octo.installer.Installer;
  * Octo Launcher, {@code octo-launcher.jar}: the app around Minecraft.
  *
  * <p>It keeps Octo installed for the versions the player picks, backs worlds
- * up and puts them back, keeps itself and the loader current, and opens the
- * official Minecraft Launcher on the Octo installation — which signs the
- * player in, downloads the game and starts it.
+ * up and puts them back, keeps itself and the loader current, signs the
+ * player in with Microsoft, downloads the game and its Java from Mojang and
+ * starts it — or opens the official Minecraft Launcher on the Octo
+ * installation, for those who prefer it.
  *
  * <p>Double-clicked it opens a window; with arguments it works from the
  * command line ({@code help} lists them).
@@ -55,7 +56,45 @@ public final class Launcher {
             switch (command) {
                 case "play" -> {
                     String version = arguments.isEmpty() ? null : arguments.get(0);
-                    System.out.println(Play.prepareAndOpen(settings, version, log));
+
+                    if (Play.launchesItself(settings)) {
+                        Play.Running running = Play.launch(settings, Play.accounts(), version, terminalProgress());
+                        System.out.println("\nStarted Minecraft " + running.version()
+                                + (running.withOcto() ? "" : " without Octo (it needs 1.13 or newer)")
+                                + "; its output is in " + running.log());
+                    } else {
+                        System.out.println(Play.prepareAndOpen(settings, version, log));
+                    }
+                }
+                case "download" -> {
+                    boolean repair = arguments.remove("--repair");
+                    String version = arguments.isEmpty() ? null : arguments.get(0);
+                    String id = Play.download(settings, version, repair, terminalProgress());
+                    System.out.println("\nReady to play: " + id);
+                }
+                case "sign-in" -> {
+                    String clientId = Play.clientId(settings);
+
+                    if (clientId == null) {
+                        throw new IOException("this build has no Microsoft sign-in; set OCTO_MSA_CLIENT_ID");
+                    }
+
+                    studios.milkdromeda.octo.launcher.auth.MicrosoftAuth auth =
+                            new studios.milkdromeda.octo.launcher.auth.MicrosoftAuth(clientId);
+                    studios.milkdromeda.octo.launcher.auth.MicrosoftAuth.DeviceCode code = auth.start();
+                    System.out.println("Open " + code.verificationUri() + " and enter the code " + code.userCode());
+                    studios.milkdromeda.octo.launcher.auth.Account account = auth.finish(code, () -> false);
+                    Play.accounts().put(account);
+                    System.out.println("Signed in as " + account.name());
+                }
+                case "sign-out" -> {
+                    studios.milkdromeda.octo.launcher.auth.Accounts accounts = Play.accounts();
+                    studios.milkdromeda.octo.launcher.auth.Account account = accounts.active();
+
+                    if (account != null) {
+                        accounts.remove(account.id());
+                        System.out.println("Signed out " + account.name());
+                    }
                 }
                 case "worlds" -> Worlds.list(settings.gameDir()).forEach(world -> System.out.println(
                         world.name() + "  (" + world.backups() + " backups"
@@ -92,7 +131,10 @@ public final class Launcher {
                     System.out.println("""
                             Octo Launcher %s (%s)
 
-                              play [version]            install Octo for the version and open the Minecraft Launcher
+                              play [version]            start Minecraft with Octo (or open the Minecraft Launcher on it)
+                              download [version]        download Minecraft and its Java (--repair checks every file)
+                              sign-in                   sign in with a Microsoft account
+                              sign-out                  sign the active account out
                               versions                  the Minecraft versions, and which have Octo
                               worlds                    the worlds, their backups, and any missing content
                               backup <world>            back a world up now
@@ -111,6 +153,24 @@ public final class Launcher {
         }
     }
 
+    /** Progress on one line of the terminal. */
+    private static studios.milkdromeda.octo.launcher.game.GameFiles.Progress terminalProgress() {
+        String[] last = { "" };
+        long[] shown = { 0 };
+        return (stage, done, total) -> {
+            long now = System.currentTimeMillis();
+
+            if (!stage.equals(last[0])) {
+                System.out.print((last[0].isEmpty() ? "" : "\n") + stage);
+                last[0] = stage;
+            } else if (total > 0 && (now - shown[0] > 1000 || done == total)) {
+                System.out.print("\r" + stage + "  " + done * 100 / total + "%  (" + done / 1048576 + " of "
+                        + total / 1048576 + " MB)");
+                shown[0] = now;
+            }
+        };
+    }
+
     private static Path world(LauncherSettings settings, List<String> arguments) throws IOException {
         if (arguments.isEmpty()) {
             throw new IOException("name the world (its folder name in saves, or a path)");
@@ -126,24 +186,25 @@ public final class Launcher {
         String known = build;
 
         if (known == null) {
-            known = "dev";
-
-            try (InputStream in = Launcher.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
-                if (in != null) {
-                    String value = new Manifest(in).getMainAttributes().getValue("Octo-Build");
-
-                    if (value != null && !value.isBlank()) {
-                        known = value;
-                    }
-                }
-            } catch (IOException e) {
-                // A dev build, then.
-            }
-
+            String value = manifest("Octo-Build");
+            known = value != null && !value.isBlank() ? value : "dev";
             build = known;
         }
 
         return known;
+    }
+
+    /** A value from this jar's manifest, or {@code null}. */
+    public static String manifestValue(String name) {
+        return manifest(name);
+    }
+
+    static String manifest(String name) {
+        try (InputStream in = Launcher.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
+            return in == null ? null : new Manifest(in).getMainAttributes().getValue(name);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     static String userAgent() {

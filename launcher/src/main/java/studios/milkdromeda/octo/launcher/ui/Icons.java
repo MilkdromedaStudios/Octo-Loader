@@ -20,7 +20,7 @@ import javax.swing.Icon;
 public final class Icons {
     public enum Glyph {
         HOME, MODS, WORLDS, VERSIONS, SETTINGS, SEARCH, DOWNLOAD, CHECK, TRASH, CLOSE, MINIMIZE, MAXIMIZE, REFRESH,
-        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON, CHEVRON_RIGHT
+        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON, CHEVRON_RIGHT, USER, SIGN_OUT, COPY
     }
 
     private Icons() {
@@ -163,6 +163,37 @@ public final class Icons {
                 head.lineTo(18.2, 8.2);
                 head.lineTo(13.6, 7.6);
                 g.draw(head);
+            }
+            case USER -> {
+                g.draw(new Ellipse2D.Double(8, 3.5, 8, 8));
+                g.draw(new Arc2D.Double(4, 13.5, 16, 14, 0, 180, Arc2D.OPEN));
+            }
+            case SIGN_OUT -> {
+                Path2D door = new Path2D.Double();
+                door.moveTo(10, 4);
+                door.lineTo(5, 4);
+                door.lineTo(5, 20);
+                door.lineTo(10, 20);
+                g.draw(door);
+                g.draw(new Line2D.Double(10, 12, 20, 12));
+                Path2D head = new Path2D.Double();
+                head.moveTo(16.5, 8.5);
+                head.lineTo(20, 12);
+                head.lineTo(16.5, 15.5);
+                g.draw(head);
+            }
+            case COPY -> {
+                g.draw(new RoundRectangle2D.Double(8.5, 8.5, 11.5, 11.5, 3, 3));
+                Path2D back = new Path2D.Double();
+                back.moveTo(15.5, 5.5);
+                back.lineTo(15.5, 5);
+                back.quadTo(15.5, 4, 14.5, 4);
+                back.lineTo(5, 4);
+                back.quadTo(4, 4, 4, 5);
+                back.lineTo(4, 14.5);
+                back.quadTo(4, 15.5, 5, 15.5);
+                back.lineTo(5.5, 15.5);
+                g.draw(back);
             }
             case FOLDER -> {
                 Path2D folder = new Path2D.Double();
