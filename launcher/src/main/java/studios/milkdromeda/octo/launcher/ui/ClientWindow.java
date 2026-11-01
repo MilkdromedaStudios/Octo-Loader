@@ -130,6 +130,7 @@ public final class ClientWindow implements App {
         add("Home", new HomePage(this));
         add("Mods", new ModsPage(this));
         add("Worlds", new WorldsPage(this));
+        add("Skins", new SkinsPage(this));
         add("Versions", new VersionsPage(this));
         add("Settings", new SettingsPage(this));
 
@@ -417,7 +418,7 @@ public final class ClientWindow implements App {
         column.setBorder(BorderFactory.createEmptyBorder(14, 0, 14, 0));
 
         Object[][] items = { { "Home", Icons.Glyph.HOME }, { "Mods", Icons.Glyph.MODS },
-                { "Worlds", Icons.Glyph.WORLDS }, { "Versions", Icons.Glyph.VERSIONS } };
+                { "Worlds", Icons.Glyph.WORLDS }, { "Skins", Icons.Glyph.SKIN }, { "Versions", Icons.Glyph.VERSIONS } };
 
         for (Object[] item : items) {
             RailButton button = new RailButton((String) item[0], (Icons.Glyph) item[1]);

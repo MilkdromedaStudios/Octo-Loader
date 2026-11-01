@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "octo-client",
+  "version": "${version}",
+  "name": "Octo Client",
+  "description": "The client Octo Launcher plays with: a modern look, its own settings menu (Right Shift), zoom, HUD loadouts, a minimap, your own music, and frame-rate savers.",
+  "authors": ["Milkdromeda Studios"],
+  "contact": {
+    "homepage": "https://github.com/MilkdromedaStudios/Octo-Loader",
+    "sources": "https://github.com/MilkdromedaStudios/Octo-Loader"
+  },
+  "license": "Apache-2.0",
+  "icon": "assets/octo-client/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["studios.milkdromeda.octo.client.OctoClient"]
+  },
+  "mixins": ["octo-client.mixins.json"],
+  "depends": {
+    "minecraft": "~${minecraft}"
+  }
+}

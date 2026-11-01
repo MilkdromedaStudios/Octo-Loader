@@ -20,7 +20,7 @@ import javax.swing.Icon;
 public final class Icons {
     public enum Glyph {
         HOME, MODS, WORLDS, VERSIONS, SETTINGS, SEARCH, DOWNLOAD, CHECK, TRASH, CLOSE, MINIMIZE, MAXIMIZE, REFRESH,
-        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON, CHEVRON_RIGHT, USER, SIGN_OUT, COPY
+        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON, CHEVRON_RIGHT, USER, SIGN_OUT, COPY, SKIN
     }
 
     private Icons() {
@@ -163,6 +163,23 @@ public final class Icons {
                 head.lineTo(18.2, 8.2);
                 head.lineTo(13.6, 7.6);
                 g.draw(head);
+            }
+            case SKIN -> {
+                // A t-shirt.
+                Path2D shirt = new Path2D.Double();
+                shirt.moveTo(9, 4);
+                shirt.lineTo(4, 6.5);
+                shirt.lineTo(2.8, 11);
+                shirt.lineTo(6, 12);
+                shirt.lineTo(6, 20.5);
+                shirt.lineTo(18, 20.5);
+                shirt.lineTo(18, 12);
+                shirt.lineTo(21.2, 11);
+                shirt.lineTo(20, 6.5);
+                shirt.lineTo(15, 4);
+                shirt.quadTo(12, 7, 9, 4);
+                shirt.closePath();
+                g.draw(shirt);
             }
             case USER -> {
                 g.draw(new Ellipse2D.Double(8, 3.5, 8, 8));

@@ -39,7 +39,7 @@
   <img src="docs/screenshots/octo-launcher-home.png" alt="Octo Launcher's home page: a Launch game banner with a creeper drawn from your own Minecraft, the latest Octo releases, popular mods to install in one click, your worlds and Octo's status" width="100%">
 </p>
 
-**The easiest way to play with Octo.** Sign in with your Microsoft account, and Octo Launcher downloads Minecraft and starts it, with your mods. Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
+**The easiest way to play with Octo.** Sign in with your Microsoft account, and Octo Launcher downloads Minecraft and starts it, with your mods and [Octo Client](#octo-client). Change your skin and cape in a click. Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
 
 | Windows | Any system with Java 17+ |
 |---|---|
@@ -57,7 +57,34 @@
   <img src="docs/screenshots/octo-launcher-files.png" alt="Delete Minecraft files: game files, mods, packs, worlds and backups, each with its size" width="32.5%">
 </p>
 
-<p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
+<p align="center">
+  <img src="docs/screenshots/octo-launcher-skins.png" alt="Skins: Alex in 3D from behind wearing the Migrator cape, the skin library, and the account's capes: Pan, Migrator and Cherry Blossom" width="65%">
+</p>
+
+<p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files · skins and capes. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
+
+## Octo Client
+
+**Octo Launcher plays with its own client mod.** Octo Client changes how Minecraft looks and adds what players expect from a client, all set in one menu: press **Right Shift**, or **Octo Client** on the title or pause screen.
+
+<p align="center">
+  <img src="docs/screenshots/octo-client-title.png" alt="The title screen with Octo Client: dark rounded buttons, the OCTO CLIENT badge and an Octo Client button" width="49%">
+  <img src="docs/screenshots/octo-client-menu.png" alt="The Octo Client menu: categories on the left, switches and choices on the right, in Octo Launcher's colours" width="49%">
+  <img src="docs/screenshots/octo-client-hud.png" alt="In game: the Essentials HUD loadout at the top left and the minimap with coordinates at the top right" width="49%">
+  <img src="docs/screenshots/octo-client-zoom.png" alt="Holding C zooms four times closer" width="49%">
+</p>
+
+| | |
+|---|---|
+| **A modern look** | Every button and slider in the game is redrawn in Octo's style: dark, rounded, lit with your accent colour when you point at it. It's drawn with the game's own flat fills, so it costs no more than the textures it replaces. Five accent colours, and softer button clicks. |
+| **The Octo menu** | A settings screen, not a hack-client board of panels: categories down the side, a switch, choice or slider for each setting, saved as you change it. |
+| **Zoom** | Hold **C** to zoom (2× to 12×), eased in and out. While zooming, the mouse wheel goes further in or out. |
+| **HUD loadouts** | Pick a loadout: *Minimal*, *Essentials*, *PvP* (CPS, ping, armour, keystrokes), *Builder*, *Explorer*, or *Custom* with your own modules (FPS, coordinates, direction, biome, clock, speed, ping, CPS, memory, armour, keystrokes). |
+| **Minimap** | North-up, coloured like Minecraft's maps and shaded by height, three sizes and three ranges. It works in the Nether too. It redraws a few rows each tick, so it never costs a frame. |
+| **Your music** | Put `.ogg` files in `.minecraft/octo/music` and turn on **Your music**: they play instead of Minecraft's music, in order or shuffled, with their name shown as each starts. It uses the game's own Ogg decoder and sound device. |
+| **Frame-rate savers** | A lower frame rate while another window is in front. An entity distance, so far-off mobs and items aren't drawn (players can stay visible). Fewer particles in busy scenes. |
+
+Octo Client is built for Minecraft **26.3**. Octo Launcher carries it and loads it when you play 26.3 with Octo, from its own folder, never your `mods` folder. Turn it off under **Settings → Octo Client**. Its settings are in `.minecraft/config/octo-client.json`.
 
 ## Why Octo?
 
@@ -106,6 +133,7 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 |---|---|
 | **Home** | Press **Launch game**. Octo downloads the version you picked if it isn't yet, installs or refreshes itself for it, backs up the world you played last, and starts Minecraft, signed in as you. A bar shows how the download is going; the button says **Playing** while the game runs, and if the game crashes, Octo says so and where its output is. The creeper in the banner is drawn in 3D from the texture in your own Minecraft (Octo ships no Mojang assets). Below that: the latest Octo releases, popular mods you can install in one click, your worlds, your mods, and Octo's status. |
 | **Mods** | The mod manager. Click any mod for its page: screenshots, downloads, followers, the full description and links. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
+| **Skins** | You as other players see you, in 3D: drag to turn yourself round. Keep a library of skins (from a PNG, or from any player's name) and wear one in a click, with classic or slim arms. Your capes, Pan, Migrator, Cherry Blossom and whichever others your account has, are listed with their real art: pick one to wear, or none. Changes go to your Minecraft account through Minecraft's own profile service. |
 | **Worlds** | Every world with its backups. **Back up now**, **Restore** any backup (the world as it is now is backed up first), and see what the world guard is protecting. **Accept removal** drops content from a mod you took out on purpose. |
 | **Versions** | Every version Mojang lists. **Download** any of them, with Octo, or delete one you no longer play (your worlds and mods stay). |
 | **Settings** | Your account; memory for the game, its Java and Java options; **Repair** (checks every file against Mojang's checksums) and **Delete files**; your Minecraft folder; automatic updates; backups before each launch, and how many to keep. |
@@ -119,7 +147,7 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 <details>
 <summary><b>Microsoft sign-in in your own build</b></summary>
 
-Signing in needs a Microsoft (Azure) app registration that Mojang has approved for Minecraft: register an app for personal Microsoft accounts with public client flows allowed, then [ask Mojang for Minecraft API access](https://aka.ms/mce-reviewappid). Give the build its client ID, which is not a secret, as the repository variable `OCTO_MSA_CLIENT_ID` (or `-PmsaClientId=...` locally). A player can also set one in Settings. A build without one plays through the official Minecraft Launcher.
+Signing in needs a Microsoft (Azure) app registration that Mojang has approved for Minecraft: register an app for personal Microsoft accounts with public client flows allowed, then [ask Mojang for Minecraft API access](https://aka.ms/mce-reviewappid). Step by step, with where to click: **[docs/MICROSOFT-SIGN-IN.md](docs/MICROSOFT-SIGN-IN.md)**. Give the build its client ID, which is not a secret, as the repository variable `OCTO_MSA_CLIENT_ID` (or `-PmsaClientId=...` locally). A player can also set one in Settings. A build without one plays through the official Minecraft Launcher.
 
 </details>
 
