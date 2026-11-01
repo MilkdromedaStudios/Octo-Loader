@@ -89,6 +89,14 @@ public final class ClientWindow implements App {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setMinimumSize(new Dimension(1080, 680));
         frame.setSize(new Dimension(1260, 780));
+
+        // -Docto.launcher.size=1080x680: a size to open at, for checking layouts.
+        String size = System.getProperty("octo.launcher.size");
+
+        if (size != null && size.matches("\\d+x\\d+")) {
+            String[] parts = size.split("x");
+            frame.setSize(new Dimension(Integer.parseInt(parts[0]), Integer.parseInt(parts[1])));
+        }
         frame.setLocationRelativeTo(null);
 
         JPanel root = new JPanel(new BorderLayout()) {
@@ -133,6 +141,14 @@ public final class ClientWindow implements App {
         placeToasts();
         go(System.getProperty("octo.launcher.page", "Home"));
         changed();
+
+        // -Docto.launcher.mod=create: opens that mod's page, for checking it.
+        String mod = System.getProperty("octo.launcher.mod");
+
+        if (mod != null && !mod.isBlank()) {
+            run(() -> studios.milkdromeda.octo.launcher.mods.Modrinth.search(mod, null, null, "relevance", 0, 1),
+                    page -> page.projects().stream().findFirst().ifPresent(this::showMod));
+        }
 
         if (settings.checkForUpdates) {
             checkForUpdates();

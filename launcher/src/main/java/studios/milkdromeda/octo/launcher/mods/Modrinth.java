@@ -57,6 +57,11 @@ public final class Modrinth {
     public record Dependency(String projectId, String versionId, String type) {
     }
 
+    /** Everything about one mod, for its page in the launcher. */
+    public record Details(Project project, String body, List<String> gallery, long followers, String updated,
+            String sourceUrl, String issuesUrl, String discordUrl) {
+    }
+
     /** A page of search results. */
     public record Page(List<Project> projects, int total) {
     }
@@ -153,6 +158,74 @@ public final class Modrinth {
         }
 
         return new Page(projects, (int) number(root, "total_hits"));
+    }
+
+    public static Details details(String projectId) throws IOException, InterruptedException {
+        JsonObject project = get("/project/" + encode(projectId)).getAsJsonObject();
+        List<String> gallery = new ArrayList<>();
+
+        if (project.get("gallery") instanceof JsonArray images) {
+            // The featured image first, then the rest in their order.
+            List<JsonObject> sorted = new ArrayList<>();
+            images.forEach(image -> sorted.add(image.getAsJsonObject()));
+            sorted.sort(Comparator.comparing((JsonObject image) -> !(image.has("featured")
+                    && image.get("featured").getAsBoolean())));
+            sorted.forEach(image -> gallery.add(string(image, "url")));
+        }
+
+        Project summary = new Project(string(project, "id"), string(project, "slug"), string(project, "title"),
+                string(project, "description"), null, number(project, "downloads"), string(project, "icon_url"),
+                (int) number(project, "color"), strings(project.get("loaders")), strings(project.get("categories")),
+                strings(project.get("game_versions")));
+        return new Details(summary, string(project, "body"), gallery, number(project, "followers"),
+                string(project, "updated"), string(project, "source_url"), string(project, "issues_url"),
+                string(project, "discord_url"));
+    }
+
+    /** Markdown (and the HTML some descriptions use) as plain paragraphs, for reading in the app. */
+    public static String plain(String markdown) {
+        if (markdown == null) {
+            return "";
+        }
+
+        String text = markdown.replaceAll("(?s)<!--.*?-->", "")
+                .replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?s)<[^>]+>", "")
+                .replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "")
+                .replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1")
+                .replaceAll("(?m)^\\s{0,3}#{1,6}\\s*", "")
+                .replaceAll("(?m)^\\s*[-*+]\\s+", "\u2022 ")
+                .replaceAll("[*_`~]{1,3}", "")
+                .replaceAll("&nbsp;", " ").replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">")
+                .replaceAll("(?m)^\\s*([-*_]\\s*){3,}$", "")
+                .replaceAll("[ \\t]+", " ")
+                .replaceAll("(?m)^ +| +$", "")
+                .replaceAll("\\n{3,}", "\n\n");
+        // Emoji, which the app's font has no shapes for: a box each otherwise.
+        return entities(text).replaceAll("[\\x{1F000}-\\x{1FFFF}\\x{2600}-\\x{27BF}\\x{FE0F}\\x{200D}]", "")
+                .replaceAll("(?m)^ +", "").strip();
+    }
+
+    /** {@code &#183;} and {@code &#xB7;} as the characters they name. */
+    static String entities(String text) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("&#(x?)([0-9a-fA-F]{1,6});").matcher(text);
+        StringBuilder out = new StringBuilder();
+
+        while (matcher.find()) {
+            String replacement;
+
+            try {
+                int code = Integer.parseInt(matcher.group(2), matcher.group(1).isEmpty() ? 10 : 16);
+                replacement = new String(Character.toChars(code));
+            } catch (IllegalArgumentException e) {
+                replacement = matcher.group();
+            }
+
+            matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(replacement));
+        }
+
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     // ------------------------------------------------------------- versions

@@ -3,10 +3,8 @@ package studios.milkdromeda.octo.launcher.ui;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Desktop;
-import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -22,7 +20,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -54,12 +51,12 @@ final class ModsPage implements App.Page {
 
     // Browse
     private final Widgets.Field search = new Widgets.Field("Search mods on Modrinth", Icons.Glyph.SEARCH);
-    private final JPanel results = Widgets.clear(new GridLayout(0, 2, 14, 14));
+    private final JPanel results = Widgets.grid(360, 3, 14);
     private final Widgets.Button more = Widgets.button("Load more", null, Widgets.Kind.SECONDARY);
-    private final JLabel resultCount = Widgets.text(" ", 12.5f, Font.PLAIN, Style.FAINT);
+    private final Text resultCount = Widgets.line(" ", Style.font(Font.PLAIN, 12.5f), Style.FAINT);
     private final Widgets.Switch onlyThisVersion = new Widgets.Switch(false);
     private final Widgets.Button sortButton = Widgets.dropdown("Most relevant");
-    private final JPanel categoryRow = Widgets.row(8);
+    private final JPanel categoryRow = Widgets.flow(8, 8);
     private String sort = "relevance";
     private String category;
     private int offset;
@@ -67,28 +64,28 @@ final class ModsPage implements App.Page {
     private final Timer typing;
 
     // Installed
-    private final JPanel installedList = Widgets.column();
+    private final JPanel installedList = Widgets.stack(8);
     private final Widgets.Field filter = new Widgets.Field("Filter installed mods", Icons.Glyph.SEARCH);
     private final JLabel installedCount = Widgets.text(" ", 12.5f, Font.PLAIN, Style.FAINT);
     private List<ModLibrary.InstalledMod> installed = List.of();
+    private boolean installedLoaded;
 
     // Updates
-    private final JPanel updateList = Widgets.column();
-    private final JLabel updateStatus = Widgets.text("Check Modrinth for newer versions of your mods.", 13f,
-            Font.PLAIN, Style.MUTED);
+    private final JPanel updateList = Widgets.stack(8);
+    private final Text updateStatus = Widgets.line("Check Modrinth for newer versions of your mods.",
+            Style.font(Font.PLAIN, 13f), Style.MUTED);
     private Map<Path, Modrinth.Version> updates = Map.of();
 
     ModsPage(App app) {
         this.app = app;
-        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 22, 24));
+        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
 
-        JPanel head = Widgets.clear(new BorderLayout());
-        JPanel title = Widgets.column();
+        JPanel head = Widgets.clear(new BorderLayout(20, 0));
+        JPanel title = Widgets.stack(4);
         title.add(Widgets.heading("Mods"));
-        title.add(Box.createVerticalStrut(4));
-        title.add(Widgets.text("Fabric, Quilt, Forge and NeoForge, from any version: Octo makes them fit.", 13f,
-                Font.PLAIN, Style.MUTED));
-        head.add(title, BorderLayout.WEST);
+        title.add(Widgets.line("Fabric, Quilt, Forge and NeoForge, from any version: Octo makes them fit.",
+                Style.font(Font.PLAIN, 13f), Style.MUTED));
+        head.add(title, BorderLayout.CENTER);
         head.add(tabStrip(), BorderLayout.EAST);
         view.add(head, BorderLayout.NORTH);
 
@@ -102,6 +99,11 @@ final class ModsPage implements App.Page {
         typing.setRepeats(false);
         search.getDocument().addDocumentListener(onType(typing::restart));
         filter.getDocument().addDocumentListener(onType(this::showInstalled));
+
+        for (int i = 0; i < 4; i++) {
+            installedList.add(new Skeleton(64, true));
+        }
+
         newSearch();
     }
 
@@ -134,6 +136,7 @@ final class ModsPage implements App.Page {
         ModLibrary library = new ModLibrary(app.settings().gameDir());
         app.run(library::list, list -> {
             installed = list;
+            installedLoaded = true;
             INSTALLED.clear();
             list.stream().map(ModLibrary.InstalledMod::projectId).filter(java.util.Objects::nonNull)
                     .forEach(INSTALLED::add);
@@ -175,7 +178,7 @@ final class ModsPage implements App.Page {
                 }
             };
             tab.setFont(Style.font(Font.BOLD, 13f));
-            tab.setBorder(BorderFactory.createEmptyBorder(7, 18, 7, 18));
+            tab.setBorder(BorderFactory.createEmptyBorder(8, 18, 8, 18));
             tab.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             tab.addMouseListener(new MouseAdapter() {
                 @Override
@@ -205,42 +208,38 @@ final class ModsPage implements App.Page {
 
     private JComponent browseTab() {
         JPanel tab = Widgets.clear(new BorderLayout(0, 14));
-        JPanel tools = Widgets.column();
+        JPanel tools = Widgets.stack(12);
 
-        JPanel bar = Widgets.clear(new BorderLayout(12, 0));
+        JPanel bar = Widgets.clear(new BorderLayout(14, 0));
         bar.add(search, BorderLayout.CENTER);
         JPanel right = Widgets.row(12);
         JPanel toggle = Widgets.row(8);
-        toggle.add(onlyThisVersion);
-        toggle.add(Widgets.text("Only for my version", 13f, Font.PLAIN, Style.MUTED));
+        JPanel switchHolder = Widgets.clear(new BorderLayout());
+        switchHolder.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        switchHolder.add(onlyThisVersion, BorderLayout.NORTH);
+        toggle.add(switchHolder);
+        JLabel toggleLabel = Widgets.text("Only for my version", 13f, Font.PLAIN, Style.MUTED);
+        toggleLabel.setBorder(BorderFactory.createEmptyBorder(9, 0, 0, 0));
+        toggle.add(toggleLabel);
         onlyThisVersion.onChange(value -> newSearch());
         right.add(toggle);
         sortButton.addActionListener(event -> chooseSort());
         right.add(sortButton);
         bar.add(right, BorderLayout.EAST);
-        bar.setAlignmentX(Component.LEFT_ALIGNMENT);
         tools.add(bar);
-        tools.add(Box.createVerticalStrut(12));
-
-        categoryRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         buildCategories();
         tools.add(categoryRow);
         tab.add(tools, BorderLayout.NORTH);
 
-        JPanel list = Widgets.column();
-        results.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel list = Widgets.stack(14);
+        list.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
         list.add(results);
-        list.add(Box.createVerticalStrut(14));
-        JPanel footer = Widgets.clear(new BorderLayout());
-        footer.add(resultCount, BorderLayout.WEST);
+        JPanel footer = Widgets.clear(new BorderLayout(12, 0));
+        footer.add(resultCount, BorderLayout.CENTER);
         more.addActionListener(event -> loadPage());
         footer.add(more, BorderLayout.EAST);
-        footer.setAlignmentX(Component.LEFT_ALIGNMENT);
-        footer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
         list.add(footer);
-        JPanel holder = new Widgets.Tracking();
-        holder.add(list, BorderLayout.NORTH);
-        tab.add(Widgets.scroll(holder), BorderLayout.CENTER);
+        tab.add(Widgets.page(list), BorderLayout.CENTER);
         return tab;
     }
 
@@ -259,6 +258,31 @@ final class ModsPage implements App.Page {
     private JComponent categoryChip(String label, String value) {
         boolean selected = java.util.Objects.equals(category, value);
         JLabel chip = new JLabel(label) {
+            private boolean hover;
+
+            {
+                addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseEntered(MouseEvent event) {
+                        hover = true;
+                        repaint();
+                    }
+
+                    @Override
+                    public void mouseExited(MouseEvent event) {
+                        hover = false;
+                        repaint();
+                    }
+
+                    @Override
+                    public void mouseClicked(MouseEvent event) {
+                        category = value;
+                        buildCategories();
+                        newSearch();
+                    }
+                });
+            }
+
             @Override
             protected void paintComponent(Graphics graphics) {
                 Graphics2D g = Style.smooth(graphics);
@@ -266,7 +290,7 @@ final class ModsPage implements App.Page {
                 if (selected) {
                     g.setPaint(Style.accent(0, getWidth()));
                 } else {
-                    g.setColor(Style.RAISED);
+                    g.setColor(hover ? Style.HOVER : Style.RAISED);
                 }
 
                 g.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
@@ -278,14 +302,6 @@ final class ModsPage implements App.Page {
         chip.setForeground(selected ? Color.WHITE : Style.MUTED);
         chip.setBorder(BorderFactory.createEmptyBorder(6, 14, 6, 14));
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        chip.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                category = value;
-                buildCategories();
-                newSearch();
-            }
-        });
         return chip;
     }
 
@@ -296,6 +312,7 @@ final class ModsPage implements App.Page {
 
         for (String[] option : options) {
             JMenuItem item = new JMenuItem(option[1]);
+            item.setFont(Style.font(Font.PLAIN, 13f));
             item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
             item.addActionListener(event -> {
                 sort = option[0];
@@ -312,6 +329,11 @@ final class ModsPage implements App.Page {
         offset = 0;
         searchGeneration++;
         results.removeAll();
+
+        for (int i = 0; i < 6; i++) {
+            results.add(new Skeleton(132, true));
+        }
+
         results.revalidate();
         results.repaint();
         loadPage();
@@ -322,14 +344,23 @@ final class ModsPage implements App.Page {
         String query = search.getText().strip();
         String version = onlyThisVersion.isOn() ? app.selectedVersion() : null;
         more.setEnabled(false);
-        resultCount.setText("Searching...");
-        app.run(() -> Modrinth.search(query, version, category, sort, offset, 20), page -> {
+        resultCount.setText("Searching Modrinth...");
+        app.run(() -> Modrinth.search(query, version, category, sort, offset, 24), page -> {
             if (generation != searchGeneration) {
                 return;
             }
 
+            if (offset == 0) {
+                results.removeAll();
+            }
+
             for (Modrinth.Project project : page.projects()) {
                 results.add(resultCard(project));
+            }
+
+            if (page.projects().isEmpty() && offset == 0) {
+                results.add(empty("Nothing found", "Try other words, another category, or turn off \"Only for my "
+                        + "version\": Octo loads mods made for other versions too."));
             }
 
             offset += page.projects().size();
@@ -338,54 +369,55 @@ final class ModsPage implements App.Page {
             results.revalidate();
             results.repaint();
         }, failure -> {
-            resultCount.setText("Modrinth could not be reached. Check your connection and search again.");
+            if (generation != searchGeneration) {
+                return;
+            }
+
+            results.removeAll();
+            results.add(empty("Modrinth could not be reached", "Check your connection and search again."));
+            resultCount.setText(" ");
             more.setEnabled(true);
+            results.revalidate();
+            results.repaint();
         });
     }
 
     private JComponent resultCard(Modrinth.Project project) {
-        Widgets.Card card = new Widgets.Card(Style.PANEL, 16, true).hoverable(null);
+        Widgets.Card card = new Widgets.Card(Style.PANEL, 16, true).hoverable(() -> app.showMod(project));
         card.setLayout(new BorderLayout(14, 0));
-        card.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
+        card.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         JLabel icon = new JLabel();
         icon.setVerticalAlignment(JLabel.TOP);
         Images.load(project.iconUrl(), project.title(), project.color() == 0 ? null : new Color(project.color()),
-                64, 14, image -> icon.setIcon(new javax.swing.ImageIcon(image)));
-        card.add(icon, BorderLayout.WEST);
+                64, 16, image -> icon.setIcon(new javax.swing.ImageIcon(image)));
+        JPanel iconHolder = Widgets.clear(new BorderLayout());
+        iconHolder.add(icon, BorderLayout.NORTH);
+        card.add(iconHolder, BorderLayout.WEST);
 
-        JPanel text = Widgets.column();
-        JLabel title = Widgets.text("<html><b>" + HomePage.escape(HomePage.shorten(project.title(), 34))
-                + "</b> <span style='color:" + Style.hex(Style.FAINT) + "'>by "
-                + HomePage.escape(project.author()) + "</span></html>", 14f, Font.PLAIN, Style.TEXT);
-        title.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        title.setToolTipText("Open on Modrinth");
-        title.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                HomePage.browse(project.pageUrl());
-            }
-        });
-        text.add(title);
-        text.add(Box.createVerticalStrut(5));
-        text.add(Widgets.wrapped(HomePage.escape(HomePage.shorten(project.description(), 120)), 12.5f, Style.MUTED,
-                260));
-        text.add(Box.createVerticalStrut(8));
-        JPanel meta = Widgets.row(6);
-        meta.add(new JLabel(Icons.of(Icons.Glyph.DOWNLOAD, 14, Style.FAINT)));
-        meta.add(Widgets.text(Widgets.count(project.downloads()), 12f, Font.PLAIN, Style.FAINT));
-        meta.add(Box.createHorizontalStrut(6));
+        JPanel text = Widgets.stack(6);
+        JPanel titleRow = Widgets.clear(new BorderLayout(10, 0));
+        JPanel names = Widgets.stack(2);
+        names.add(Widgets.line(project.title(), Style.font(Font.BOLD, 15f), Style.TEXT));
+        names.add(Widgets.line("by " + project.author(), Style.font(Font.PLAIN, 12f), Style.FAINT));
+        titleRow.add(names, BorderLayout.CENTER);
+        JPanel action = Widgets.clear(new BorderLayout());
+        action.add(installButton(app, project), BorderLayout.NORTH);
+        titleRow.add(action, BorderLayout.EAST);
+        text.add(titleRow);
+        text.add(Widgets.paragraph(project.description(), 13f, Style.MUTED, 2));
+        JPanel meta = Widgets.flow(6, 6);
+        JLabel downloads = Widgets.text(Widgets.count(project.downloads()), 12f, Font.BOLD, Style.MUTED);
+        downloads.setIcon(Icons.of(Icons.Glyph.DOWNLOAD, 14, Style.FAINT));
+        downloads.setIconTextGap(4);
+        downloads.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 6));
+        meta.add(downloads);
 
         for (String loader : project.loaders()) {
             meta.add(Widgets.pill(loaderName(loader), loaderColour(loader)));
         }
 
-        meta.setAlignmentX(Component.LEFT_ALIGNMENT);
         text.add(meta);
         card.add(text, BorderLayout.CENTER);
-
-        JPanel action = Widgets.clear(new BorderLayout());
-        action.add(installButton(app, project, false), BorderLayout.NORTH);
-        card.add(action, BorderLayout.EAST);
         return card;
     }
 
@@ -410,7 +442,7 @@ final class ModsPage implements App.Page {
     }
 
     /** One click: the mod and everything it requires, into the mods folder. */
-    static JComponent installButton(App app, Modrinth.Project project, boolean wide) {
+    static Widgets.Button installButton(App app, Modrinth.Project project) {
         boolean already = INSTALLED.contains(project.id());
         Widgets.Button button = already
                 ? new Widgets.Button("Installed", Icons.of(Icons.Glyph.CHECK, 15, Style.GREEN), Widgets.Kind.SECONDARY)
@@ -434,6 +466,9 @@ final class ModsPage implements App.Page {
                 app.toast("Installed " + project.title() + (extra > 0 ? " and " + extra + " mod"
                         + (extra == 1 ? "" : "s") + " it needs" : "") + ".", Style.GREEN);
                 app.changed();
+            }, failure -> {
+                button.setEnabled(true);
+                button.setText("Install");
             });
         });
         return button;
@@ -443,22 +478,26 @@ final class ModsPage implements App.Page {
 
     private JComponent installedTab() {
         JPanel tab = Widgets.clear(new BorderLayout(0, 14));
-        JPanel bar = Widgets.clear(new BorderLayout(12, 0));
+        JPanel bar = Widgets.clear(new BorderLayout(14, 0));
         bar.add(filter, BorderLayout.CENTER);
-        JPanel right = Widgets.row(10);
+        JPanel right = Widgets.row(12);
+        installedCount.setBorder(BorderFactory.createEmptyBorder(9, 0, 0, 0));
         right.add(installedCount);
         Widgets.Button folder = Widgets.button("Open folder", Icons.Glyph.FOLDER, Widgets.Kind.SECONDARY);
         folder.addActionListener(event -> open(new ModLibrary(app.settings().gameDir()).folder()));
         right.add(folder);
         bar.add(right, BorderLayout.EAST);
         tab.add(bar, BorderLayout.NORTH);
-        JPanel holder = new Widgets.Tracking();
-        holder.add(installedList, BorderLayout.NORTH);
-        tab.add(Widgets.scroll(holder), BorderLayout.CENTER);
+        installedList.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
+        tab.add(Widgets.page(installedList), BorderLayout.CENTER);
         return tab;
     }
 
     private void showInstalled() {
+        if (!installedLoaded) {
+            return;
+        }
+
         installedList.removeAll();
         String query = filter.getText().strip().toLowerCase(Locale.ROOT);
         List<ModLibrary.InstalledMod> shown = new ArrayList<>();
@@ -471,16 +510,15 @@ final class ModsPage implements App.Page {
         }
 
         long on = installed.stream().filter(ModLibrary.InstalledMod::enabled).count();
-        installedCount.setText(on + " on, " + (installed.size() - on) + " off");
+        installedCount.setText(on + " on  ·  " + (installed.size() - on) + " off");
 
         if (installed.isEmpty()) {
-            installedList.add(empty("No mods yet", "Find one in Browse and press Install: it goes into "
-                    + new ModLibrary(app.settings().gameDir()).folder() + ", with everything it needs."));
+            installedList.add(empty("No mods yet", "Find one in Browse and press Install: it goes into your mods "
+                    + "folder, with everything it needs."));
         }
 
         for (ModLibrary.InstalledMod mod : shown) {
             installedList.add(installedRow(mod));
-            installedList.add(Box.createVerticalStrut(8));
         }
 
         installedList.revalidate();
@@ -490,12 +528,15 @@ final class ModsPage implements App.Page {
     private JComponent installedRow(ModLibrary.InstalledMod mod) {
         Widgets.Card row = new Widgets.Card(Style.PANEL, 14, true);
         row.setLayout(new BorderLayout(14, 0));
-        row.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
-        row.add(Widgets.picture(Images.fromBytes(mod.icon(), mod.name(), 44, 11)), BorderLayout.WEST);
+        row.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        JPanel iconHolder = Widgets.clear(new BorderLayout());
+        iconHolder.add(Widgets.picture(Images.fromBytes(mod.icon(), mod.name(), 44, 11)), BorderLayout.NORTH);
+        row.add(iconHolder, BorderLayout.WEST);
 
-        JPanel text = Widgets.column();
-        JPanel line = Widgets.row(8);
-        line.add(Widgets.text(mod.name(), 14f, Font.BOLD, mod.enabled() ? Style.TEXT : Style.FAINT));
+        JPanel text = Widgets.stack(4);
+        JPanel line = Widgets.flow(8, 4);
+        JLabel name = Widgets.text(mod.name(), 14.5f, Font.BOLD, mod.enabled() ? Style.TEXT : Style.FAINT);
+        line.add(name);
 
         if (mod.loader() != null && !mod.loader().isBlank()) {
             line.add(Widgets.pill(mod.loader(), loaderColour(mod.loader())));
@@ -505,13 +546,9 @@ final class ModsPage implements App.Page {
             line.add(Widgets.pill("Off", Style.FAINT));
         }
 
-        line.setAlignmentX(Component.LEFT_ALIGNMENT);
         text.add(line);
-        text.add(Box.createVerticalStrut(4));
-        JLabel detail = Widgets.text((mod.version() == null ? "" : mod.version() + "  ·  ") + mod.fileName(), 12f,
-                Font.PLAIN, Style.FAINT);
-        detail.setAlignmentX(Component.LEFT_ALIGNMENT);
-        text.add(detail);
+        text.add(Widgets.line((mod.version() == null ? "" : mod.version() + "   ·   ") + mod.fileName(),
+                Style.font(Font.PLAIN, 12f), Style.FAINT));
         row.add(text, BorderLayout.CENTER);
 
         JPanel actions = Widgets.row(10);
@@ -541,9 +578,9 @@ final class ModsPage implements App.Page {
             }
         });
         actions.add(delete);
-        row.add(actions, BorderLayout.EAST);
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        JPanel actionHolder = Widgets.clear(new BorderLayout());
+        actionHolder.add(actions, BorderLayout.NORTH);
+        row.add(actionHolder, BorderLayout.EAST);
         return row;
     }
 
@@ -551,8 +588,11 @@ final class ModsPage implements App.Page {
 
     private JComponent updatesTab() {
         JPanel tab = Widgets.clear(new BorderLayout(0, 14));
-        JPanel bar = Widgets.clear(new BorderLayout(12, 0));
-        bar.add(updateStatus, BorderLayout.WEST);
+        JPanel bar = Widgets.clear(new BorderLayout(14, 0));
+        JPanel status = Widgets.clear(new BorderLayout());
+        status.setBorder(BorderFactory.createEmptyBorder(9, 0, 0, 0));
+        status.add(updateStatus, BorderLayout.NORTH);
+        bar.add(status, BorderLayout.CENTER);
         JPanel right = Widgets.row(10);
         Widgets.Button check = Widgets.button("Check for updates", Icons.Glyph.REFRESH, Widgets.Kind.SECONDARY);
         check.addActionListener(event -> checkUpdates());
@@ -562,14 +602,22 @@ final class ModsPage implements App.Page {
         right.add(all);
         bar.add(right, BorderLayout.EAST);
         tab.add(bar, BorderLayout.NORTH);
-        JPanel holder = new Widgets.Tracking();
-        holder.add(updateList, BorderLayout.NORTH);
-        tab.add(Widgets.scroll(holder), BorderLayout.CENTER);
+        updateList.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
+        updateList.add(empty("Keep your mods current", "Octo looks each mod up on Modrinth by its file, so mods "
+                + "you installed by hand are found too. Press Check for updates."));
+        tab.add(Widgets.page(updateList), BorderLayout.CENTER);
         return tab;
     }
 
     private void checkUpdates() {
         updateStatus.setText("Checking " + installed.size() + " mods on Modrinth...");
+        updateList.removeAll();
+
+        for (int i = 0; i < 3; i++) {
+            updateList.add(new Skeleton(64, true));
+        }
+
+        updateList.revalidate();
         ModLibrary library = new ModLibrary(app.settings().gameDir());
         app.run(() -> library.updates(app.selectedVersion()), found -> {
             updates = found;
@@ -577,11 +625,20 @@ final class ModsPage implements App.Page {
             updateStatus.setText(found.isEmpty() ? "Everything is up to date." : found.size() + " update"
                     + (found.size() == 1 ? "" : "s") + " available.");
             showUpdates();
+        }, failure -> {
+            updateStatus.setText("Modrinth could not be reached.");
+            updateList.removeAll();
+            updateList.revalidate();
         });
     }
 
     private void showUpdates() {
         updateList.removeAll();
+
+        if (updates.isEmpty()) {
+            updateList.add(empty("Everything is up to date", "Every mod Modrinth knows is at its newest version "
+                    + "for your Minecraft."));
+        }
 
         for (Map.Entry<Path, Modrinth.Version> entry : updates.entrySet()) {
             ModLibrary.InstalledMod mod = installed.stream().filter(candidate -> candidate.file().equals(entry.getKey()))
@@ -593,13 +650,12 @@ final class ModsPage implements App.Page {
 
             Widgets.Card row = new Widgets.Card(Style.PANEL, 14, true);
             row.setLayout(new BorderLayout(14, 0));
-            row.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            row.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
             row.add(Widgets.picture(Images.fromBytes(mod.icon(), mod.name(), 40, 10)), BorderLayout.WEST);
-            JPanel text = Widgets.column();
-            text.add(Widgets.text(mod.name(), 14f, Font.BOLD, Style.TEXT));
-            text.add(Box.createVerticalStrut(3));
-            text.add(Widgets.text((mod.version() == null ? mod.fileName() : mod.version()) + "  →  "
-                    + entry.getValue().number(), 12.5f, Font.PLAIN, Style.MUTED));
+            JPanel text = Widgets.stack(3);
+            text.add(Widgets.line(mod.name(), Style.font(Font.BOLD, 14.5f), Style.TEXT));
+            text.add(Widgets.line((mod.version() == null ? mod.fileName() : mod.version()) + "   →   "
+                    + entry.getValue().number(), Style.font(Font.PLAIN, 12.5f), Style.MUTED));
             row.add(text, BorderLayout.CENTER);
             Widgets.Button update = Widgets.button("Update", Icons.Glyph.DOWNLOAD, Widgets.Kind.PRIMARY);
             update.addActionListener(event -> {
@@ -614,10 +670,7 @@ final class ModsPage implements App.Page {
             JPanel action = Widgets.clear(new BorderLayout());
             action.add(update, BorderLayout.NORTH);
             row.add(action, BorderLayout.EAST);
-            row.setAlignmentX(Component.LEFT_ALIGNMENT);
-            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 66));
             updateList.add(row);
-            updateList.add(Box.createVerticalStrut(8));
         }
 
         updateList.revalidate();
@@ -655,15 +708,13 @@ final class ModsPage implements App.Page {
 
     // ---------------------------------------------------------------- common
 
+    /** A card saying there is nothing here, and what to do about it. */
     static JComponent empty(String title, String body) {
         Widgets.Card card = Widgets.card();
-        JPanel text = Widgets.column();
-        text.add(Widgets.text(title, 15f, Font.BOLD, Style.TEXT));
-        text.add(Box.createVerticalStrut(6));
-        text.add(Widgets.wrapped(HomePage.escape(body), 13f, Style.MUTED, 560));
+        JPanel text = Widgets.stack(6);
+        text.add(Widgets.line(title, Style.font(Font.BOLD, 15f), Style.TEXT));
+        text.add(Widgets.paragraph(body, 13f, Style.MUTED, 0));
         card.add(text, BorderLayout.CENTER);
-        card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
         return card;
     }
 

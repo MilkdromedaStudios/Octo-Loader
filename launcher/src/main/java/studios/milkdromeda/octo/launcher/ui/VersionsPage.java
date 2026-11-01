@@ -10,6 +10,7 @@ import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.event.DocumentEvent;
@@ -24,22 +25,19 @@ import studios.milkdromeda.octo.launcher.Versions;
 final class VersionsPage implements App.Page {
     private final App app;
     private final JPanel view = Widgets.clear(new BorderLayout(0, 18));
-    private final JPanel list = Widgets.column();
+    private final JPanel list = Widgets.stack(8);
     private final Widgets.Field filter = new Widgets.Field("Find a version", Icons.Glyph.SEARCH);
     private final Widgets.Switch snapshots = new Widgets.Switch(false);
     private List<Versions.Version> versions = List.of();
 
     VersionsPage(App app) {
         this.app = app;
-        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 22, 24));
-        JPanel head = Widgets.clear(new BorderLayout());
-        JPanel title = Widgets.column();
+        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
+        JPanel title = Widgets.stack(4);
         title.add(Widgets.heading("Versions"));
-        title.add(Box.createVerticalStrut(4));
-        title.add(Widgets.text("Install Octo for any Minecraft version. The Minecraft Launcher downloads the game "
-                + "the first time you play it.", 13f, Font.PLAIN, Style.MUTED));
-        head.add(title, BorderLayout.WEST);
-        view.add(head, BorderLayout.NORTH);
+        title.add(Widgets.line("Install Octo for any Minecraft version. The Minecraft Launcher downloads the game "
+                + "the first time you play it.", Style.font(Font.PLAIN, 13f), Style.MUTED));
+        view.add(title, BorderLayout.NORTH);
 
         JPanel body = Widgets.clear(new BorderLayout(0, 14));
         JPanel bar = Widgets.clear(new BorderLayout(12, 0));
@@ -51,13 +49,17 @@ final class VersionsPage implements App.Page {
             app.save();
             refresh();
         });
-        toggle.add(snapshots);
-        toggle.add(Widgets.text("Snapshots", 13f, Font.PLAIN, Style.MUTED));
+        JPanel switchHolder = Widgets.clear(new BorderLayout());
+        switchHolder.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        switchHolder.add(snapshots, BorderLayout.NORTH);
+        toggle.add(switchHolder);
+        JLabel snapshotLabel = Widgets.text("Snapshots", 13f, Font.PLAIN, Style.MUTED);
+        snapshotLabel.setBorder(BorderFactory.createEmptyBorder(9, 0, 0, 0));
+        toggle.add(snapshotLabel);
         bar.add(toggle, BorderLayout.EAST);
         body.add(bar, BorderLayout.NORTH);
-        JPanel holder = new Widgets.Tracking();
-        holder.add(list, BorderLayout.NORTH);
-        body.add(Widgets.scroll(holder), BorderLayout.CENTER);
+        list.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
+        body.add(Widgets.page(list), BorderLayout.CENTER);
         view.add(body, BorderLayout.CENTER);
 
         filter.getDocument().addDocumentListener(new DocumentListener() {
@@ -110,7 +112,6 @@ final class VersionsPage implements App.Page {
             }
 
             list.add(row(version));
-            list.add(Box.createVerticalStrut(8));
         }
 
         list.revalidate();
@@ -121,11 +122,14 @@ final class VersionsPage implements App.Page {
         boolean selected = version.id().equals(app.selectedVersion());
         Widgets.Card row = new Widgets.Card(selected ? Style.RAISED : Style.PANEL, 14, true);
         row.setLayout(new BorderLayout(14, 0));
-        row.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 12));
-        row.add(new javax.swing.JLabel(Icons.of(Icons.Glyph.VERSIONS, 22, version.withOcto() ? Style.VIOLET
-                : Style.FAINT)), BorderLayout.WEST);
-        JPanel text = Widgets.row(8);
-        text.add(Widgets.text("Minecraft " + version.id(), 14.5f, Font.BOLD, Style.TEXT));
+        row.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 14));
+        javax.swing.JLabel glyph = new javax.swing.JLabel(Icons.of(Icons.Glyph.VERSIONS, 22, version.withOcto()
+                ? Style.VIOLET : Style.FAINT));
+        glyph.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        glyph.setVerticalAlignment(javax.swing.JLabel.TOP);
+        row.add(glyph, BorderLayout.WEST);
+        JPanel text = Widgets.flow(8, 6);
+        text.add(Widgets.text("Minecraft " + version.id(), 15f, Font.BOLD, Style.TEXT));
 
         if (version.withOcto()) {
             text.add(Widgets.pill("Octo", Style.VIOLET));
@@ -144,7 +148,7 @@ final class VersionsPage implements App.Page {
         }
 
         JPanel middle = Widgets.clear(new BorderLayout());
-        middle.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        middle.setBorder(BorderFactory.createEmptyBorder(7, 0, 0, 0));
         middle.add(text, BorderLayout.NORTH);
         row.add(middle, BorderLayout.CENTER);
 
@@ -194,9 +198,9 @@ final class VersionsPage implements App.Page {
             actions.add(install);
         }
 
-        row.add(actions, BorderLayout.EAST);
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 62));
+        JPanel actionHolder = Widgets.clear(new BorderLayout());
+        actionHolder.add(actions, BorderLayout.NORTH);
+        row.add(actionHolder, BorderLayout.EAST);
         return row;
     }
 }

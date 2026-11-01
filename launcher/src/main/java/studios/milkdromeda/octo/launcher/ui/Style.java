@@ -35,8 +35,40 @@ public final class Style {
     private Style() {
     }
 
+    private static final Font REGULAR = face("Inter-Regular.ttf");
+    private static final Font SEMIBOLD = face("Inter-SemiBold.ttf");
+    private static final Font BOLD = face("Inter-Bold.ttf");
+    private static final Font DISPLAY = face("InterDisplay-Bold.ttf");
+
+    /** A face bundled with the app (Inter, under the SIL Open Font License), or the system's own if it will not load. */
+    private static Font face(String file) {
+        try (java.io.InputStream in = Style.class.getResourceAsStream("/octo/fonts/" + file)) {
+            if (in != null) {
+                Font font = Font.createFont(Font.TRUETYPE_FONT, in);
+                java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
+                return font;
+            }
+        } catch (Exception e) {
+            // The system's face, then.
+        }
+
+        return null;
+    }
+
+    /** Text: regular, or semi-bold for {@link Font#BOLD}. */
     public static Font font(int style, float size) {
-        return Theme.ui(style, size);
+        Font face = style == Font.BOLD ? SEMIBOLD : REGULAR;
+        return face == null ? Theme.ui(style, size) : face.deriveFont(size);
+    }
+
+    /** Bold, for buttons and figures. */
+    public static Font strong(float size) {
+        return BOLD == null ? Theme.ui(Font.BOLD, size) : BOLD.deriveFont(size);
+    }
+
+    /** The display cut, for page titles and the banner. */
+    public static Font display(float size) {
+        return DISPLAY == null ? Theme.ui(Font.BOLD, size) : DISPLAY.deriveFont(size);
     }
 
     public static Graphics2D smooth(Graphics graphics) {

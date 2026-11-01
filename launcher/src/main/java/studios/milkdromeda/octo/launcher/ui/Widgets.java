@@ -114,6 +114,31 @@ public final class Widgets {
         return panel;
     }
 
+    /** A column whose rows each get the full width and the height they need at it. */
+    public static JPanel stack(int gap) {
+        return clear(new Layouts.Stack(gap));
+    }
+
+    /** Cards in as many columns as fit. */
+    public static JPanel grid(int minColumn, int maxColumns, int gap) {
+        return clear(new Layouts.Grid(minColumn, maxColumns, gap));
+    }
+
+    /** Left to right, wrapping. */
+    public static JPanel flow(int hgap, int vgap) {
+        return clear(new Layouts.Flow(hgap, vgap));
+    }
+
+    /** A paragraph that wraps to its width. */
+    public static Text paragraph(String value, float size, Color colour, int maxLines) {
+        return new Text(value, Style.font(Font.PLAIN, size), colour, maxLines);
+    }
+
+    /** A single line that ends in an ellipsis when it does not fit. */
+    public static Text line(String value, Font font, Color colour) {
+        return new Text(value, font, colour, 1, 1000);
+    }
+
     public static JPanel row(int gap) {
         return clear(new FlowLayout(FlowLayout.LEFT, gap, 0));
     }
@@ -135,7 +160,10 @@ public final class Widgets {
     }
 
     public static JLabel heading(String value) {
-        return text(value, 22f, Font.BOLD, Style.TEXT);
+        JLabel label = new JLabel(value);
+        label.setFont(Style.display(24f));
+        label.setForeground(Style.TEXT);
+        return label;
     }
 
     public static JLabel section(String value) {
@@ -179,6 +207,7 @@ public final class Widgets {
             this.radius = radius;
             setFont(Style.font(Font.BOLD, 13f));
             setForeground(kind == Kind.PRIMARY ? Color.WHITE : kind == Kind.DANGER ? Style.RED : Style.TEXT);
+            setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
             setContentAreaFilled(false);
             setBorderPainted(false);
             setFocusPainted(false);

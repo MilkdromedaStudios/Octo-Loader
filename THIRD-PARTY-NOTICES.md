@@ -89,6 +89,17 @@ Mixin's own `META-INF/services` entries are dropped when it is shaded, because
 they bind it to LaunchWrapper and ModLauncher; Octo registers its own mixin
 service in their place.
 
+## Bundled with Octo Launcher
+
+`octo-launcher.jar`, the Windows installer and the npm package's download also
+carry:
+
+| Component | Licence | Where |
+|---|---|---|
+| [Inter](https://github.com/rsms/inter) 4.1 (Regular, SemiBold, Bold, Display Bold) | SIL Open Font License 1.1 | `launcher/src/main/resources/octo/fonts/`, with its licence as `Inter-LICENSE.txt` |
+| [TwelveMonkeys ImageIO](https://github.com/haraldk/TwelveMonkeys) WebP plugin 3.12.0 | BSD 3-Clause | shaded, to read Modrinth's WebP icons and screenshots |
+| Eclipse Temurin Java runtime (Windows installer only) | GPL-2.0 with the Classpath Exception | bundled by jpackage as the app's own Java |
+
 ## Licence compatibility
 
 This needs stating plainly rather than being buried.

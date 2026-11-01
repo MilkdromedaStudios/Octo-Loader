@@ -1,7 +1,6 @@
 package studios.milkdromeda.octo.launcher.ui;
 
 import java.awt.BorderLayout;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.time.ZoneId;
@@ -10,7 +9,6 @@ import java.time.format.FormatStyle;
 import java.util.List;
 
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -27,31 +25,32 @@ final class WorldsPage implements App.Page {
 
     private final App app;
     private final JPanel view = Widgets.clear(new BorderLayout(0, 18));
-    private final JPanel list = Widgets.column();
-    private final JPanel detail = Widgets.column();
+    private final JPanel list = Widgets.stack(8);
+    private final JPanel detail = Widgets.stack(14);
     private List<Worlds.World> worlds = List.of();
     private Worlds.World selected;
 
     WorldsPage(App app) {
         this.app = app;
-        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 22, 24));
-        JPanel head = Widgets.column();
+        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
+        JPanel head = Widgets.stack(4);
         head.add(Widgets.heading("Worlds"));
-        head.add(Box.createVerticalStrut(4));
-        head.add(Widgets.text("Octo backs a world up by itself when its mods change or go missing, and keeps "
-                + "chunks it cannot read exactly as they were.", 13f, Font.PLAIN, Style.MUTED));
+        head.add(Widgets.line("Octo backs a world up by itself when its mods change or go missing, and keeps chunks "
+                + "it cannot read exactly as they were.", Style.font(Font.PLAIN, 13f), Style.MUTED));
         view.add(head, BorderLayout.NORTH);
 
         JPanel split = Widgets.clear(new BorderLayout(18, 0));
-        JPanel listHolder = new Widgets.Tracking();
-        listHolder.add(list, BorderLayout.NORTH);
-        JComponent scroller = Widgets.scroll(listHolder);
-        scroller.setPreferredSize(new Dimension(380, 10));
-        split.add(scroller, BorderLayout.WEST);
-        JPanel detailHolder = new Widgets.Tracking();
-        detailHolder.add(detail, BorderLayout.NORTH);
-        split.add(Widgets.scroll(detailHolder), BorderLayout.CENTER);
+        list.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
+        JComponent left = Widgets.page(list);
+        left.setPreferredSize(new Dimension(340, 10));
+        split.add(left, BorderLayout.WEST);
+        detail.setBorder(BorderFactory.createEmptyBorder(0, 0, 22, 4));
+        split.add(Widgets.page(detail), BorderLayout.CENTER);
         view.add(split, BorderLayout.CENTER);
+
+        for (int i = 0; i < 3; i++) {
+            list.add(new Skeleton(70, true));
+        }
     }
 
     @Override
@@ -82,8 +81,7 @@ final class WorldsPage implements App.Page {
         list.removeAll();
 
         if (worlds.isEmpty()) {
-            list.add(ModsPage.empty("No worlds yet", "Worlds in " + app.settings().gameDir().resolve("saves")
-                    + " appear here."));
+            list.add(ModsPage.empty("No worlds yet", "Worlds in your Minecraft folder's saves folder appear here."));
         }
 
         for (Worlds.World world : worlds) {
@@ -95,23 +93,22 @@ final class WorldsPage implements App.Page {
             });
             row.setLayout(new BorderLayout(12, 0));
             row.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 12));
-            row.add(Widgets.picture(HomePage.worldIcon(world, 46)), BorderLayout.WEST);
-            JPanel text = Widgets.column();
-            text.add(Widgets.text(HomePage.shorten(world.name(), 26), 14f, Font.BOLD, Style.TEXT));
-            text.add(Box.createVerticalStrut(3));
-            text.add(Widgets.text(HomePage.ago(world.lastPlayed()) + "  ·  " + world.backups() + " backups", 12f,
-                    Font.PLAIN, Style.FAINT));
+            JPanel iconHolder = Widgets.clear(new BorderLayout());
+            iconHolder.add(Widgets.picture(HomePage.worldIcon(world, 46)), BorderLayout.NORTH);
+            row.add(iconHolder, BorderLayout.WEST);
+            JPanel text = Widgets.stack(3);
+            text.add(Widgets.line(world.name(), Style.font(Font.BOLD, 14.5f), Style.TEXT));
+            text.add(Widgets.line(HomePage.ago(world.lastPlayed()) + "  ·  " + world.backups() + " backups",
+                    Style.font(Font.PLAIN, 12f), Style.FAINT));
 
             if (world.needsAttention()) {
-                text.add(Box.createVerticalStrut(5));
-                text.add(Widgets.pill("Missing " + String.join(", ", world.missingMods()), Style.AMBER));
+                JPanel pills = Widgets.flow(6, 6);
+                pills.add(Widgets.pill("Missing " + String.join(", ", world.missingMods()), Style.AMBER));
+                text.add(pills);
             }
 
             row.add(text, BorderLayout.CENTER);
-            row.setAlignmentX(Component.LEFT_ALIGNMENT);
-            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, world.needsAttention() ? 92 : 70));
             list.add(row);
-            list.add(Box.createVerticalStrut(8));
         }
 
         list.revalidate();
@@ -129,62 +126,61 @@ final class WorldsPage implements App.Page {
         }
 
         Widgets.Card summary = Widgets.card();
-        summary.setLayout(new BorderLayout(16, 0));
-        summary.add(Widgets.picture(HomePage.worldIcon(world, 64)), BorderLayout.WEST);
-        JPanel text = Widgets.column();
-        text.add(Widgets.text(world.name(), 18f, Font.BOLD, Style.TEXT));
-        text.add(Box.createVerticalStrut(4));
-        text.add(Widgets.text("Last played " + WHEN.format(world.lastPlayed()), 12.5f, Font.PLAIN, Style.MUTED));
-        text.add(Box.createVerticalStrut(4));
-        text.add(Widgets.wrapped(world.mods().isEmpty() ? "Not opened with Octo yet."
-                : "Mods: " + HomePage.escape(String.join(", ", world.mods())), 12.5f, Style.FAINT, 420));
-        summary.add(text, BorderLayout.CENTER);
-        JPanel actions = Widgets.column();
+        summary.setLayout(new BorderLayout(18, 0));
+        JPanel iconHolder = Widgets.clear(new BorderLayout());
+        iconHolder.add(Widgets.picture(HomePage.worldIcon(world, 68)), BorderLayout.NORTH);
+        summary.add(iconHolder, BorderLayout.WEST);
+        JPanel text = Widgets.stack(5);
+        JLabel name = new JLabel(world.name());
+        name.setFont(Style.display(22f));
+        name.setForeground(Style.TEXT);
+        text.add(name);
+        text.add(Widgets.line("Last played " + WHEN.format(world.lastPlayed()), Style.font(Font.PLAIN, 12.5f),
+                Style.MUTED));
+        text.add(Widgets.paragraph(world.mods().isEmpty() ? "Not opened with Octo yet."
+                : "Mods: " + String.join(", ", world.mods()), 12.5f, Style.FAINT, 2));
+        JPanel actions = Widgets.flow(8, 8);
         Widgets.Button backupNow = Widgets.button("Back up now", Icons.Glyph.BACKUP, Widgets.Kind.PRIMARY);
         backupNow.addActionListener(event -> {
             backupNow.setEnabled(false);
+            backupNow.setText("Backing up...");
             app.run(() -> WorldBackups.create(world.folder(), WorldBackups.MANUAL), made -> {
-                app.toast("Backed up " + world.name() + " (" + Math.max(1, made.size() / 1024) + " KB).",
-                        Style.GREEN);
+                app.toast("Backed up " + world.name() + " (" + size(made.size()) + ").", Style.GREEN);
                 app.changed();
             });
         });
         Widgets.Button folder = Widgets.button("Backups folder", Icons.Glyph.FOLDER, Widgets.Kind.SECONDARY);
         folder.addActionListener(event -> ModsPage.open(WorldBackups.folderFor(world.folder())));
-        backupNow.setAlignmentX(Component.RIGHT_ALIGNMENT);
-        folder.setAlignmentX(Component.RIGHT_ALIGNMENT);
         actions.add(backupNow);
-        actions.add(Box.createVerticalStrut(8));
         actions.add(folder);
-        summary.add(actions, BorderLayout.EAST);
-        summary.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(actions);
+        summary.add(text, BorderLayout.CENTER);
         detail.add(summary);
-        detail.add(Box.createVerticalStrut(14));
 
         if (world.needsAttention()) {
-            Widgets.Card warning = new Widgets.Card(Style.alpha(Style.AMBER, 26), 14, false);
-            warning.setLayout(new BorderLayout(12, 0));
-            warning.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
+            Widgets.Card warning = new Widgets.Card(Style.mix(Style.PANEL, Style.AMBER, 0.10f), 14, false);
+            warning.setLayout(new BorderLayout(14, 0));
+            warning.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
             JLabel icon = new JLabel(Icons.of(Icons.Glyph.ALERT, 22, Style.AMBER));
             icon.setVerticalAlignment(JLabel.TOP);
             warning.add(icon, BorderLayout.WEST);
-            warning.add(Widgets.wrapped("<b>Octo is protecting this world.</b> It uses content from "
-                    + HomePage.escape(String.join(", ", world.missingMods())) + ", which is not installed now. "
-                    + "Chunks with it are kept exactly as they were: put the mod back and everything returns. "
-                    + "Removed it on purpose? Accept the removal and its content is dropped.", 12.5f, Style.TEXT,
-                    340), BorderLayout.CENTER);
-            Widgets.Button accept = Widgets.button("Accept removal", null, Widgets.Kind.DANGER);
-            accept.addActionListener(event -> acceptRemoval(world));
-            JPanel holder = Widgets.clear(new BorderLayout());
-            holder.add(accept, BorderLayout.NORTH);
-            warning.add(holder, BorderLayout.EAST);
-            warning.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JPanel words = Widgets.stack(6);
+            words.add(Widgets.line("Octo is protecting this world", Style.font(Font.BOLD, 14f), Style.TEXT));
+            words.add(Widgets.paragraph("It uses content from " + String.join(", ", world.missingMods())
+                    + ", which is not installed now. Chunks with it are kept exactly as they were: put the mod back "
+                    + "and everything returns. Removed it on purpose? Accept the removal and its content is dropped.",
+                    13f, Style.MUTED, 0));
+            JPanel accept = Widgets.flow(8, 8);
+            Widgets.Button acceptButton = Widgets.button("Accept removal", null, Widgets.Kind.DANGER);
+            acceptButton.addActionListener(event -> acceptRemoval(world));
+            accept.add(acceptButton);
+            words.add(accept);
+            warning.add(words, BorderLayout.CENTER);
             detail.add(warning);
-            detail.add(Box.createVerticalStrut(14));
         }
 
         JLabel section = Widgets.section("Backups");
-        section.setAlignmentX(Component.LEFT_ALIGNMENT);
+        section.setBorder(BorderFactory.createEmptyBorder(6, 2, 0, 0));
         detail.add(section);
         List<WorldBackups.Backup> backups = WorldBackups.list(WorldBackups.folderFor(world.folder()));
 
@@ -195,25 +191,24 @@ final class WorldsPage implements App.Page {
 
         for (WorldBackups.Backup backup : backups) {
             Widgets.Card row = new Widgets.Card(Style.PANEL, 12, true);
-            row.setLayout(new BorderLayout(12, 0));
-            row.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 12));
-            row.add(new JLabel(Icons.of(backup.isAutomatic() ? Icons.Glyph.REFRESH : Icons.Glyph.BACKUP, 18,
-                    backup.isAutomatic() ? Style.MUTED : Style.CYAN)), BorderLayout.WEST);
-            JPanel info = Widgets.column();
-            info.add(Widgets.text(WHEN.format(backup.time()), 13.5f, Font.BOLD, Style.TEXT));
-            info.add(Box.createVerticalStrut(2));
-            info.add(Widgets.text(describe(backup.reason()) + "  ·  " + size(backup.size()), 12f, Font.PLAIN,
-                    Style.FAINT));
+            row.setLayout(new BorderLayout(14, 0));
+            row.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 14));
+            JLabel kind = new JLabel(Icons.of(backup.isAutomatic() ? Icons.Glyph.REFRESH : Icons.Glyph.BACKUP, 18,
+                    backup.isAutomatic() ? Style.MUTED : Style.CYAN));
+            kind.setVerticalAlignment(JLabel.TOP);
+            kind.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+            row.add(kind, BorderLayout.WEST);
+            JPanel info = Widgets.stack(3);
+            info.add(Widgets.line(WHEN.format(backup.time()), Style.font(Font.BOLD, 13.5f), Style.TEXT));
+            info.add(Widgets.line(describe(backup.reason()) + "   ·   " + size(backup.size()),
+                    Style.font(Font.PLAIN, 12f), Style.FAINT));
             row.add(info, BorderLayout.CENTER);
             Widgets.Button restore = Widgets.button("Restore", Icons.Glyph.RESTORE, Widgets.Kind.SECONDARY);
             restore.addActionListener(event -> restore(world, backup));
             JPanel holder = Widgets.clear(new BorderLayout());
             holder.add(restore, BorderLayout.NORTH);
             row.add(holder, BorderLayout.EAST);
-            row.setAlignmentX(Component.LEFT_ALIGNMENT);
-            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
             detail.add(row);
-            detail.add(Box.createVerticalStrut(8));
         }
 
         detail.revalidate();

@@ -114,6 +114,14 @@ class ModsTest {
     }
 
     @Test
+    void readsADescriptionAsPlainParagraphs() {
+        String markdown = "Intro.\n\n---\n\n<p align=\"center\">\n  <img src=\"x.png\">\n</p>\n\n\n"
+                + "## \uD83D\uDCE6 Install\n- *Fast* &#183; [docs](https://x)\n";
+
+        assertEquals("Intro.\n\nInstall\n\u2022 Fast \u00B7 docs", Modrinth.plain(markdown));
+    }
+
+    @Test
     void shortensABuildNamedAfterItsCommit() {
         assertEquals("Octo Loader build f018971",
                 News.title("Octo Loader Build f01897113a324f85606d8c887b28eb43b9e0cad8"));

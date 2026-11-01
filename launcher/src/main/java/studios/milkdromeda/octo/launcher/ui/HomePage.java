@@ -1,15 +1,14 @@
 package studios.milkdromeda.octo.launcher.ui;
 
+import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.MultipleGradientPaint;
 import java.awt.RadialGradientPaint;
@@ -21,19 +20,23 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 
+import studios.milkdromeda.octo.common.WorldBackups;
 import studios.milkdromeda.octo.installer.Mark;
+import studios.milkdromeda.octo.launcher.Launcher;
 import studios.milkdromeda.octo.launcher.News;
 import studios.milkdromeda.octo.launcher.Play;
+import studios.milkdromeda.octo.launcher.Updates;
 import studios.milkdromeda.octo.launcher.Versions;
 import studios.milkdromeda.octo.launcher.Worlds;
 import studios.milkdromeda.octo.launcher.mods.ModLibrary;
@@ -44,49 +47,64 @@ final class HomePage implements App.Page {
     static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneId.systemDefault());
 
     private final App app;
-    private final JPanel view = Widgets.clear(new BorderLayout(20, 0));
-    private final JLabel heroTitle = Widgets.text("Minecraft", 34f, Font.BOLD, Style.TEXT);
-    private final JLabel heroDetail = Widgets.text(" ", 14f, Font.PLAIN, Style.MUTED);
+    private final JPanel view = Widgets.clear(new BorderLayout(22, 0));
+    private final JLabel heroTitle = new JLabel("Minecraft");
+    private final Text heroDetail = Widgets.line(" ", Style.font(Font.PLAIN, 14.5f), Style.MUTED);
     private final Widgets.Button versionButton = Widgets.dropdown("Version");
-    private final Widgets.Button launch = new Widgets.Button("LAUNCH GAME", Icons.of(Icons.Glyph.PLAY, 18,
+    private final Widgets.Button launch = new Widgets.Button("Launch game", Icons.of(Icons.Glyph.PLAY, 18,
             Color.WHITE), Widgets.Kind.PRIMARY, 14);
-    private final JLabel launchNote = Widgets.text(" ", 12f, Font.PLAIN, Style.MUTED);
-    private final JPanel news = Widgets.clear(new GridLayout(1, 3, 16, 0));
-    private final JPanel popular = Widgets.clear(new GridLayout(1, 4, 14, 0));
-    private final JPanel worlds = Widgets.column();
-    private final JLabel modsSummary = Widgets.text(" ", 13f, Font.PLAIN, Style.MUTED);
+    private final JPanel news = Widgets.grid(240, 3, 16);
+    private final JPanel popular = Widgets.grid(230, 3, 14);
+    private final JPanel worlds = Widgets.stack(4);
+    private final JPanel modsBody = Widgets.stack(10);
+    private final JPanel octoBody = Widgets.stack(8);
     private List<Versions.Version> versions = List.of();
+    private Hero heroArt;
+    private boolean mobLoaded;
 
     HomePage(App app) {
         this.app = app;
-        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 22, 24));
+        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
 
-        JPanel main = Widgets.column();
+        JPanel main = Widgets.stack(0);
+        main.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
         main.add(hero());
-        main.add(Box.createVerticalStrut(26));
+        main.add(gap(30));
         main.add(header("Latest news", "All releases", () -> browse("https://github.com/MilkdromedaStudios/"
                 + "Octo-Loader/releases")));
-        news.setAlignmentX(Component.LEFT_ALIGNMENT);
-        news.setMaximumSize(new Dimension(Integer.MAX_VALUE, 210));
         main.add(news);
-        main.add(Box.createVerticalStrut(26));
+        main.add(gap(30));
         main.add(header("Popular mods", "Browse all mods", () -> app.go("Mods")));
-        popular.setAlignmentX(Component.LEFT_ALIGNMENT);
-        popular.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
         main.add(popular);
-        main.add(Box.createVerticalGlue());
+        view.add(Widgets.page(main), BorderLayout.CENTER);
 
-        JPanel holder = new Widgets.Tracking();
-        holder.add(main, BorderLayout.NORTH);
-        view.add(Widgets.scroll(holder), BorderLayout.CENTER);
-        view.add(side(), BorderLayout.EAST);
+        JComponent side = Widgets.page(side());
+        side.setPreferredSize(new Dimension(300, 10));
+        view.add(side, BorderLayout.EAST);
 
-        launch.setFont(Style.font(Font.BOLD, 16f));
-        launch.setBorder(BorderFactory.createEmptyBorder(15, 34, 15, 38));
+        launch.setFont(Style.strong(16f));
+        launch.setBorder(BorderFactory.createEmptyBorder(15, 30, 15, 34));
         launch.addActionListener(event -> launch());
+        versionButton.setFont(Style.strong(14f));
+        versionButton.setBorder(BorderFactory.createEmptyBorder(15, 18, 15, 16));
         versionButton.addActionListener(event -> chooseVersion());
+
+        for (int i = 0; i < 3; i++) {
+            news.add(new Skeleton(176, false));
+        }
+
+        for (int i = 0; i < 6; i++) {
+            popular.add(new Skeleton(150, true));
+        }
+
         loadNews();
         loadPopular();
+    }
+
+    private static JComponent gap(int height) {
+        JPanel gap = Widgets.clear(null);
+        gap.setPreferredSize(new Dimension(1, height));
+        return gap;
     }
 
     @Override
@@ -115,13 +133,14 @@ final class HomePage implements App.Page {
                     }
 
                     showVersion();
+                    loadMob();
                     showWorlds(worldList);
+                    showMods(mods);
+                    showOcto(worldList);
                     long on = mods.stream().filter(ModLibrary.InstalledMod::enabled).count();
-                    modsSummary.setText("<html><b style='color:" + Style.hex(Style.TEXT) + "'>" + on
-                            + "</b> mods on" + (mods.size() > on ? ", " + (mods.size() - on) + " off" : "")
-                            + "</html>");
-                    String last = worldList.isEmpty() ? "No worlds yet" : "Last played: " + worldList.get(0).name();
-                    heroDetail.setText(on + " mods  ·  " + last);
+                    heroDetail.setText(on + (on == 1 ? " mod" : " mods") + "   ·   " + (worldList.isEmpty()
+                            ? "No worlds yet" : "Last played: " + worldList.get(0).name()));
+                    view.revalidate();
                 });
     }
 
@@ -129,45 +148,50 @@ final class HomePage implements App.Page {
 
     private JComponent hero() {
         Hero hero = new Hero();
-        hero.setLayout(new BorderLayout());
-        hero.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hero.setPreferredSize(new Dimension(600, 300));
-        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, 300));
-        hero.setBorder(BorderFactory.createEmptyBorder(34, 38, 30, 38));
+        heroArt = hero;
+        hero.setBorder(BorderFactory.createEmptyBorder(32, 36, 28, 36));
 
-        JPanel text = Widgets.column();
-        JLabel eyebrow = Widgets.pill("OCTO LOADER", Style.CYAN);
-        eyebrow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel text = Widgets.stack(0);
+        JPanel eyebrow = Widgets.flow(8, 0);
+        eyebrow.add(Widgets.pill("OCTO LOADER", Style.CYAN));
         text.add(eyebrow);
-        text.add(Box.createVerticalStrut(14));
-        heroTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(gap(14));
+        heroTitle.setFont(Style.display(40f));
+        heroTitle.setForeground(Style.TEXT);
         text.add(heroTitle);
-        text.add(Box.createVerticalStrut(6));
-        heroDetail.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(gap(4));
         text.add(heroDetail);
-        text.add(Box.createVerticalGlue());
-
-        JPanel actions = Widgets.row(12);
-        actions.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(gap(26));
+        JPanel actions = Widgets.flow(12, 10);
         actions.add(launch);
-        versionButton.setBorder(BorderFactory.createEmptyBorder(15, 18, 15, 18));
-        versionButton.setFont(Style.font(Font.BOLD, 14f));
         actions.add(versionButton);
         text.add(actions);
-        text.add(Box.createVerticalStrut(10));
-        launchNote.setText("Opens the Minecraft Launcher with Octo selected: sign in and play there.");
-        launchNote.setAlignmentX(Component.LEFT_ALIGNMENT);
-        text.add(launchNote);
+        text.add(gap(12));
+        text.add(Widgets.line("Opens the Minecraft Launcher with Octo selected. Sign in and play there.",
+                Style.font(Font.PLAIN, 12.5f), Style.MUTED));
         hero.add(text, BorderLayout.CENTER);
         return hero;
     }
 
-    /** The banner art: glows in the accent colours, floating blocks, and the mark. */
+    /** The banner art: glows in the accent colours, a drift of blocks, and the mark. */
     private static final class Hero extends JPanel {
-        private final Image mark = Mark.image(220);
+        private final Image mark = Mark.image(240);
+        /** The creeper, drawn from the player's own Minecraft, once it is read. */
+        private volatile Image mob;
+
+        void mob(Image image) {
+            mob = image;
+            repaint();
+        }
 
         Hero() {
+            super(new BorderLayout());
             setOpaque(false);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(super.getPreferredSize().width, Math.max(292, super.getPreferredSize().height));
         }
 
         @Override
@@ -175,28 +199,54 @@ final class HomePage implements App.Page {
             Graphics2D g = Style.smooth(graphics);
             int w = getWidth();
             int h = getHeight();
-            g.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, 22, 22));
-            g.setPaint(new GradientPaint(0, 0, new Color(0x1B, 0x14, 0x3D), w, h, new Color(0x08, 0x1E, 0x33)));
+            g.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, 24, 24));
+            g.setPaint(new GradientPaint(0, 0, new Color(0x1C, 0x13, 0x42), w, h, new Color(0x06, 0x1B, 0x30)));
             g.fillRect(0, 0, w, h);
-            glow(g, w * 0.18f, h * 0.1f, Math.max(w, h) * 0.55f, Style.alpha(Style.VIOLET, 110));
-            glow(g, w * 0.92f, h * 0.95f, Math.max(w, h) * 0.5f, Style.alpha(Style.CYAN, 90));
+            glow(g, w * 0.15f, h * 0.05f, Math.max(w, h) * 0.55f, Style.alpha(Style.VIOLET, 120));
+            glow(g, w * 0.95f, h * 1.0f, Math.max(w, h) * 0.5f, Style.alpha(Style.CYAN, 95));
 
-            // A loose drift of blocks to the right, in perspective.
+            // The art takes the right side, and steps back when the window
+            // is narrow so it never sits under the text and buttons.
+            int markSize = Math.min(220, h - 60);
+            int markX = w - markSize - 46;
+            boolean roomy = markX > 520;
             Random random = new Random(7);
 
-            for (int i = 0; i < 18; i++) {
-                float size = 14 + random.nextFloat() * 34;
-                float x = w * 0.5f + random.nextFloat() * w * 0.5f;
+            for (int i = 0; i < 20; i++) {
+                float size = 12 + random.nextFloat() * 32;
+                float x = w * 0.48f + random.nextFloat() * w * 0.52f;
                 float y = random.nextFloat() * h;
-                block(g, x, y, size, random.nextBoolean() ? Style.VIOLET : Style.CYAN, 40 + random.nextInt(70));
+                block(g, x, y, size, random.nextBoolean() ? Style.VIOLET : Style.CYAN,
+                        (roomy ? 40 : 18) + random.nextInt(roomy ? 70 : 30));
             }
 
-            g.drawImage(mark, w - 270, h / 2 - 110, 220, 220, null);
-            g.setPaint(new GradientPaint(0, 0, new Color(0, 0, 0, 120), w * 0.6f, 0, new Color(0, 0, 0, 0)));
+            Image creeper = mob;
+
+            if (creeper != null) {
+                // Big, standing on the banner's floor at the right.
+                int mobHeight = h - 8;
+                int mobWidth = creeper.getWidth(null) * mobHeight / creeper.getHeight(null);
+                int mobX = w - mobWidth - 36;
+                boolean fits = mobX > 500;
+                int drawX = Math.max(mobX, w - mobWidth - 10);
+
+                if (fits) {
+                    glow(g, drawX + mobWidth / 2f, h * 0.55f, mobHeight * 0.75f, new Color(61, 220, 151, 70));
+                }
+
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, fits ? 1f : 0.22f));
+                g.drawImage(creeper, drawX, h - mobHeight + 4, mobWidth, mobHeight, null);
+            } else {
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, roomy ? 1f : 0.16f));
+                g.drawImage(mark, Math.max(markX, w - markSize - 20), (h - markSize) / 2, markSize, markSize, null);
+            }
+
+            g.setComposite(AlphaComposite.SrcOver);
+            g.setPaint(new GradientPaint(0, 0, new Color(0, 0, 0, 130), w * 0.62f, 0, new Color(0, 0, 0, 0)));
             g.fillRect(0, 0, w, h);
             g.setClip(null);
-            g.setColor(Style.alpha(Color.WHITE, 22));
-            g.drawRoundRect(0, 0, w - 1, h - 1, 22, 22);
+            g.setColor(Style.alpha(Color.WHITE, 20));
+            g.drawRoundRect(0, 0, w - 1, h - 1, 24, 24);
             g.dispose();
         }
 
@@ -237,6 +287,24 @@ final class HomePage implements App.Page {
         }
     }
 
+    /** The creeper for the banner, from the Minecraft the player has. */
+    private void loadMob() {
+        if (mobLoaded) {
+            return;
+        }
+
+        mobLoaded = true;
+        app.run(() -> {
+            java.awt.image.BufferedImage texture = MobArt.texture(app.settings().gameDir(),
+                    app.settings().selectedVersion);
+            return texture == null ? null : MobArt.render(texture, 560);
+        }, image -> {
+            if (image != null) {
+                heroArt.mob(image);
+            }
+        });
+    }
+
     private void showVersion() {
         String version = app.settings().selectedVersion;
         heroTitle.setText(version.isBlank() ? "Minecraft" : "Minecraft " + version);
@@ -247,7 +315,8 @@ final class HomePage implements App.Page {
         JPopupMenu menu = new JPopupMenu();
         menu.setBorder(BorderFactory.createLineBorder(Style.LINE));
         versions.stream().filter(version -> version.withOcto() || version.isRelease()).limit(14).forEach(version -> {
-            JMenuItem item = new JMenuItem(version.id() + (version.withOcto() ? "    (Octo installed)" : ""));
+            JMenuItem item = new JMenuItem(version.id() + (version.withOcto() ? "    Octo installed" : ""));
+            item.setFont(Style.font(Font.PLAIN, 13f));
             item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
             item.addActionListener(event -> {
                 app.settings().selectedVersion = version.id();
@@ -257,6 +326,7 @@ final class HomePage implements App.Page {
             menu.add(item);
         });
         JMenuItem all = new JMenuItem("All versions...");
+        all.setFont(Style.font(Font.BOLD, 13f));
         all.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
         all.addActionListener(event -> app.go("Versions"));
         menu.add(all);
@@ -265,7 +335,7 @@ final class HomePage implements App.Page {
 
     private void launch() {
         launch.setEnabled(false);
-        launch.setText("PREPARING...");
+        launch.setText("Getting ready...");
         app.run(() -> Play.prepareAndOpen(app.settings(), app.settings().selectedVersion, message -> { }), result -> {
             app.toast(result, Style.GREEN);
             app.changed();
@@ -273,7 +343,7 @@ final class HomePage implements App.Page {
 
         javax.swing.Timer reset = new javax.swing.Timer(2500, event -> {
             launch.setEnabled(true);
-            launch.setText("LAUNCH GAME");
+            launch.setText("Launch game");
         });
         reset.setRepeats(false);
         reset.start();
@@ -281,18 +351,25 @@ final class HomePage implements App.Page {
 
     // ------------------------------------------------------------- news
 
-    private JComponent header(String title, String link, Runnable onLink) {
+    static JComponent header(String title, String link, Runnable onLink) {
         JPanel row = Widgets.clear(new BorderLayout());
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-        row.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
-        row.add(Widgets.text(title, 17f, Font.BOLD, Style.TEXT), BorderLayout.WEST);
-        Widgets.Button more = Widgets.button(link, null, Widgets.Kind.GHOST);
-        more.setForeground(Style.MUTED);
-        more.setFont(Style.font(Font.PLAIN, 12.5f));
-        more.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
-        more.addActionListener(event -> onLink.run());
-        row.add(more, BorderLayout.EAST);
+        row.setBorder(BorderFactory.createEmptyBorder(0, 0, 14, 0));
+        JLabel label = new JLabel(title);
+        label.setFont(Style.display(18f));
+        label.setForeground(Style.TEXT);
+        row.add(label, BorderLayout.WEST);
+
+        if (link != null) {
+            Widgets.Button more = new Widgets.Button(link, Icons.of(Icons.Glyph.CHEVRON_RIGHT, 13, Style.MUTED),
+                    Widgets.Kind.GHOST, 8);
+            more.setHorizontalTextPosition(javax.swing.SwingConstants.LEFT);
+            more.setForeground(Style.MUTED);
+            more.setFont(Style.font(Font.BOLD, 12.5f));
+            more.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 8));
+            more.addActionListener(event -> onLink.run());
+            row.add(more, BorderLayout.EAST);
+        }
+
         return row;
     }
 
@@ -300,12 +377,21 @@ final class HomePage implements App.Page {
         app.run(() -> News.latest(3), items -> {
             news.removeAll();
 
-            for (int i = 0; i < 3; i++) {
-                news.add(i < items.size() ? newsCard(items.get(i), i) : Widgets.clear(new BorderLayout()));
+            for (int i = 0; i < items.size(); i++) {
+                news.add(newsCard(items.get(i), i));
+            }
+
+            if (items.isEmpty()) {
+                news.add(ModsPage.empty("No news yet", "Releases appear here once there is a connection."));
             }
 
             news.revalidate();
             news.repaint();
+        }, failure -> {
+            news.removeAll();
+            news.add(ModsPage.empty("News could not be loaded", "Check your connection; it is read again the next "
+                    + "time Octo Launcher opens."));
+            news.revalidate();
         });
     }
 
@@ -317,37 +403,45 @@ final class HomePage implements App.Page {
         Color[] palette = palettes[index % palettes.length];
         JPanel art = new JPanel() {
             @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(10, 84);
+            }
+
+            @Override
             protected void paintComponent(Graphics graphics) {
                 Graphics2D g = Style.smooth(graphics);
                 int w = getWidth();
-                int h = getHeight() + 16;
-                g.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, 16, 16));
-                g.setPaint(new GradientPaint(0, 0, palette[1], w, h, Style.mix(palette[0], Color.BLACK, 0.2f)));
+                int h = getHeight();
+                Path2D shape = new Path2D.Float();
+                shape.append(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h + 20, 16, 16), false);
+                g.setClip(new java.awt.geom.Rectangle2D.Float(0, 0, w, h));
+                g.clip(shape);
+                g.setPaint(new GradientPaint(0, 0, palette[1], w, h, Style.mix(palette[0], Color.BLACK, 0.15f)));
                 g.fillRect(0, 0, w, h);
-                g.setColor(Style.alpha(Color.WHITE, 18));
+                g.setColor(Style.alpha(Color.WHITE, 16));
 
-                for (int i = -h; i < w; i += 18) {
+                for (int i = -h; i < w; i += 16) {
                     g.drawLine(i, h, i + h, 0);
                 }
 
-                g.setFont(Style.font(Font.BOLD, 13f));
-                g.setColor(Style.alpha(Color.WHITE, 220));
-                g.drawString(index == 0 ? "NEW RELEASE" : "RELEASE", 16, 28);
+                Image mark = Mark.image(64);
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.9f));
+                g.drawImage(mark, w - 76, (h - 64) / 2, 64, 64, null);
+                g.setComposite(AlphaComposite.SrcOver);
+                g.setFont(Style.strong(11.5f));
+                g.setColor(Style.alpha(Color.WHITE, 230));
+                g.drawString(index == 0 ? "NEW RELEASE" : "RELEASE", 16, 26);
                 g.dispose();
             }
         };
-        art.setPreferredSize(new Dimension(10, 74));
         art.setOpaque(false);
         card.add(art, BorderLayout.NORTH);
 
-        JPanel body = Widgets.column();
+        JPanel body = Widgets.stack(5);
         body.setBorder(BorderFactory.createEmptyBorder(14, 16, 16, 16));
-        JLabel title = Widgets.wrapped("<b>" + escape(item.title()) + "</b>", 13.5f, Style.TEXT, 170);
-        body.add(title);
-        body.add(Box.createVerticalStrut(4));
-        body.add(Widgets.text(DATE.format(item.published()), 11.5f, Font.PLAIN, Style.FAINT));
-        body.add(Box.createVerticalStrut(6));
-        body.add(Widgets.wrapped(escape(item.summary()), 12f, Style.MUTED, 170));
+        body.add(new Text(item.title(), Style.font(Font.BOLD, 14f), Style.TEXT, 2));
+        body.add(Widgets.line(DATE.format(item.published()), Style.font(Font.PLAIN, 12f), Style.FAINT));
+        body.add(Widgets.paragraph(item.summary(), 12.5f, Style.MUTED, 2));
         card.add(body, BorderLayout.CENTER);
         return card;
     }
@@ -355,7 +449,7 @@ final class HomePage implements App.Page {
     // ----------------------------------------------------------- popular
 
     private void loadPopular() {
-        app.run(() -> Modrinth.search("", null, null, "downloads", 0, 4), page -> {
+        app.run(() -> Modrinth.search("", null, null, "downloads", 0, 6), page -> {
             popular.removeAll();
 
             for (Modrinth.Project project : page.projects()) {
@@ -364,61 +458,57 @@ final class HomePage implements App.Page {
 
             popular.revalidate();
             popular.repaint();
+        }, failure -> {
+            popular.removeAll();
+            popular.add(ModsPage.empty("Modrinth could not be reached", "Popular mods appear here when there is a "
+                    + "connection."));
+            popular.revalidate();
         });
     }
 
     private JComponent popularCard(Modrinth.Project project) {
-        Widgets.Card card = Widgets.card();
-        card.setLayout(new BorderLayout(0, 10));
+        Widgets.Card card = new Widgets.Card(Style.PANEL, 16, true).hoverable(() -> app.showMod(project));
+        card.setLayout(new BorderLayout(0, 12));
         card.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
         JLabel icon = new JLabel();
         Images.load(project.iconUrl(), project.title(), project.color() == 0 ? null : new Color(project.color()),
-                44, 12, image -> icon.setIcon(new javax.swing.ImageIcon(image)));
-        JPanel top = Widgets.clear(new BorderLayout(10, 0));
+                48, 12, image -> icon.setIcon(new javax.swing.ImageIcon(image)));
+        JPanel top = Widgets.clear(new BorderLayout(12, 0));
         top.add(icon, BorderLayout.WEST);
-        JPanel name = Widgets.column();
-        name.add(Widgets.text(shorten(project.title(), 18), 13.5f, Font.BOLD, Style.TEXT));
-        name.add(Box.createVerticalStrut(3));
-        name.add(Widgets.text(Widgets.count(project.downloads()) + " downloads", 11.5f, Font.PLAIN, Style.FAINT));
+        JPanel name = Widgets.stack(3);
+        name.add(Widgets.line(project.title(), Style.font(Font.BOLD, 14f), Style.TEXT));
+        name.add(Widgets.line(Widgets.count(project.downloads()) + " downloads", Style.font(Font.PLAIN, 12f),
+                Style.FAINT));
         top.add(name, BorderLayout.CENTER);
         card.add(top, BorderLayout.NORTH);
-        card.add(ModsPage.installButton(app, project, true), BorderLayout.SOUTH);
+        card.add(Widgets.paragraph(project.description(), 12.5f, Style.MUTED, 2), BorderLayout.CENTER);
+        card.add(ModsPage.installButton(app, project), BorderLayout.SOUTH);
         return card;
     }
 
     // -------------------------------------------------------------- side
 
     private JComponent side() {
-        JPanel side = Widgets.column();
-        side.setPreferredSize(new Dimension(300, 10));
+        JPanel side = Widgets.stack(16);
+        side.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 2));
 
         Widgets.Card worldCard = Widgets.card();
-        worldCard.setLayout(new BorderLayout(0, 8));
-        JPanel head = Widgets.clear(new BorderLayout());
-        head.add(Widgets.text("Your worlds", 15f, Font.BOLD, Style.TEXT), BorderLayout.WEST);
-        Widgets.Button manage = Widgets.button("Manage", null, Widgets.Kind.GHOST);
-        manage.setForeground(Style.MUTED);
-        manage.setFont(Style.font(Font.PLAIN, 12f));
-        manage.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
-        manage.addActionListener(event -> app.go("Worlds"));
-        head.add(manage, BorderLayout.EAST);
-        worldCard.add(head, BorderLayout.NORTH);
+        worldCard.setLayout(new BorderLayout(0, 10));
+        worldCard.add(header("Your worlds", "Manage", () -> app.go("Worlds")), BorderLayout.NORTH);
         worldCard.add(worlds, BorderLayout.CENTER);
-        worldCard.setAlignmentX(Component.LEFT_ALIGNMENT);
         side.add(worldCard);
-        side.add(Box.createVerticalStrut(16));
 
         Widgets.Card modsCard = Widgets.card();
         modsCard.setLayout(new BorderLayout(0, 10));
-        modsCard.add(Widgets.text("Mods", 15f, Font.BOLD, Style.TEXT), BorderLayout.NORTH);
-        modsCard.add(modsSummary, BorderLayout.CENTER);
-        Widgets.Button openMods = Widgets.button("Open mod manager", Icons.Glyph.MODS, Widgets.Kind.SECONDARY);
-        openMods.addActionListener(event -> app.go("Mods"));
-        modsCard.add(openMods, BorderLayout.SOUTH);
-        modsCard.setAlignmentX(Component.LEFT_ALIGNMENT);
-        modsCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
+        modsCard.add(header("Mods", "Manage", () -> app.go("Mods")), BorderLayout.NORTH);
+        modsCard.add(modsBody, BorderLayout.CENTER);
         side.add(modsCard);
-        side.add(Box.createVerticalGlue());
+
+        Widgets.Card octoCard = Widgets.card();
+        octoCard.setLayout(new BorderLayout(0, 10));
+        octoCard.add(header("Octo", null, null), BorderLayout.NORTH);
+        octoCard.add(octoBody, BorderLayout.CENTER);
+        side.add(octoCard);
         return side;
     }
 
@@ -426,16 +516,76 @@ final class HomePage implements App.Page {
         worlds.removeAll();
 
         if (list.isEmpty()) {
-            worlds.add(Widgets.wrapped("Worlds you play appear here, with their backups.", 12.5f, Style.MUTED, 230));
+            worlds.add(Widgets.paragraph("Worlds you play appear here, with their backups.", 12.5f, Style.MUTED, 0));
         }
 
-        for (Worlds.World world : list.stream().limit(6).toList()) {
+        for (Worlds.World world : list.stream().limit(5).toList()) {
             worlds.add(worldRow(world));
-            worlds.add(Box.createVerticalStrut(4));
         }
 
         worlds.revalidate();
         worlds.repaint();
+    }
+
+    private void showMods(List<ModLibrary.InstalledMod> mods) {
+        modsBody.removeAll();
+        long on = mods.stream().filter(ModLibrary.InstalledMod::enabled).count();
+        JPanel figures = Widgets.clear(new java.awt.GridLayout(1, 2, 10, 0));
+        figures.add(figure(Long.toString(on), "on"));
+        figures.add(figure(Long.toString(mods.size() - on), "off"));
+        modsBody.add(figures);
+        Map<String, Integer> byLoader = new TreeMap<>();
+        mods.forEach(mod -> {
+            if (mod.loader() != null && !mod.loader().isBlank()) {
+                byLoader.merge(mod.loader(), 1, Integer::sum);
+            }
+        });
+
+        if (!byLoader.isEmpty()) {
+            JPanel loaders = Widgets.flow(6, 6);
+            byLoader.forEach((loader, count) -> loaders.add(Widgets.pill(loader + "  " + count,
+                    ModsPage.loaderColour(loader))));
+            modsBody.add(loaders);
+        }
+
+        modsBody.revalidate();
+        modsBody.repaint();
+    }
+
+    private void showOcto(List<Worlds.World> list) {
+        octoBody.removeAll();
+        String loader = Updates.loaderTagNow();
+        octoBody.add(status(Icons.Glyph.VERSIONS, "Octo Loader", loader == null ? "Built in" : News.title(loader)));
+        octoBody.add(status(Icons.Glyph.WORLDS, "World guard", list.stream().anyMatch(Worlds.World::needsAttention)
+                ? "Protecting a world" : "All worlds whole"));
+        int backups = list.stream().mapToInt(Worlds.World::backups).sum();
+        octoBody.add(status(Icons.Glyph.BACKUP, "Backups", backups + " across " + list.size() + " world"
+                + (list.size() == 1 ? "" : "s")));
+        octoBody.add(status(Icons.Glyph.UPDATE, "Launcher", Launcher.build().equals("dev") ? "Development build"
+                : News.title(Launcher.build())));
+        octoBody.revalidate();
+        octoBody.repaint();
+    }
+
+    private static JComponent figure(String value, String label) {
+        Widgets.Card tile = new Widgets.Card(Style.RAISED, 12, false);
+        tile.setLayout(new BorderLayout());
+        tile.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        JLabel number = new JLabel(value);
+        number.setFont(Style.display(22f));
+        number.setForeground(Style.TEXT);
+        tile.add(number, BorderLayout.CENTER);
+        tile.add(Widgets.text(label, 12f, Font.PLAIN, Style.FAINT), BorderLayout.SOUTH);
+        return tile;
+    }
+
+    private static JComponent status(Icons.Glyph glyph, String title, String value) {
+        JPanel row = Widgets.clear(new BorderLayout(10, 0));
+        row.add(new JLabel(Icons.of(glyph, 16, Style.MUTED)), BorderLayout.WEST);
+        row.add(Widgets.line(title, Style.font(Font.PLAIN, 12.5f), Style.MUTED), BorderLayout.CENTER);
+        JLabel right = Widgets.text(value, 12.5f, Font.BOLD, Style.TEXT);
+        row.add(right, BorderLayout.EAST);
+        return row;
     }
 
     static Image worldIcon(Worlds.World world, int size) {
@@ -455,13 +605,12 @@ final class HomePage implements App.Page {
     private JComponent worldRow(Worlds.World world) {
         Widgets.Card row = new Widgets.Card(Style.PANEL, 12, false).hoverable(() -> app.go("Worlds"));
         row.setLayout(new BorderLayout(10, 0));
-        row.setBorder(BorderFactory.createEmptyBorder(7, 6, 7, 6));
+        row.setBorder(BorderFactory.createEmptyBorder(6, 4, 6, 4));
         row.add(Widgets.picture(worldIcon(world, 38)), BorderLayout.WEST);
-        JPanel text = Widgets.column();
-        text.add(Widgets.text(shorten(world.name(), 22), 13f, Font.BOLD, Style.TEXT));
-        text.add(Box.createVerticalStrut(2));
-        text.add(Widgets.text(ago(world.lastPlayed()) + "  ·  " + world.backups() + " backups", 11.5f, Font.PLAIN,
-                Style.FAINT));
+        JPanel text = Widgets.stack(2);
+        text.add(Widgets.line(world.name(), Style.font(Font.BOLD, 13.5f), Style.TEXT));
+        text.add(Widgets.line(ago(world.lastPlayed()) + "  ·  " + world.backups() + " backups",
+                Style.font(Font.PLAIN, 12f), Style.FAINT));
         row.add(text, BorderLayout.CENTER);
 
         if (world.needsAttention()) {
@@ -470,8 +619,6 @@ final class HomePage implements App.Page {
             row.add(alert, BorderLayout.EAST);
         }
 
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
         return row;
     }
 
@@ -511,5 +658,10 @@ final class HomePage implements App.Page {
         } catch (Exception e) {
             // No browser: nothing to do.
         }
+    }
+
+    /** Backups of every world, for the status line. */
+    static int backupsOf(Worlds.World world) {
+        return WorldBackups.list(WorldBackups.folderFor(world.folder())).size();
     }
 }
