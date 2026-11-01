@@ -155,7 +155,68 @@ jobs:
 
             | File | What it is |
             |---|---|
-            | `octo-launcher.jar` | Octo Launcher: installs Octo for any version, backs worlds up, keeps itself and the loader current, and opens the Minecraft Launcher |
+            | `OctoLauncher-Setup.exe` | **Octo Launcher for Windows** — the one most players want: mods, worlds, backups and play, with its own Java |
+            | `octo-launcher.jar` | Octo Launcher as a jar, for macOS and Linux (or any system with Java 17+) |
             | `installer.jar` | the installer alone |
             | `octo-loader-${{ steps.version.outputs.version }}.jar` | the loader alone, for manual or server setups |
             | `checksums.txt` | SHA-256 of every jar, which Octo Launcher checks each download against |
+
+  # The Windows installer for the same release; see build.yml.
+  windows-installer:
+    needs: release
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Make sure WiX 3 is on the path
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            $wix = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter "WiX Toolset v3*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $wix) {
+              choco install wixtoolset --version 3.14.1 -y --no-progress
+              $wix = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter "WiX Toolset v3*" -Directory | Select-Object -First 1
+            }
+            "$($wix.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+
+      - name: Build the installer
+        shell: bash
+        env:
+          OCTO_BUILD: ${{ steps.version.outputs.tag }}
+        run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=${{ steps.version.outputs.version }}
+
+      - name: Collect it
+        shell: bash
+        run: |
+          mkdir release
+          cp launcher/build/native/*.exe release/OctoLauncher-Setup.exe
+          cd release
+          sha256sum OctoLauncher-Setup.exe > checksums-windows.txt
+
+      - name: Add it to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          fail_on_unmatched_files: true
+          files: |
+            release/OctoLauncher-Setup.exe
+            release/checksums-windows.txt

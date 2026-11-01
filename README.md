@@ -41,7 +41,7 @@
 | 🎨 **Old mods still render** | Block entity renderers, block models and baked quads written for the old renderer are bridged to 26.x's renderer, so moving parts such as Create's shafts and cogwheels draw. |
 | 🚀 **Fast after the first launch** | Rebuilt mods are cached. The next launch with the same mods loads them straight from the cache. |
 | 🧷 **Worlds survive mod changes** | When a mod goes missing, fails to build or renames its blocks, Octo backs the world up before it opens and keeps every chunk using that mod's content exactly as it is on disk. Put the mod back and nothing is lost. |
-| 🐙 **Octo Launcher** | A desktop app that installs Octo for any Minecraft version, backs worlds up and restores them, keeps itself and the loader up to date, and opens the official Minecraft Launcher for sign-in and play. |
+| 🐙 **Octo Launcher** | A Windows app (installer included) and cross-platform jar: one-click mod installs from Modrinth with their dependencies, turning mods on and off, updates, world backups and restores, and a big Launch button that hands over to the official Minecraft Launcher for sign-in. |
 | 🛟 **The game always starts** | A mod that cannot load does not stop you playing. Octo starts the game and shows you what is missing and why. |
 | 🔍 **No guessing** | Every change made to a mod is listed in the log and the mod report, so you can always see what was adapted. |
 
@@ -71,18 +71,24 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 
 ## Octo Launcher
 
-`octo-launcher.jar` (on every [release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)) is the app around Minecraft. Double-click it.
+**Windows:** download `OctoLauncher-Setup.exe` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest) and run it. It installs for you alone, with no administrator prompt. It brings its own Java and adds a Start menu entry and a desktop shortcut. **macOS and Linux:** download `octo-launcher.jar` and double-click it (Java 17 or newer).
+
+<p align="center">
+  <img src="docs/screenshots/launcher-home.png" alt="Octo Launcher: the Home page with the Launch game banner, news, popular mods and worlds" width="49%">
+  <img src="docs/screenshots/launcher-mods.png" alt="Octo Launcher: the mod manager browsing Modrinth" width="49%">
+</p>
 
 | Page | What it does |
 |---|---|
-| **Play** | Pick a Minecraft version and press **Play**. Octo installs or refreshes itself for that version, backs up the world you played last, selects the **Octo Loader** installation in the official Minecraft Launcher and opens it. |
-| **Versions** | Every version Mojang lists. **Install Octo** adds an installation for one, even if it isn't downloaded yet: the Minecraft Launcher downloads it the first time you play. **Remove Octo** takes it away again. |
-| **Worlds** | Every world, when it was played, its backups, and anything the world guard found. **Back up now**, **Restore** a backup (the world as it is now is backed up first), and **Accept removal** of a mod you took out on purpose. |
-| **Settings** | Your Minecraft folder, where the Minecraft Launcher is if Octo can't find it, automatic updates, backup before each launch, and how many automatic backups to keep. |
+| **Home** | Press **Launch game**. Octo installs or refreshes itself for the version you picked, backs up the world you played last, and opens the official Minecraft Launcher with the Octo installation selected. Below that: the latest Octo releases, popular mods you can install in one click, your worlds, and your mods at a glance. |
+| **Mods** | The mod manager. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
+| **Worlds** | Every world with its backups. **Back up now**, **Restore** any backup (the world as it is now is backed up first), and see what the world guard is protecting. **Accept removal** drops content from a mod you took out on purpose. |
+| **Versions** | Every version Mojang lists. **Install Octo** for any of them, even one not downloaded yet: the Minecraft Launcher downloads it the first time you play. |
+| **Settings** | Your Minecraft folder, where the Minecraft Launcher is, automatic updates, backups before each launch, and how many automatic backups to keep. |
 
-**Signing in, downloading and starting the game stay with the official Minecraft Launcher**, using your Microsoft account. Octo never sees your sign-in. It only prepares the installation and opens that launcher with the installation selected. Run the Minecraft Launcher once and sign in before your first **Play**.
+**Signing in, downloading the game and starting it stay with the official Minecraft Launcher**, using your Microsoft account. Octo never sees your sign-in. Run the Minecraft Launcher once and sign in before your first launch.
 
-**Updates.** When it opens, Octo Launcher checks the latest release. A newer loader is downloaded and installed into every Octo installation. A newer Octo Launcher shows a banner: **Update** downloads it and restarts into it. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
+**Updates.** When it opens, Octo Launcher checks the latest release. A newer loader is downloaded and installed into every Octo installation. A newer launcher shows **Update** in the title bar, which downloads it and restarts into it, whether it was installed with the Windows installer or run as a jar. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
 
 <details>
 <summary><b>From the terminal</b></summary>
@@ -94,6 +100,18 @@ java -jar octo-launcher.jar worlds                         # worlds, backups, an
 java -jar octo-launcher.jar backup "My World"              # back a world up now
 java -jar octo-launcher.jar restore <backup.zip> "My World"
 java -jar octo-launcher.jar update                         # newest loader, installed everywhere
+```
+
+</details>
+
+<details>
+<summary><b>Building the installer yourself</b></summary>
+
+```bash
+./gradlew :launcher:nativePackage                                    # an app folder for this system, with its own Java
+./gradlew :launcher:nativePackage -PpackageType=exe                  # Windows installer (on Windows, with WiX 3)
+./gradlew :launcher:nativePackage -PpackageType=deb                  # Linux package
+./gradlew :launcher:nativePackage -PpackageType=dmg                  # macOS disk image (on macOS)
 ```
 
 </details>

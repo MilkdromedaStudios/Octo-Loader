@@ -7,7 +7,7 @@ import studios.milkdromeda.octo.common.WorldBackups;
 import studios.milkdromeda.octo.installer.ClientInstaller;
 
 /** What pressing Play does, up to the official launcher taking over. */
-final class Play {
+public final class Play {
     private Play() {
     }
 
@@ -17,7 +17,7 @@ final class Play {
      *
      * @return what was done, in a sentence
      */
-    static String prepareAndOpen(LauncherSettings settings, String version, ClientInstaller.Log log)
+    public static String prepareAndOpen(LauncherSettings settings, String version, ClientInstaller.Log log)
             throws IOException {
         Path game = settings.gameDir();
 

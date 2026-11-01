@@ -221,11 +221,13 @@ public final class Updates {
         command.add(staged.toString());
         command.add(target.toString());
         command.add(Long.toString(ProcessHandle.current().pid()));
+        // Installed as an app: started again by its own program, not by java -jar.
+        command.add(System.getProperty("jpackage.app-path", ""));
         new ProcessBuilder(command).inheritIO().start();
     }
 
     /** Run by the staged jar: wait for the old launcher to exit, take its place, start it. */
-    static void apply(Path staged, Path target, long pid) throws Exception {
+    static void apply(Path staged, Path target, long pid, String appProgram) throws Exception {
         ProcessHandle.of(pid).ifPresent(process -> {
             try {
                 process.onExit().get(60, java.util.concurrent.TimeUnit.SECONDS);
@@ -254,11 +256,21 @@ public final class Updates {
             throw last;
         }
 
-        new ProcessBuilder(java(), "-jar", target.toString()).inheritIO().start();
+        if (appProgram != null && !appProgram.isBlank() && Files.exists(Path.of(appProgram))) {
+            new ProcessBuilder(appProgram).inheritIO().start();
+        } else {
+            new ProcessBuilder(java(), "-jar", target.toString()).inheritIO().start();
+        }
     }
 
+    /**
+     * The java of the runtime this runs on: the app's own when it is
+     * installed (where the process's command is the app, not java).
+     */
     static String java() {
-        return ProcessHandle.current().info().command().orElse("java");
+        boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        Path java = Path.of(System.getProperty("java.home"), "bin", windows ? "java.exe" : "java");
+        return Files.isRegularFile(java) ? java.toString() : ProcessHandle.current().info().command().orElse("java");
     }
 
     // ---------------------------------------------------------- the loader
@@ -266,6 +278,11 @@ public final class Updates {
     /** Where the newest downloaded loader is kept, with the release it came from beside it. */
     static Path loaderJar() {
         return LauncherSettings.home().resolve("loader").resolve("octo-loader.jar");
+    }
+
+    /** The release the downloaded loader came from, or {@code null}. */
+    public static String loaderTagNow() {
+        return loaderTag();
     }
 
     static String loaderTag() {
@@ -312,7 +329,7 @@ public final class Updates {
         return updated;
     }
 
-    static ClientInstaller installer(Path gameDirectory, ClientInstaller.Log log) {
+    public static ClientInstaller installer(Path gameDirectory, ClientInstaller.Log log) {
         ClientInstaller installer = new ClientInstaller(gameDirectory, Installer.VERSION, log).requireVanilla(false);
         Path loader = loaderToInstall();
         return loader == null ? installer : installer.loaderJar(loader);
