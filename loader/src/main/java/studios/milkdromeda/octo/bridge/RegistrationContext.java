@@ -77,6 +77,33 @@ public final class RegistrationContext {
         exit();
     }
 
+    /**
+     * The registries whose entries became records in 26.x, by path: an entry
+     * written against the old interface is registered as the record built
+     * from it ({@link RecordAdapter}). A registration through NeoForge's
+     * {@code DeferredRegister} hands its entry over with no cast where the
+     * adapter could step in, and Create's mechanical crafting and sequenced
+     * assembly serializers went into the registry as they were — every one
+     * of their recipes then a {@code ClassCastException} as it was read.
+     */
+    private static final java.util.Map<String, String> RECORDS = java.util.Map.of(
+            "recipe_serializer", "net.minecraft.world.item.crafting.RecipeSerializer");
+
+    private static Object asRecord(Object value, Object registryKey) {
+        String record = value == null ? null : RECORDS.get(path(registryKey));
+
+        if (record == null || value.getClass().getName().equals(record)) {
+            return value;
+        }
+
+        try {
+            Class<?> type = Class.forName(record, false, value.getClass().getClassLoader());
+            return type.isInstance(value) ? value : RecordAdapter.adapt(value, type);
+        } catch (ClassNotFoundException | RuntimeException e) {
+            return value;
+        }
+    }
+
     /** Forgets whatever an entry that threw left behind. */
     public static void clear() {
         ENTERED.get().clear();
@@ -98,7 +125,13 @@ public final class RegistrationContext {
             CURRENT.set(new Object[] { registryKey, id });
 
             try {
-                return supplier.get();
+                Object made = supplier.get();
+
+                if (made == null) {
+                    LOG.warn("{} {} was made as nothing, so it is not registered", path(registryKey), id);
+                }
+
+                return asRecord(made, registryKey);
             } catch (Throwable e) {
                 Failures.rethrowIfFatal(e);
                 LOG.warn("{} {} could not be made, so it is not registered: {}", path(registryKey), id,

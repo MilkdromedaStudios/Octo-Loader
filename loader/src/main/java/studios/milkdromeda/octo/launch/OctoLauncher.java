@@ -412,18 +412,28 @@ public final class OctoLauncher {
 
             construct(mods, classLoader);
 
+            // The client phases belong inside the game's own construction, so
+            // they are handed to the hook when the hook can reach them.
+            List<Lifecycle> deferred = deferredPhases(classLoader);
+
+            // Told they are constructed before anything is registered, as
+            // FML tells them: Create Dragons Plus puts every DeferredRegister
+            // it has on the bus from FMLConstructModEvent, and told after,
+            // none of its fluids, items or recipe serializers existed.
+            for (Lifecycle phase : List.of(Lifecycle.PRE_LAUNCH, Lifecycle.CONSTRUCT)) {
+                if (!deferred.contains(phase)) {
+                    dispatch(phase, mods);
+                }
+            }
+
             // NeoForge registers between constructing mods and setting them
             // up; that is when every DeferredRegister puts its content in.
             if (!apiLibraries.isEmpty() && mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE)) {
                 NeoRegistration.run(classLoader);
             }
 
-            // The client phases belong inside the game's own construction, so
-            // they are handed to the hook when the hook can reach them.
-            List<Lifecycle> deferred = deferredPhases(classLoader);
-
             for (Lifecycle phase : Lifecycle.values()) {
-                if (!deferred.contains(phase)) {
+                if (phase.compareTo(Lifecycle.CONSTRUCT) > 0 && !deferred.contains(phase)) {
                     dispatch(phase, mods);
                 }
             }
@@ -845,6 +855,8 @@ public final class OctoLauncher {
             }
 
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.TextureBounds());
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.CraftingSizeHook());
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModAttributesHook());
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityRendererGuard());
             classLoader.addGlobalTransformer(new FinalOverrides(index));
             classLoader.addGlobalTransformer(new OpenTypes(extendedByMods(mods)));

@@ -150,6 +150,16 @@ public final class MissingMemberTransformer implements Transformer {
         }
     }
 
+    /**
+     * Fields that kept their name and changed what they hold, and the field
+     * holding what they held. {@code Recipe.CODEC} reads a recipe holder since
+     * recipes became a registry; a recipe written inline — every step of a
+     * Create sequenced assembly — is {@code DIRECT_CODEC}'s now, and read as
+     * a holder each step was a {@code ClassCastException}.
+     */
+    private static final Map<String, String> CHANGED_MEANING = Map.of(
+            "net/minecraft/world/item/crafting/Recipe.CODEC:Lcom/mojang/serialization/Codec;", "DIRECT_CODEC");
+
     private final Lookup lookup;
     private volatile studios.milkdromeda.octo.compat.api.Equivalents equivalents =
             studios.milkdromeda.octo.compat.api.Equivalents.EMPTY;
@@ -348,6 +358,8 @@ public final class MissingMemberTransformer implements Transformer {
         /** Methods to add for method references that pointed at something absent. */
         private final List<org.objectweb.asm.Handle> stubs = new java.util.ArrayList<>();
         private final Set<String> receiverStubs = new java.util.HashSet<>();
+        /** Methods a method reference to a shimmed member is pointed at: name, descriptor, shim, owner, member. */
+        private final List<String[]> shimHandles = new java.util.ArrayList<>();
         /** Methods to add that build an object whose constructor is absent, as {@code owner, descriptor}. */
         private final List<String[]> factories = new java.util.ArrayList<>();
         /** Methods to add that reach a member across a static/instance change, for calls with arguments. */
@@ -523,6 +535,30 @@ public final class MissingMemberTransformer implements Transformer {
 
             String descriptor = tag == Opcodes.H_INVOKESTATIC ? handle.getDesc()
                     : "(L" + owner + ";" + handle.getDesc().substring(1);
+
+            // A reference to what a shim rebuilds — RecipeType::simple handed
+            // to a DeferredRegister — reaches the shim through a method here.
+            if (classVersion >= Opcodes.V1_7 && tag != Opcodes.H_NEWINVOKESPECIAL) {
+                boolean isStatic = tag == Opcodes.H_INVOKESTATIC;
+                String shim = isStatic ? null : Shims.preferredShimFor(owner, handle.getName(), handle.getDesc());
+
+                if (shim == null) {
+                    shim = shimUpward(owner, handle.getName(), handle.getDesc(),
+                            isStatic ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL);
+                }
+
+                if (shim != null) {
+                    String name = "octo$shim$" + shimHandles.size();
+                    shimHandles.add(new String[] { name, descriptor, shim, owner, handle.getDesc(),
+                            String.valueOf(isStatic) });
+                    changed = true;
+                    record(context, owner, handle.getName() + handle.getDesc(), className,
+                            "references to it are rebuilt from what this version's API has");
+                    return new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, className, name, descriptor,
+                            classIsInterface);
+                }
+            }
+
             org.objectweb.asm.Handle stub = new org.objectweb.asm.Handle(Opcodes.H_INVOKESTATIC, className,
                     "octo$missing$" + stubs.size(), descriptor, classIsInterface);
             stubs.add(stub);
@@ -568,6 +604,10 @@ public final class MissingMemberTransformer implements Transformer {
 
             for (int i = 0; i < factories.size(); i++) {
                 writeFactory("octo$new$" + i, factories.get(i)[0], factories.get(i)[1]);
+            }
+
+            for (String[] shimHandle : shimHandles) {
+                writeShimHandle(shimHandle);
             }
 
             for (Bridge bridge : bridges) {
@@ -626,6 +666,39 @@ public final class MissingMemberTransformer implements Transformer {
             method.visitMethodInsn(opcode, bridge.owner(), bridge.method(), bridge.methodDescriptor(),
                     bridge.ownerIsInterface());
             method.visitInsn(Type.getReturnType(bridge.methodDescriptor()).getOpcode(Opcodes.IRETURN));
+            method.visitMaxs(0, 0);
+            method.visitEnd();
+        }
+
+        /** A static method taking a method reference's arguments to its shim. */
+        private void writeShimHandle(String[] shimHandle) {
+            int access = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC
+                    | (classIsInterface ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE);
+            String descriptor = shimHandle[1];
+            boolean isStatic = Boolean.parseBoolean(shimHandle[5]);
+            MethodVisitor method = super.visitMethod(access, shimHandle[0], descriptor, null, null);
+            method.visitCode();
+            int slot = 0;
+
+            for (Type argument : Type.getArgumentTypes(descriptor)) {
+                method.visitVarInsn(argument.getOpcode(Opcodes.ILOAD), slot);
+                slot += argument.getSize();
+            }
+
+            if (isStatic) {
+                method.visitLdcInsn(Type.getObjectType(shimHandle[3]));
+            }
+
+            method.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shimHandle[2],
+                    Shims.descriptorFor(shimHandle[4], isStatic), false);
+            Type returned = Type.getReturnType(descriptor);
+
+            if (returned.getSort() == Type.OBJECT || returned.getSort() == Type.ARRAY) {
+                method.visitTypeInsn(Opcodes.CHECKCAST, returned.getSort() == Type.ARRAY
+                        ? returned.getDescriptor() : returned.getInternalName());
+            }
+
+            method.visitInsn(returned.getOpcode(Opcodes.IRETURN));
             method.visitMaxs(0, 0);
             method.visitEnd();
         }
@@ -766,6 +839,25 @@ public final class MissingMemberTransformer implements Transformer {
                     // (ValueIoBridge), so the call is skipped.
                     if (opcode == Opcodes.INVOKESPECIAL && name.charAt(0) != '<' && !owner.equals(className)
                             && lookup.guards(owner) && Boolean.FALSE.equals(lookup.hasMethod(owner, name, descriptor))) {
+                        // The same method without the registries it was given
+                        // until 1.21.2: super.assemble(input, registries) is
+                        // the game's assemble(input), which makes the result.
+                        String shorter = withoutRegistries(owner, name, descriptor);
+
+                        if (shorter != null) {
+                            Type[] arguments = Type.getArgumentTypes(descriptor);
+
+                            for (int i = arguments.length - 1; i >= Type.getArgumentTypes(shorter).length; i--) {
+                                super.visitInsn(arguments[i].getSize() == 2 ? Opcodes.POP2 : Opcodes.POP);
+                            }
+
+                            super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, name, shorter, isInterface);
+                            changed = true;
+                            record(context, owner, name + descriptor, className,
+                                    "it is " + name + shorter + " now, without the registries");
+                            return;
+                        }
+
                         discard(Type.getArgumentTypes(descriptor), true);
                         Type returned = Type.getReturnType(descriptor);
 
@@ -805,6 +897,17 @@ public final class MissingMemberTransformer implements Transformer {
 
                     if (exists) {
                         repairShape(opcode, owner, name, descriptor, isInterface);
+                        return;
+                    }
+
+                    // A shim that knows better than any near match: a recipe's
+                    // getIngredients() is a list of optionals now, not of
+                    // ingredients, and only the shim makes the old list.
+                    String preferred = classVersion >= Opcodes.V1_5 && opcode != Opcodes.INVOKESTATIC
+                            ? Shims.preferredShimFor(owner, name, descriptor) : null;
+
+                    if (preferred != null) {
+                        callShim(preferred, opcode, owner, name, descriptor);
                         return;
                     }
 
@@ -875,24 +978,7 @@ public final class MissingMemberTransformer implements Transformer {
                     if (shim != null) {
                         // Removed, but the old behaviour is a line of the new
                         // API: DataResult.get() is result() or error(), wrapped.
-                        boolean isStatic = opcode == Opcodes.INVOKESTATIC;
-
-                        if (isStatic) {
-                            delegate.visitLdcInsn(Type.getObjectType(owner));
-                        }
-
-                        delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shim,
-                                Shims.descriptorFor(descriptor, isStatic), false);
-                        Type returned = Type.getReturnType(descriptor);
-
-                        if (returned.getSort() == Type.OBJECT || returned.getSort() == Type.ARRAY) {
-                            delegate.visitTypeInsn(Opcodes.CHECKCAST, returned.getSort() == Type.ARRAY
-                                    ? returned.getDescriptor() : returned.getInternalName());
-                        }
-
-                        changed = true;
-                        record(context, owner, name + descriptor, className,
-                                "it is rebuilt from what this version's API has");
+                        callShim(shim, opcode, owner, name, descriptor);
                         return;
                     }
 
@@ -978,6 +1064,11 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
+                    // Old arguments that make the new ones: 1.21.1's recipes.
+                    if (!blocked && convertedConstructorCall(owner, descriptor)) {
+                        return;
+                    }
+
                     // A constructor whose old arguments are a few lines of the new
                     // API: the old BakedQuad's vertex data, made into 26.x's record.
                     String constructorShim = blocked || classVersion < Opcodes.V1_5 ? null
@@ -1038,6 +1129,81 @@ public final class MissingMemberTransformer implements Transformer {
                  *
                  * @return whether the call was written
                  */
+                /**
+                 * @return the owner's form of the method with the trailing
+                 *         registries argument gone, if it has one with the
+                 *         same result
+                 */
+                private String withoutRegistries(String owner, String name, String descriptor) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    int keep = arguments.length;
+
+                    while (keep > 0 && (arguments[keep - 1].getInternalName().equals("net/minecraft/core/HolderLookup$Provider")
+                            || arguments[keep - 1].getInternalName().equals("net/minecraft/core/RegistryAccess"))) {
+                        keep--;
+                    }
+
+                    if (keep == arguments.length) {
+                        return null;
+                    }
+
+                    String shorter = Type.getMethodDescriptor(Type.getReturnType(descriptor),
+                            java.util.Arrays.copyOf(arguments, keep));
+                    return Boolean.TRUE.equals(lookup.hasMethod(owner, name, shorter)) ? shorter : null;
+                }
+
+                private void callShim(String shim, int opcode, String owner, String name, String descriptor) {
+                    boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+
+                    if (isStatic) {
+                        delegate.visitLdcInsn(Type.getObjectType(owner));
+                    }
+
+                    delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shim,
+                            Shims.descriptorFor(descriptor, isStatic), false);
+                    Type returned = Type.getReturnType(descriptor);
+
+                    if (returned.getSort() == Type.OBJECT || returned.getSort() == Type.ARRAY) {
+                        delegate.visitTypeInsn(Opcodes.CHECKCAST, returned.getSort() == Type.ARRAY
+                                ? returned.getDescriptor() : returned.getInternalName());
+                    }
+
+                    changed = true;
+                    record(context, owner, name + descriptor, className,
+                            "it is rebuilt from what this version's API has");
+                }
+
+                private boolean convertedConstructorCall(String owner, String descriptor) {
+                    String[] conversion = classVersion < Opcodes.V1_5 ? null
+                            : Shims.constructorConversion(owner, descriptor);
+
+                    if (conversion == null || !Boolean.TRUE.equals(lookup.hasMethod(owner, "<init>", conversion[1]))) {
+                        return false;
+                    }
+
+                    // The old arguments, made into the new ones by the shim and
+                    // handed over one by one from the array it answers.
+                    super.visitLdcInsn(Type.getObjectType(owner));
+                    super.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), conversion[0],
+                            Shims.conversionDescriptor(descriptor), false);
+                    int array = nextFree++;
+                    super.visitVarInsn(Opcodes.ASTORE, array);
+                    Type[] parameters = Type.getArgumentTypes(conversion[1]);
+
+                    for (int i = 0; i < parameters.length; i++) {
+                        super.visitVarInsn(Opcodes.ALOAD, array);
+                        pushInt(mv, i);
+                        super.visitInsn(Opcodes.AALOAD);
+                        unboxOrCast(mv, parameters[i]);
+                    }
+
+                    super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", conversion[1], false);
+                    changed = true;
+                    record(context, owner, "<init>" + descriptor, className,
+                            "its arguments are made into those of <init>" + conversion[1]);
+                    return true;
+                }
+
                 private boolean reorderedSuperCall(String owner, String descriptor) {
                     Type[] arguments = Type.getArgumentTypes(descriptor);
 
@@ -1079,6 +1245,24 @@ public final class MissingMemberTransformer implements Transformer {
                     }
 
                     return false;
+                }
+
+                /** @return how many of the parameters an argument of the same type can be given to */
+                private int kept(Type[] arguments, Type[] parameters) {
+                    boolean[] taken = new boolean[arguments.length];
+                    int kept = 0;
+
+                    for (Type parameter : parameters) {
+                        for (int j = 0; j < arguments.length; j++) {
+                            if (!taken[j] && arguments[j].equals(parameter)) {
+                                taken[j] = true;
+                                kept++;
+                                break;
+                            }
+                        }
+                    }
+
+                    return kept;
                 }
 
                 /**
@@ -1216,6 +1400,10 @@ public final class MissingMemberTransformer implements Transformer {
                         return true;
                     }
 
+                    if (convertedConstructorCall(owner, descriptor)) {
+                        return true;
+                    }
+
                     if (reorderedSuperCall(owner, descriptor)) {
                         return true;
                     }
@@ -1224,7 +1412,9 @@ public final class MissingMemberTransformer implements Transformer {
                         return true;
                     }
 
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
                     String simplest = null;
+                    int bestKept = -1;
 
                     for (String candidate : lookup.overloads(owner, "<init>")) {
                         Integer access = lookup.methodAccess(owner, "<init>", candidate);
@@ -1235,9 +1425,14 @@ public final class MissingMemberTransformer implements Transformer {
                             continue;
                         }
 
-                        if (simplest == null
-                                || Type.getArgumentTypes(candidate).length < Type.getArgumentTypes(simplest).length) {
+                        // The constructor that keeps the most of what was
+                        // given, and of those the one asking least besides.
+                        int kept = kept(arguments, Type.getArgumentTypes(candidate));
+
+                        if (simplest == null || kept > bestKept || kept == bestKept
+                                && Type.getArgumentTypes(candidate).length < Type.getArgumentTypes(simplest).length) {
                             simplest = candidate;
+                            bestKept = kept;
                         }
                     }
 
@@ -1245,11 +1440,49 @@ public final class MissingMemberTransformer implements Transformer {
                         return false;
                     }
 
-                    // The arguments go; under them, the object being built stays.
-                    discard(Type.getArgumentTypes(descriptor), false);
+                    if (bestKept == 0 || classVersion < Opcodes.V1_5) {
+                        // The arguments go; under them, the object being built stays.
+                        discard(arguments, false);
 
-                    for (Type parameter : Type.getArgumentTypes(simplest)) {
-                        pushSample(parameter, owner);
+                        for (Type parameter : Type.getArgumentTypes(simplest)) {
+                            pushSample(parameter, owner);
+                        }
+                    } else {
+                        // Each argument the constructor still takes is handed
+                        // over, a sample only where nothing given fits: a
+                        // cauldron's interactions changed type, and its block
+                        // properties went with them, so it had no properties.
+                        int[] slots = new int[arguments.length];
+                        int slot = nextFree;
+
+                        for (int i = 0; i < arguments.length; i++) {
+                            slots[i] = slot;
+                            slot += arguments[i].getSize();
+                        }
+
+                        for (int i = arguments.length - 1; i >= 0; i--) {
+                            super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                        }
+
+                        nextFree = slot;
+                        boolean[] taken = new boolean[arguments.length];
+
+                        for (Type parameter : Type.getArgumentTypes(simplest)) {
+                            int from = -1;
+
+                            for (int j = 0; j < arguments.length && from < 0; j++) {
+                                if (!taken[j] && arguments[j].equals(parameter)) {
+                                    from = j;
+                                }
+                            }
+
+                            if (from >= 0) {
+                                taken[from] = true;
+                                super.visitVarInsn(parameter.getOpcode(Opcodes.ILOAD), slots[from]);
+                            } else {
+                                pushSample(parameter, owner);
+                            }
+                        }
                     }
 
                     super.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", simplest, false);
@@ -1599,6 +1832,20 @@ public final class MissingMemberTransformer implements Transformer {
                 @Override
                 public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
                     justMade = null;
+
+                    // A field still there under its old name, meaning something
+                    // else now: only for a mod written when it meant the old thing.
+                    String renamed = opcode == Opcodes.GETSTATIC && context.mod() != null
+                            && context.mod().isFromAnotherVersion()
+                                    ? CHANGED_MEANING.get(owner + "." + name + ":" + descriptor) : null;
+
+                    if (renamed != null) {
+                        super.visitFieldInsn(opcode, owner, renamed, descriptor);
+                        changed = true;
+                        record(context, owner, name, className, "it means something else now; " + renamed
+                                + " is what it meant");
+                        return;
+                    }
 
                     // A field with a shim, on a class that is not here at all:
                     // the checks below only look at classes the game has, and
@@ -2348,6 +2595,20 @@ public final class MissingMemberTransformer implements Transformer {
         } else {
             method.visitIntInsn(Opcodes.SIPUSH, value);
         }
+    }
+
+    private static void unboxOrCast(MethodVisitor method, Type type) {
+        String wrapper = wrapperOf(type);
+
+        if (wrapper == null) {
+            method.visitTypeInsn(Opcodes.CHECKCAST,
+                    type.getSort() == Type.ARRAY ? type.getDescriptor() : type.getInternalName());
+            return;
+        }
+
+        method.visitTypeInsn(Opcodes.CHECKCAST, wrapper);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, wrapper, type.getClassName() + "Value",
+                "()" + type.getDescriptor(), false);
     }
 
     private static void box(MethodVisitor method, Type type) {

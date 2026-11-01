@@ -22,6 +22,11 @@
       "note": "since 1.21.2 a property of directions is an EnumProperty<Direction>, and BlockStateProperties.FACING is declared as one; the old class cannot be added back, since it extended EnumProperty, which is final now, and its create(...) factories are answered by Shims"
     },
     {
+      "name": "net/minecraft/core/cauldron/CauldronInteraction$InteractionMap",
+      "alternatives": ["net/minecraft/core/cauldron/CauldronInteraction$Dispatcher"],
+      "note": "26.x keeps a cauldron's interactions in a Dispatcher, by item and by tag, where 1.21.1 had a named map of items; a cauldron block takes one in its constructor, and given nothing it lost its block properties too"
+    },
+    {
       "name": "com/mojang/serialization/DataResult$PartialResult",
       "alternatives": ["com/mojang/serialization/DataResult$Error"],
       "note": "DataFixerUpper 7 (Minecraft 1.20.5) turned DataResult into an interface whose failure case is DataResult.Error; it carries the same message() and its partial value as partialValue()"
@@ -175,6 +180,12 @@
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "BLOCK", "alternatives": ["IMMOVEABLE"] },
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "PUSH_ONLY", "alternatives": ["PUSH"] },
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "IGNORE", "alternatives": ["IGNORE_ENTITY"] },
+    {
+      "owner": "net/minecraft/world/item/crafting/Ingredient",
+      "name": "CODEC_NONEMPTY",
+      "alternatives": ["CODEC"],
+      "note": "1.21.2 made every ingredient non-empty, so its codec is the non-empty one"
+    },
     {
       "owner": "net/minecraft/world/item/ItemStack",
       "name": "STRICT_CODEC",

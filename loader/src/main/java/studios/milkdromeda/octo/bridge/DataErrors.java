@@ -25,6 +25,33 @@ public final class DataErrors {
         return either.getMethod("right", Object.class).invoke(null, error);
     }
 
+    /**
+     * What {@code loadFromResource} read, unless it read nothing: a codec that
+     * succeeds with a null — a translated mod's, whose failing step Octo
+     * skipped — becomes the entry's error, not a null handed to the registry.
+     */
+    public static Object entryRead(Object result, Object key, Object resource) throws Throwable {
+        if (result == null) {
+            return entryFailed(new NullPointerException("the entry was read as nothing"), key, resource);
+        }
+
+        // DataFixerUpper's Either.left(null): its left() cannot even answer,
+        // so the value it holds is read directly.
+        boolean nothing;
+
+        try {
+            nothing = result.getClass().getName().endsWith("$Left") && field(result, "value") == null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            nothing = false;
+        }
+
+        if (nothing) {
+            return entryFailed(new NullPointerException("the entry was read as nothing"), key, resource);
+        }
+
+        return result;
+    }
+
     private static final java.util.Map<String, java.util.concurrent.atomic.AtomicInteger> SKIPPED =
             new java.util.concurrent.ConcurrentHashMap<>();
 

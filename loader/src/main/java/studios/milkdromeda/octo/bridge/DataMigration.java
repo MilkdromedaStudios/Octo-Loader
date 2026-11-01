@@ -212,6 +212,13 @@ public final class DataMigration {
             fluids = new JsonPrimitive(string(object.get("fluid")));
         } else if ("neoforge:tag".equals(type) && string(object.get("tag")) != null) {
             fluids = new JsonPrimitive("#" + string(object.get("tag")));
+        } else if ("neoforge:components".equals(type) && object.has("fluids")
+                && !object.has("neoforge:ingredient_type")) {
+            // Already a components ingredient, missing only the key 26.x's
+            // own codec dispatches on: Steam 'n' Rails' paint, by colour.
+            JsonObject out = object.deepCopy();
+            out.addProperty("neoforge:ingredient_type", "neoforge:components");
+            return out;
         } else if ("neoforge:compound".equals(type) && object.get("ingredients") instanceof JsonArray children) {
             // Several fluids: one set of them, as long as each is a plain fluid.
             JsonArray ids = new JsonArray();
@@ -232,6 +239,9 @@ public final class DataMigration {
         }
 
         JsonObject out = new JsonObject();
+        // Both keys: 26.x's own ingredient codec dispatches on the first, and
+        // Create reads its fluid ingredients' type from the second beside it.
+        out.addProperty("type", "neoforge:components");
         out.addProperty("neoforge:ingredient_type", "neoforge:components");
         out.add("fluids", fluids);
         out.add("components", new JsonObject());

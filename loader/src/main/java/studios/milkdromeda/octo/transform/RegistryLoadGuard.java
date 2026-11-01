@@ -178,6 +178,13 @@ public final class RegistryLoadGuard implements Transformer {
 
         method.visitMethodInsn(Opcodes.INVOKESTATIC, OWNER, KEPT, DESCRIPTOR, false);
         method.visitLabel(end);
+        // And an entry read as nothing at all, which the registry would refuse
+        // with a NullPointerException that ends the load: the same error.
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitVarInsn(Opcodes.ALOAD, 3);
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/DataErrors", "entryRead",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false);
+        method.visitTypeInsn(Opcodes.CHECKCAST, "com/mojang/datafixers/util/Either");
         method.visitInsn(Opcodes.ARETURN);
 
         Object[] locals = { "com/mojang/serialization/Decoder", "net/minecraft/resources/RegistryOps",
