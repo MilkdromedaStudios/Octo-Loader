@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="#octo-launcher">Octo Launcher</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#installing-mods">Installing mods</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
@@ -31,6 +32,26 @@
 > **Back up your worlds before you play with mods made for another Minecraft version.**
 > Octo rebuilds those mods so they run, but it cannot promise that what they save can be read back
 > correctly. Try them in a new world first. [Why?](#a-warning-about-mods-from-other-versions)
+
+## Meet Octo Launcher
+
+<p align="center">
+  <img src="docs/screenshots/octo-launcher-home.png" alt="Octo Launcher's home page: a Launch game banner with a creeper drawn from your own Minecraft, the latest Octo releases, popular mods to install in one click, your worlds and Octo's status" width="100%">
+</p>
+
+**The easiest way to play with Octo.** Find mods on Modrinth and install them in one click, with everything they need. Turn mods on and off, keep them up to date, and back up or restore any world. Then press **Launch game**.
+
+| Windows | npm (Windows, macOS, Linux) | Any system with Java 17+ |
+|---|---|---|
+| Download **[`OctoLauncher-Setup.exe`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and run it. No admin prompt, Java included, Start menu and desktop shortcuts. | `npm install -g octo-launcher`<br>`octo-launcher` | Download **[`octo-launcher.jar`](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest)** and double-click it. |
+
+<p align="center">
+  <img src="docs/screenshots/octo-launcher-mods.png" alt="The mod manager: Modrinth mods with their icons, loaders and one-click Install" width="32.5%">
+  <img src="docs/screenshots/octo-launcher-sheet.png" alt="A mod's page: screenshots, downloads, followers, description and Install" width="32.5%">
+  <img src="docs/screenshots/octo-launcher-worlds.png" alt="Worlds: backups, restore, and the world guard protecting a world whose mod is missing" width="32.5%">
+</p>
+
+<p align="center"><sub>Mods · a mod's page · worlds. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
 
 ## Why Octo?
 
@@ -71,17 +92,16 @@ java -jar installer.jar uninstall --mcVersion 26.3        # remove everything th
 
 ## Octo Launcher
 
-**Windows:** download `OctoLauncher-Setup.exe` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest) and run it. It installs for you alone, with no administrator prompt. It brings its own Java and adds a Start menu entry and a desktop shortcut. **macOS and Linux:** download `octo-launcher.jar` and double-click it (Java 17 or newer).
+**Windows:** download `OctoLauncher-Setup.exe` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest) and run it. It installs for you alone, with no administrator prompt. It brings its own Java and adds a Start menu entry and a desktop shortcut.
 
-<p align="center">
-  <img src="docs/screenshots/launcher-home.png" alt="Octo Launcher: the Home page with the Launch game banner, news, popular mods and worlds" width="49%">
-  <img src="docs/screenshots/launcher-mods.png" alt="Octo Launcher: the mod manager browsing Modrinth" width="49%">
-</p>
+**npm, on any system:** `npm install -g octo-launcher`, then `octo-launcher`. The first run downloads Octo Launcher from the latest release and checks it against the release's checksums. If you don't have Java 17 or newer, it also downloads Eclipse Temurin 21, checked against Adoptium's checksum. Everything stays in `~/.octo-launcher`. `HTTPS_PROXY` is respected.
+
+**Or the jar:** download `octo-launcher.jar` and double-click it (Java 17 or newer).
 
 | Page | What it does |
 |---|---|
-| **Home** | Press **Launch game**. Octo installs or refreshes itself for the version you picked, backs up the world you played last, and opens the official Minecraft Launcher with the Octo installation selected. Below that: the latest Octo releases, popular mods you can install in one click, your worlds, and your mods at a glance. |
-| **Mods** | The mod manager. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
+| **Home** | Press **Launch game**. Octo installs or refreshes itself for the version you picked, backs up the world you played last, and opens the official Minecraft Launcher with the Octo installation selected. The creeper in the banner is drawn in 3D from the texture in your own Minecraft (Octo ships no Mojang assets). Below that: the latest Octo releases, popular mods you can install in one click, your worlds, your mods, and Octo's status. |
+| **Mods** | The mod manager. Click any mod for its page: screenshots, downloads, followers, the full description and links. **Browse** searches Modrinth: Fabric, Quilt, Forge and NeoForge mods, by category and sort order, for any Minecraft version (Octo rebuilds mods made for another one). **Install** downloads the mod and every mod it requires, each checked against Modrinth's SHA-512. **Installed** lists what's in your mods folder, with each mod's own icon and version, a switch to turn it on or off, and a remove button. **Updates** finds newer versions of everything, including mods you installed by hand, and updates one or all. |
 | **Worlds** | Every world with its backups. **Back up now**, **Restore** any backup (the world as it is now is backed up first), and see what the world guard is protecting. **Accept removal** drops content from a mod you took out on purpose. |
 | **Versions** | Every version Mojang lists. **Install Octo** for any of them, even one not downloaded yet: the Minecraft Launcher downloads it the first time you play. |
 | **Settings** | Your Minecraft folder, where the Minecraft Launcher is, automatic updates, backups before each launch, and how many automatic backups to keep. |

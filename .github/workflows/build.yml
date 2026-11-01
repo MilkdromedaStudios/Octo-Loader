@@ -137,3 +137,22 @@ jobs:
           files: |
             release/OctoLauncher-Setup.exe
             release/checksums-windows.txt
+
+  # The npm package is checked on every build, published only with named
+  # releases (release.yml).
+  npm-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check the npm package
+        working-directory: npm
+        run: |
+          npm test
+          node --check bin/octo-launcher.js
+          npm pack --dry-run

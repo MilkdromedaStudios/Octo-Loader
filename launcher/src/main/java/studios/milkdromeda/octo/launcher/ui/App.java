@@ -36,6 +36,11 @@ public interface App {
     /** Saves the settings, telling the player if it could not. */
     void save();
 
+    /** Opens a mod's page over the window. */
+    default void showMod(studios.milkdromeda.octo.launcher.mods.Modrinth.Project project) {
+        ModSheet.show(this, project);
+    }
+
     /** The version Play launches. */
     default String selectedVersion() {
         return settings().selectedVersion;

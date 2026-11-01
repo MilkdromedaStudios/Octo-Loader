@@ -28,15 +28,15 @@ final class SettingsPage implements App.Page {
     SettingsPage(App app) {
         this.app = app;
         LauncherSettings settings = app.settings();
-        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 22, 24));
-        JPanel head = Widgets.column();
+        view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
+        JPanel head = Widgets.stack(4);
         head.add(Widgets.heading("Settings"));
-        head.add(Box.createVerticalStrut(4));
-        head.add(Widgets.text("Saved as you change them, in " + LauncherSettings.home() + ".", 13f, Font.PLAIN,
-                Style.MUTED));
+        head.add(Widgets.line("Saved as you change them, in " + tidy(LauncherSettings.home()) + ".",
+                Style.font(Font.PLAIN, 13f), Style.MUTED));
         view.add(head, BorderLayout.NORTH);
 
-        JPanel column = Widgets.column();
+        JPanel column = Widgets.stack(18);
+        column.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
 
         column.add(group("Minecraft", folderRow("Minecraft folder", "Where saves, mods and versions live.",
                 settings.gameDirectory, true, value -> {
@@ -48,7 +48,6 @@ final class SettingsPage implements App.Page {
                             settings.officialLauncher = value;
                             app.save();
                         })));
-        column.add(Box.createVerticalStrut(16));
         column.add(group("Updates",
                 switchRow("Check for updates when Octo Launcher opens", "A newer launcher shows in the title bar.",
                         settings.checkForUpdates, value -> {
@@ -61,7 +60,6 @@ final class SettingsPage implements App.Page {
                             settings.updateLoaderAutomatically = value;
                             app.save();
                         })));
-        column.add(Box.createVerticalStrut(16));
         column.add(group("Backups",
                 switchRow("Back up my last world each time I launch", "Whole-world zips in your Minecraft folder's "
                         + "backups folder.", settings.backupBeforeLaunch, value -> {
@@ -69,12 +67,9 @@ final class SettingsPage implements App.Page {
                             app.save();
                         }),
                 keepRow()));
-        column.add(Box.createVerticalStrut(16));
         column.add(group("About", about()));
 
-        JPanel holder = new Widgets.Tracking();
-        holder.add(column, BorderLayout.NORTH);
-        view.add(Widgets.scroll(holder), BorderLayout.CENTER);
+        view.add(Widgets.page(column), BorderLayout.CENTER);
     }
 
     @Override
@@ -88,42 +83,49 @@ final class SettingsPage implements App.Page {
     }
 
     private JComponent group(String title, JComponent... rows) {
-        JPanel box = Widgets.column();
-        box.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JLabel label = Widgets.section(title);
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        box.add(label);
+        JPanel box = Widgets.stack(0);
+        box.add(Widgets.section(title));
         Widgets.Card card = Widgets.card();
-        JPanel inner = Widgets.column();
+        JPanel inner = Widgets.stack(0);
 
         for (int i = 0; i < rows.length; i++) {
-            rows[i].setAlignmentX(Component.LEFT_ALIGNMENT);
             inner.add(rows[i]);
 
             if (i < rows.length - 1) {
-                JPanel rule = new JPanel();
-                rule.setBackground(Style.LINE);
-                rule.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
-                rule.setPreferredSize(new Dimension(1, 1));
-                rule.setAlignmentX(Component.LEFT_ALIGNMENT);
-                inner.add(Box.createVerticalStrut(14));
+                JPanel rule = new JPanel() {
+                    @Override
+                    public Dimension getPreferredSize() {
+                        return new Dimension(1, 29);
+                    }
+
+                    @Override
+                    protected void paintComponent(java.awt.Graphics graphics) {
+                        graphics.setColor(Style.LINE);
+                        graphics.fillRect(0, 14, getWidth(), 1);
+                    }
+                };
+                rule.setOpaque(false);
                 inner.add(rule);
-                inner.add(Box.createVerticalStrut(14));
             }
         }
 
         card.add(inner, BorderLayout.CENTER);
-        card.setAlignmentX(Component.LEFT_ALIGNMENT);
         box.add(card);
         return box;
     }
 
     private static JPanel labels(String title, String hint) {
-        JPanel text = Widgets.column();
-        text.add(Widgets.text(title, 14f, Font.BOLD, Style.TEXT));
-        text.add(Box.createVerticalStrut(3));
-        text.add(Widgets.wrapped(HomePage.escape(hint), 12.5f, Style.FAINT, 520));
+        JPanel text = Widgets.stack(4);
+        text.add(Widgets.line(title, Style.font(Font.BOLD, 14f), Style.TEXT));
+        text.add(Widgets.paragraph(hint, 12.5f, Style.FAINT, 0));
         return text;
+    }
+
+    /** A path with the home folder as ~, so it fits. */
+    static String tidy(Path path) {
+        String home = System.getProperty("user.home");
+        String text = path.toString();
+        return home != null && text.startsWith(home) ? "~" + text.substring(home.length()) : text;
     }
 
     private JComponent switchRow(String title, String hint, boolean value, Consumer<Boolean> onChange) {
@@ -140,9 +142,8 @@ final class SettingsPage implements App.Page {
 
     private JComponent folderRow(String title, String hint, String value, boolean directory,
             Consumer<String> onChange) {
-        JPanel row = Widgets.column();
+        JPanel row = Widgets.stack(10);
         row.add(labels(title, hint));
-        row.add(Box.createVerticalStrut(10));
         JPanel line = Widgets.clear(new BorderLayout(10, 0));
         Widgets.Field field = new Widgets.Field(directory ? "Folder" : "Found automatically", null);
         field.setText(value);
@@ -165,8 +166,6 @@ final class SettingsPage implements App.Page {
             }
         });
         line.add(browse, BorderLayout.EAST);
-        line.setAlignmentX(Component.LEFT_ALIGNMENT);
-        line.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
         row.add(line);
         return row;
     }
@@ -182,6 +181,7 @@ final class SettingsPage implements App.Page {
         row.add(labels("Automatic backups to keep", "Per world. Backups you make yourself are never removed."),
                 BorderLayout.CENTER);
         JPanel stepper = Widgets.row(6);
+        stepper.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
         Widgets.Button less = Widgets.iconButton(Icons.Glyph.MINIMIZE, "Fewer", Widgets.Kind.SECONDARY);
         Widgets.Button moreButton = Widgets.iconButton(Icons.Glyph.PLUS, "More", Widgets.Kind.SECONDARY);
         less.addActionListener(event -> keep(-1));

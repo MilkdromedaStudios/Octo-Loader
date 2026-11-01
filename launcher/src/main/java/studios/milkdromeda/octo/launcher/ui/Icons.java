@@ -20,7 +20,7 @@ import javax.swing.Icon;
 public final class Icons {
     public enum Glyph {
         HOME, MODS, WORLDS, VERSIONS, SETTINGS, SEARCH, DOWNLOAD, CHECK, TRASH, CLOSE, MINIMIZE, MAXIMIZE, REFRESH,
-        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON
+        FOLDER, PLAY, EXTERNAL, ALERT, BACKUP, RESTORE, UPDATE, PLUS, CHEVRON, CHEVRON_RIGHT
     }
 
     private Icons() {
@@ -246,6 +246,13 @@ public final class Icons {
                 chevron.moveTo(7, 9.5);
                 chevron.lineTo(12, 14.5);
                 chevron.lineTo(17, 9.5);
+                g.draw(chevron);
+            }
+            case CHEVRON_RIGHT -> {
+                Path2D chevron = new Path2D.Double();
+                chevron.moveTo(9.5, 7);
+                chevron.lineTo(14.5, 12);
+                chevron.lineTo(9.5, 17);
                 g.draw(chevron);
             }
             case PLUS -> {

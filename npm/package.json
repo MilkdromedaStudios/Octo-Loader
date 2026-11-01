@@ -1,0 +1,38 @@
+{
+  "name": "octo-launcher",
+  "version": "1.0.0",
+  "description": "Octo Launcher: one-click mods from Modrinth (Fabric, Quilt, Forge, NeoForge, any version), world backups that protect your builds, and a big Launch button for Minecraft.",
+  "keywords": [
+    "minecraft",
+    "launcher",
+    "mods",
+    "modrinth",
+    "fabric",
+    "forge",
+    "neoforge",
+    "quilt",
+    "octo"
+  ],
+  "homepage": "https://github.com/MilkdromedaStudios/Octo-Loader#octo-launcher",
+  "bugs": "https://github.com/MilkdromedaStudios/Octo-Loader/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MilkdromedaStudios/Octo-Loader.git",
+    "directory": "npm"
+  },
+  "license": "Apache-2.0",
+  "author": "Milkdromeda Studios",
+  "bin": {
+    "octo-launcher": "bin/octo-launcher.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node bin/octo-launcher.js --self-test"
+  }
+}
