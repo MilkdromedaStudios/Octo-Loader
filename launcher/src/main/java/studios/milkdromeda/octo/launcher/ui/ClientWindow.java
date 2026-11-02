@@ -48,7 +48,9 @@ import studios.milkdromeda.octo.launcher.Updates;
  * it moves by its title bar and resizes from any edge.
  */
 public final class ClientWindow implements App {
+    /** How far in from each edge a press resizes the window, and from each corner. */
     private static final int EDGE = 6;
+    private static final int CORNER = 14;
 
     private final JFrame frame = new JFrame("Octo Launcher");
     private final LauncherSettings settings = LauncherSettings.load();
@@ -145,7 +147,7 @@ public final class ClientWindow implements App {
         });
 
         frame.setContentPane(root);
-        resizable(root);
+        resizable();
         frame.setVisible(true);
         placeToasts();
         go(System.getProperty("octo.launcher.page", "Home"));
@@ -226,7 +228,10 @@ public final class ClientWindow implements App {
 
             @Override
             public void mousePressed(MouseEvent event) {
-                grab = event.getPoint();
+                // Where in the window it was taken, so it stays under the pointer.
+                Point screen = event.getLocationOnScreen();
+                Point window = frame.getLocationOnScreen();
+                grab = new Point(screen.x - window.x, screen.y - window.y);
             }
 
             @Override
@@ -311,51 +316,79 @@ public final class ClientWindow implements App {
         }
     }
 
-    /** Resizing from the window's edges, which a frameless window does not do by itself. */
-    private void resizable(JComponent root) {
+    /**
+     * Resizing from the window's edges, which a frameless window does not do by
+     * itself. Thin grips lie along each edge and corner above everything else,
+     * so a press at an edge always resizes (even over the title bar, which moves
+     * the window everywhere else) and each grip shows its own cursor.
+     */
+    private void resizable() {
+        int[][] grips = {
+            {4, Cursor.N_RESIZE_CURSOR}, {8, Cursor.S_RESIZE_CURSOR},
+            {1, Cursor.W_RESIZE_CURSOR}, {2, Cursor.E_RESIZE_CURSOR},
+            {5, Cursor.NW_RESIZE_CURSOR}, {6, Cursor.NE_RESIZE_CURSOR},
+            {9, Cursor.SW_RESIZE_CURSOR}, {10, Cursor.SE_RESIZE_CURSOR},
+        };
+        JLayeredPane layers = frame.getLayeredPane();
+        java.util.List<JComponent> placed = new java.util.ArrayList<>();
+
+        for (int[] grip : grips) {
+            JComponent handle = resizeGrip(grip[0]);
+            handle.setCursor(Cursor.getPredefinedCursor(grip[1]));
+            handle.putClientProperty("octo.edge", grip[0]);
+            // Corners last, so they sit above the edges they overlap.
+            layers.add(handle, JLayeredPane.DRAG_LAYER, 0);
+            placed.add(handle);
+        }
+
+        Runnable place = () -> {
+            int w = layers.getWidth();
+            int h = layers.getHeight();
+            boolean maximized = (frame.getExtendedState() & Frame.MAXIMIZED_BOTH) != 0;
+
+            for (JComponent handle : placed) {
+                int edge = (Integer) handle.getClientProperty("octo.edge");
+                handle.setVisible(!maximized);
+                handle.setBounds(switch (edge) {
+                    case 4 -> new Rectangle(CORNER, 0, w - 2 * CORNER, EDGE);
+                    case 8 -> new Rectangle(CORNER, h - EDGE, w - 2 * CORNER, EDGE);
+                    case 1 -> new Rectangle(0, CORNER, EDGE, h - 2 * CORNER);
+                    case 2 -> new Rectangle(w - EDGE, CORNER, EDGE, h - 2 * CORNER);
+                    case 5 -> new Rectangle(0, 0, CORNER, CORNER);
+                    case 6 -> new Rectangle(w - CORNER, 0, CORNER, CORNER);
+                    case 9 -> new Rectangle(0, h - CORNER, CORNER, CORNER);
+                    default -> new Rectangle(w - CORNER, h - CORNER, CORNER, CORNER);
+                });
+            }
+        };
+        layers.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                place.run();
+            }
+        });
+        frame.addWindowStateListener(event -> place.run());
+        place.run();
+    }
+
+    /** One edge or corner grip; {@code edge} holds 1 left, 2 right, 4 top, 8 bottom. */
+    private JComponent resizeGrip(int edge) {
+        JComponent handle = new JComponent() {
+            // Clear: the window's own edge shows through.
+        };
         MouseAdapter resize = new MouseAdapter() {
-            private int edge;
             private Point start;
             private Rectangle bounds;
 
-            private int edgeAt(Point point) {
-                int w = root.getWidth();
-                int h = root.getHeight();
-                int edgeFlags = 0;
-                edgeFlags |= point.x < EDGE ? 1 : 0;
-                edgeFlags |= point.x > w - EDGE ? 2 : 0;
-                edgeFlags |= point.y < EDGE ? 4 : 0;
-                edgeFlags |= point.y > h - EDGE ? 8 : 0;
-                return edgeFlags;
-            }
-
-            @Override
-            public void mouseMoved(MouseEvent event) {
-                int at = edgeAt(event.getPoint());
-                int cursor = switch (at) {
-                    case 1 -> Cursor.W_RESIZE_CURSOR;
-                    case 2 -> Cursor.E_RESIZE_CURSOR;
-                    case 4 -> Cursor.N_RESIZE_CURSOR;
-                    case 8 -> Cursor.S_RESIZE_CURSOR;
-                    case 5 -> Cursor.NW_RESIZE_CURSOR;
-                    case 6 -> Cursor.NE_RESIZE_CURSOR;
-                    case 9 -> Cursor.SW_RESIZE_CURSOR;
-                    case 10 -> Cursor.SE_RESIZE_CURSOR;
-                    default -> Cursor.DEFAULT_CURSOR;
-                };
-                root.setCursor(Cursor.getPredefinedCursor(cursor));
-            }
-
             @Override
             public void mousePressed(MouseEvent event) {
-                edge = edgeAt(event.getPoint());
                 start = event.getLocationOnScreen();
                 bounds = frame.getBounds();
             }
 
             @Override
             public void mouseDragged(MouseEvent event) {
-                if (edge == 0 || start == null) {
+                if (start == null) {
                     return;
                 }
 
@@ -385,18 +418,28 @@ public final class ClientWindow implements App {
                     next.height = Math.max(min.height, bounds.height + dy);
                 }
 
-                frame.setBounds(next);
-                frame.revalidate();
+                if (!next.equals(frame.getBounds())) {
+                    frame.setBounds(next);
+                    frame.validate();
+                }
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
-                edge = 0;
+                start = null;
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                // A double click on the top edge maximizes, as on the title bar.
+                if (event.getClickCount() == 2 && (edge & 4) != 0) {
+                    toggleMaximized();
+                }
             }
         };
-        root.setBorder(BorderFactory.createEmptyBorder(EDGE / 2, EDGE / 2, EDGE / 2, EDGE / 2));
-        root.addMouseListener(resize);
-        root.addMouseMotionListener(resize);
+        handle.addMouseListener(resize);
+        handle.addMouseMotionListener(resize);
+        return handle;
     }
 
     // --------------------------------------------------------------- rail
