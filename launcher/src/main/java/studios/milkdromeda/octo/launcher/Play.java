@@ -156,16 +156,10 @@ public final class Play {
         GameLaunch.Options options = new GameLaunch.Options(java, Math.max(512, settings.memoryMb), extra, 0, 0,
                 "octo-launcher", Installer.VERSION);
         GameLaunch.Player player = new GameLaunch.Player(account.name(), account.id(), account.accessToken(), null);
-        List<String> command = new ArrayList<>(GameLaunch.command(game, profile, platform, player, options,
-                natives));
-
-        // Octo Client, for the versions it is built for: a mods folder of its own
-        // beside the player's, read by Octo Loader and never shown to the game.
-        if (prepared.withOcto() && settings.octoClient && OctoClientMod.supports(chosen)) {
-            Path client = OctoClientMod.install();
-            command.addAll(List.of("--modsDir", game.resolve("mods").toAbsolutePath().toString(), "--modsDir",
-                    client.toAbsolutePath().toString()));
-        }
+        // Octo Client in its folder, or out of it, as the setting says: Octo Loader
+        // finds it there for the version it is built for.
+        OctoClientMod.sync(settings);
+        List<String> command = GameLaunch.command(game, profile, platform, player, options, natives);
 
         Path logs = LauncherSettings.home().resolve("logs");
         Path log = logs.resolve("game.log");
@@ -209,6 +203,7 @@ public final class Play {
         // Always installed again: a newer loader downloaded since goes in, and
         // a profile the player deleted comes back.
         String versionId = Updates.installer(game, log).install(chosen);
+        OctoClientMod.sync(settings);
         backUpLastWorld(settings, log);
         OfficialLauncher.select(game, "octo-loader-" + chosen);
         OfficialLauncher.open(OfficialLauncher.find(settings.officialLauncher), game);
