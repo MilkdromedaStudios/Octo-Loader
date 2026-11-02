@@ -98,4 +98,35 @@ class OctoMainTest {
         assertEquals(List.of(instanceMods.toAbsolutePath().normalize()),
                 OctoMain.defaultModDirectories(instance, classPath));
     }
+
+    private Path clientJar(Path home, String builtFor) throws IOException {
+        Path folder = home.resolve(".octo-launcher").resolve("client");
+        Files.createDirectories(folder);
+        java.util.jar.Manifest manifest = new java.util.jar.Manifest();
+        manifest.getMainAttributes().put(java.util.jar.Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("Octo-Client-Minecraft", builtFor);
+
+        try (java.util.jar.JarOutputStream out = new java.util.jar.JarOutputStream(
+                Files.newOutputStream(folder.resolve("octo-client.jar")), manifest)) {
+            out.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json"));
+            out.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+
+        return folder.toAbsolutePath().normalize();
+    }
+
+    @Test
+    @DisplayName("Octo Client loads from Octo Launcher's folder for the Minecraft it is built for")
+    void findsOctoClientForItsVersion() throws IOException {
+        Path home = tempDir.resolve("home");
+        Path folder = clientJar(home, "26.3");
+
+        assertEquals(folder, OctoMain.octoClientFolder(home.toString(), "26.3"));
+        assertEquals(folder, OctoMain.octoClientFolder(home.toString(), "26.3.1"), "a patch release too");
+        assertEquals(null, OctoMain.octoClientFolder(home.toString(), "1.21.1"), "not another version");
+        assertEquals(null, OctoMain.octoClientFolder(home.toString(), "26.30"), "nor one that only starts alike");
+        assertEquals(null, OctoMain.octoClientFolder(tempDir.resolve("nobody").toString(), "26.3"),
+                "nor when the launcher has not put it there (or the player turned it off)");
+    }
 }

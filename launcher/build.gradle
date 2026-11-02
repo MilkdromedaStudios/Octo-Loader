@@ -12,6 +12,20 @@ java {
     disableAutoTargetJvm()
 }
 
+// The jar starts in Boot, built for Java 8, which checks the Java it runs on
+// before anything that needs Java 17 is touched.
+sourceSets {
+    boot {
+        java.srcDir 'src/boot/java'
+    }
+}
+
+tasks.named('compileBootJava') {
+    options.release = 8
+    // Java 8 output is obsolete to javac, and that is the point here.
+    options.compilerArgs += ['-Xlint:-options']
+}
+
 evaluationDependsOn(':client')
 
 // Octo Client, carried inside the launcher and loaded with the game it is
@@ -42,6 +56,7 @@ def msaClientId = System.getenv('OCTO_MSA_CLIENT_ID') ?: (project.findProperty('
 
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from sourceSets.boot.output
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
@@ -50,7 +65,7 @@ jar {
 
     manifest {
         attributes(
-                'Main-Class': 'studios.milkdromeda.octo.launcher.Launcher',
+                'Main-Class': 'studios.milkdromeda.octo.launcher.Boot',
                 'Implementation-Title': 'Octo Launcher',
                 'Implementation-Version': project.version,
                 'Octo-Build': buildId,

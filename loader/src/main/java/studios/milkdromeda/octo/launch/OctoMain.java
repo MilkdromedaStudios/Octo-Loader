@@ -208,6 +208,17 @@ public final class OctoMain {
             }
         }
 
+        // Octo Client, which Octo Launcher keeps in a folder of its own: loaded for the
+        // Minecraft it is built for however the game was started, through Octo Launcher
+        // or through the official launcher on the Octo installation.
+        if (side == Side.CLIENT) {
+            Path client = octoClientFolder(System.getProperty("user.home"), version);
+
+            if (client != null && modDirs.stream().noneMatch(dir -> dir.equals(client))) {
+                modDirs.add(client);
+            }
+        }
+
         modDirs.forEach(builder::modDir);
         gameJars.forEach(builder::gameJar);
         libraryJarsOnClassPath(gameJars).stream()
@@ -219,6 +230,41 @@ public final class OctoMain {
         LOG.info("mods will be loaded from {}", modDirs);
         ensureExists(modDirs);
         new OctoLauncher(builder.build()).launch();
+    }
+
+    /**
+     * Octo Launcher's Octo Client folder, when its jar is there and built for
+     * this Minecraft (that version or one of its patches); {@code null}
+     * otherwise. The launcher removes the jar when the player turns Octo Client
+     * off.
+     */
+    static Path octoClientFolder(String userHome, String minecraftVersion) {
+        if (userHome == null || minecraftVersion == null || minecraftVersion.isBlank()) {
+            return null;
+        }
+
+        Path folder = Path.of(userHome, ".octo-launcher", "client").toAbsolutePath().normalize();
+        Path jar = folder.resolve("octo-client.jar");
+
+        if (!Files.isRegularFile(jar)) {
+            return null;
+        }
+
+        try (java.util.jar.JarFile file = new java.util.jar.JarFile(jar.toFile())) {
+            java.util.jar.Manifest manifest = file.getManifest();
+            String builtFor = manifest == null ? null : manifest.getMainAttributes().getValue("Octo-Client-Minecraft");
+
+            if (builtFor != null && (minecraftVersion.equals(builtFor) || minecraftVersion.startsWith(builtFor + "."))) {
+                LOG.info("Octo Client is installed for Minecraft {}; loading it from {}", builtFor, folder);
+                return folder;
+            }
+
+            LOG.info("Octo Client is built for Minecraft {}, not {}; it is left out", builtFor, minecraftVersion);
+        } catch (java.io.IOException error) {
+            LOG.warn("could not read {}: {}", jar, error.toString());
+        }
+
+        return null;
     }
 
     /**

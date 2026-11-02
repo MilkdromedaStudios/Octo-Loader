@@ -12,8 +12,8 @@ import java.util.jar.Manifest;
 /**
  * Octo Client, the client mod this launcher carries inside itself: put in a
  * folder of its own in Octo's data folder, never in the player's mods
- * folder, and handed to Octo Loader as a second mods folder when a game it
- * is built for starts.
+ * folder. Octo Loader looks there itself, so Octo Client loads with the
+ * Minecraft it is built for however the game is started.
  */
 public final class OctoClientMod {
     static final String RESOURCE = "/octo/octo-client.jar";
@@ -51,6 +51,23 @@ public final class OctoClientMod {
     public static boolean supports(String minecraft) {
         String built = minecraftVersion();
         return built != null && minecraft != null && (minecraft.equals(built) || minecraft.startsWith(built + "."));
+    }
+
+    /**
+     * Makes the folder match the setting: Octo Client there when it is on,
+     * gone when it is off, so the loader finds it only when wanted.
+     */
+    public static void sync(LauncherSettings settings) throws IOException {
+        if (settings.octoClient && available()) {
+            install();
+        } else {
+            remove();
+        }
+    }
+
+    /** Takes Octo Client out of its folder. */
+    public static void remove() throws IOException {
+        Files.deleteIfExists(folder().resolve("octo-client.jar"));
     }
 
     /**

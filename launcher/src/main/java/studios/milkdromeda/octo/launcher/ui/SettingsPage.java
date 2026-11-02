@@ -69,6 +69,10 @@ final class SettingsPage implements App.Page {
                                 .minecraftVersion(), "26.3") + ".", settings.octoClient, value -> {
                                     settings.octoClient = value;
                                     app.save();
+                                    app.run(() -> {
+                                        studios.milkdromeda.octo.launcher.OctoClientMod.sync(settings);
+                                        return value;
+                                    }, done -> { });
                                 }),
                 memoryRow(),
                 folderRow("Java", "Empty: the Java Mojang makes for each version, downloaded by itself. Or "
