@@ -2,7 +2,7 @@
   <img src="docs/logo.svg" width="168" alt="Octo Loader logo">
 </p>
 
-<h1 align="center">Octo Loader</h1>
+<h1 align="center">Octo Loader & Launcher</h1>
 
 <p align="center">
   <b>One loader for every Minecraft mod.</b><br>
