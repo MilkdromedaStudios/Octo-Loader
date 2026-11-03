@@ -18,8 +18,9 @@
 </p>
 
 <p align="center">
-  <a href="#octo-launcher">Octo Launcher</a> ·
+  <a href="#the-loader">The loader</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#octo-launcher--octo-client">Octo Launcher &amp; Client</a> ·
   <a href="#installing-mods">Installing mods</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -33,7 +34,63 @@
 > Octo rebuilds those mods so they run, but it cannot promise that what they save can be read back
 > correctly. Try them in a new world first. [Why?](#a-warning-about-mods-from-other-versions)
 
-## Meet Octo Launcher
+## The loader
+
+**Octo Loader is a Minecraft mod loader that runs every kind of mod.** Fabric, Quilt, Forge, NeoForge, legacy Forge and LiteLoader mods go in one `mods` folder and start in one game, on Minecraft **26.3**, without a second loader installed. A mod built for another Minecraft version is rebuilt for the one you are playing, so the mods you love keep working after an update.
+
+```text
+.minecraft/mods/
+├── create-1.21.1-6.0.10.jar        NeoForge · Minecraft 1.21.1   → rebuilt for 26.3, renders on the 26.x renderer
+├── jei-26.3-neoforge.jar           NeoForge · 26.3               → loaded as it is
+├── fabric-api-26.3.jar             Fabric   · 26.3               → loaded as it is
+├── appleskin-fabric-26.3.jar       Fabric   · 26.3               → loaded as it is, beside the NeoForge mods
+└── appleskin-1.12.2.jar            Forge    · Minecraft 1.12.2   → rebuilt for 26.3
+```
+
+|  |  |
+|---|---|
+| 🧩 **Mix every loader** | Fabric, Quilt, Forge, NeoForge, legacy Forge and LiteLoader mods run side by side. One mod list, one set of mixins, one access table: a Forge mod can ask whether a Fabric mod is loaded, and a Fabric mod and a Forge mod can mix into the same class. |
+| 🕰️ **Play mods from other versions** | A mod built for 1.21.1, 1.20.1 or 1.12.2 is unzipped, rewritten for the game you are running, re-jarred and loaded. Missing classes are restored, moved methods are bridged, and your original file is never touched. |
+| 🎨 **Old mods still render** | Block entity renderers, block models and baked quads written for the old renderer are bridged to 26.x's, so moving parts such as Create's shafts and cogwheels draw. |
+| 🧱 **The patched game, without the patches** | Events, capabilities, networking and the item, fluid and energy APIs that NeoForge and Forge mods expect from those loaders' patched game are provided by Octo, on the plain game. |
+| 🧷 **Worlds survive mod changes** | When a mod goes missing, fails to build or renames its blocks, Octo backs the world up before it opens and keeps every chunk using that mod's content exactly as it is on disk. Put the mod back and nothing is lost. |
+| 🛟 **The game always starts** | A mod that cannot load does not stop you playing. Octo starts the game and shows you what is missing and why. |
+| 🚀 **Fast after the first launch** | Rebuilt mods are cached. The next launch with the same mods loads them straight from the cache. |
+| 🔍 **No guessing** | Every change made to a mod is listed in the log and the mod report, so you can always see what was adapted. |
+| 🎮 **Works with the launcher you have** | The installer adds an **Octo Loader** installation to the official Minecraft launcher. [Octo Launcher](#meet-octo-launcher) is there when you want one that does it all. |
+| 🖥️ **Servers too** | One command sets up a modded server, with the same mixing and rebuilding. |
+
+Octo's own test runs load Create and its add-ons, popular NeoForge, Forge and Fabric mods, and mods from 1.12.2: see [Tested on Minecraft 26.3](#tested-on-minecraft-263). How all of it works is in [How it works](#how-it-works).
+
+## Quick start
+
+**You need:** Minecraft: Java Edition, with the version you want to mod started at least once. Octo is built and tested against **Minecraft 26.3**. The official launcher provides the right Java automatically.
+
+1. **Download** `installer.jar` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest).
+2. **Run it** (double-click), choose **Client**, pick your Minecraft folder and version, then press **Install**.
+   On Windows the Minecraft folder is usually `%APPDATA%\.minecraft`.
+3. **Add mods:** drop mod `.jar` files into the `mods` folder inside your Minecraft folder.
+4. **Play:** open the Minecraft launcher, choose the **Octo Loader** installation and press **Play**.
+
+That's it. The installer works offline (the loader is inside it), adds one library jar and one launcher profile, and touches nothing else.
+
+<details>
+<summary><b>Prefer the terminal?</b></summary>
+
+```bash
+java -jar installer.jar                                   # open the installer window
+java -jar installer.jar client --mcVersion 26.3           # install for the client, no window
+java -jar installer.jar server --dir /srv/minecraft       # set up a server
+java -jar installer.jar uninstall --mcVersion 26.3        # remove everything the installer wrote
+```
+
+</details>
+
+## Octo Launcher & Octo Client
+
+Octo Loader is all you need to play. Two companions make it easier and nicer: **Octo Launcher** signs you in, downloads Minecraft and installs mods for you, and **Octo Client** is the client mod it plays with.
+
+### Meet Octo Launcher
 
 <p align="center">
   <img src="docs/screenshots/octo-launcher-home.png" alt="Octo Launcher's home page: a Launch game banner with a creeper drawn from your own Minecraft, the latest Octo releases, popular mods to install in one click, your worlds and Octo's status" width="100%">
@@ -63,7 +120,7 @@
 
 <p align="center"><sub>Mods · a mod's page · worlds · signing in · launching · deleting files · skins and capes. More about it in <a href="#octo-launcher">Octo Launcher</a> below.</sub></p>
 
-## Octo Client
+### Octo Client
 
 **Octo Launcher plays with its own client mod.** Octo Client changes how Minecraft looks and adds what players expect from a client, all set in one menu: press **Right Shift**, or **Octo Client** on the title or pause screen.
 
@@ -72,6 +129,8 @@
   <img src="docs/screenshots/octo-client-menu.png" alt="The Octo Client menu: categories on the left, switches and choices on the right, in Octo Launcher's colours" width="49%">
   <img src="docs/screenshots/octo-client-hud.png" alt="In game: the Essentials HUD loadout at the top left and the minimap with coordinates at the top right" width="49%">
   <img src="docs/screenshots/octo-client-zoom.png" alt="Holding C zooms four times closer" width="49%">
+  <img src="docs/screenshots/octo-client-waypoints.png" alt="A waypoint called Temple, 46 m ahead, marked in the world; waypoints on the minimap; the now-playing card with the song's cover, artist, album and progress" width="49%">
+  <img src="docs/screenshots/octo-client-big-map.png" alt="The big map: explored terrain, waypoints with their names, the player's arrow, and the list of waypoints with their distances" width="49%">
 </p>
 
 | | |
@@ -80,48 +139,15 @@
 | **The Octo menu** | A settings screen, not a hack-client board of panels: categories down the side, a switch, choice or slider for each setting, saved as you change it. |
 | **Zoom** | Hold **C** to zoom (2× to 12×), eased in and out. While zooming, the mouse wheel goes further in or out. |
 | **HUD loadouts** | Pick a loadout: *Minimal*, *Essentials*, *PvP* (CPS, ping, armour, keystrokes), *Builder*, *Explorer*, or *Custom* with your own modules (FPS, coordinates, direction, biome, clock, speed, ping, CPS, memory, armour, keystrokes). |
-| **Minimap** | North-up, coloured like Minecraft's maps and shaded by height, three sizes and three ranges. It works in the Nether too. It redraws a few rows each tick, so it never costs a frame. |
-| **Your music** | Put `.ogg` files in `.minecraft/octo/music` and turn on **Your music**: they play instead of Minecraft's music, in order or shuffled, with their name shown as each starts. It uses the game's own Ogg decoder and sound device. |
+| **Minimap** | North-up, coloured like Minecraft's maps, any size from 64 to 256 pixels and three ranges. **Smart altitude:** underground it switches to the cave you are in, showing the floor around your level, walls in shadow and drops darker the deeper they go; on the surface, the ground is shaded by its height against yours, so mountains stand out and valleys sink. It works in the Nether too, and redraws a few rows each tick, so it never costs a frame. |
+| **Waypoints** | Press **B** to set one where you stand. Each shows on the minimap (at its edge when it's further away), over its spot in the world with how far it is, and on the big map. A waypoint marks where you last died. They're kept for each world and server. |
+| **Big map** | Press **M** for the minimap full screen: everywhere you've been this session, your waypoints, and you. Drag to move, scroll to zoom, right-click to set a waypoint there. Rename, recolour, hide or delete waypoints in its side panel. |
+| **Your music** | Put music files in `.minecraft/octo/music` and turn on **Your music**: they play instead of Minecraft's music, through the game's own sound device. **MP3, Ogg Vorbis, FLAC, WAV and AIFF** all play. Shuffle, or play in order by file name. |
+| **Now playing** | A card with the song's cover, title, artist and album, and how far through it is, when a song starts or all the time. The cover comes from the file's own tags, or from a `cover.jpg` or `cover.png` (or a picture named like the song) beside it. |
+| **Sizes** | Resize it all: **HUD size** scales Octo's HUD, from the info panel to the minimap, keys and card (50–200%), and the minimap and the now-playing card have sizes of their own. The card keeps clear of the hotbar and the minimap whatever their sizes. |
 | **Frame-rate savers** | A lower frame rate while another window is in front. An entity distance, so far-off mobs and items aren't drawn (players can stay visible). Fewer particles in busy scenes. |
 
 Octo Client is built for Minecraft **26.3**. Octo Launcher carries it and loads it when you play 26.3 with Octo, from its own folder, never your `mods` folder. Turn it off under **Settings → Octo Client**. Its settings are in `.minecraft/config/octo-client.json`.
-
-## Why Octo?
-
-|  |  |
-|---|---|
-| 🧩 **Mix every loader** | Fabric, Quilt, Forge, NeoForge, legacy Forge and LiteLoader mods go in **one** `mods` folder and run in **one** game. They can even see each other. |
-| 🕰️ **Play mods from other versions** | A mod built for 1.21.1, 1.20.1 or 1.12.2 is unzipped, rewritten for the game you are running, re-jarred and loaded. Your original file is never touched. |
-| 🎨 **Old mods still render** | Block entity renderers, block models and baked quads written for the old renderer are bridged to 26.x's renderer, so moving parts such as Create's shafts and cogwheels draw. |
-| 🚀 **Fast after the first launch** | Rebuilt mods are cached. The next launch with the same mods loads them straight from the cache. |
-| 🧷 **Worlds survive mod changes** | When a mod goes missing, fails to build or renames its blocks, Octo backs the world up before it opens and keeps every chunk using that mod's content exactly as it is on disk. Put the mod back and nothing is lost. |
-| 🐙 **Octo Launcher** | A Windows app (installer included) and cross-platform jar: one-click mod installs from Modrinth with their dependencies, turning mods on and off, updates, world backups and restores, and a big Launch button: sign in with Microsoft, and it downloads Minecraft and its Java and starts the game with Octo. |
-| 🛟 **The game always starts** | A mod that cannot load does not stop you playing. Octo starts the game and shows you what is missing and why. |
-| 🔍 **No guessing** | Every change made to a mod is listed in the log and the mod report, so you can always see what was adapted. |
-
-## Quick start
-
-**You need:** Minecraft: Java Edition, with the version you want to mod started at least once. Octo is built and tested against **Minecraft 26.3**. The official launcher provides the right Java automatically.
-
-1. **Download** `installer.jar` from the [latest release](https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest).
-2. **Run it** (double-click), choose **Client**, pick your Minecraft folder and version, then press **Install**.
-   On Windows the Minecraft folder is usually `%APPDATA%\.minecraft`.
-3. **Add mods:** drop mod `.jar` files into the `mods` folder inside your Minecraft folder.
-4. **Play:** open the Minecraft launcher, choose the **Octo Loader** installation and press **Play**.
-
-That's it. The installer works offline (the loader is inside it), adds one library jar and one launcher profile, and touches nothing else.
-
-<details>
-<summary><b>Prefer the terminal?</b></summary>
-
-```bash
-java -jar installer.jar                                   # open the installer window
-java -jar installer.jar client --mcVersion 26.3           # install for the client, no window
-java -jar installer.jar server --dir /srv/minecraft       # set up a server
-java -jar installer.jar uninstall --mcVersion 26.3        # remove everything the installer wrote
-```
-
-</details>
 
 ## Octo Launcher
 

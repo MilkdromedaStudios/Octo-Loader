@@ -9,7 +9,12 @@ import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.Minecraft;
 
 import studios.milkdromeda.octo.client.hud.Minimap;
+import studios.milkdromeda.octo.client.hud.OctoHud;
 import studios.milkdromeda.octo.client.hud.Stats;
+import studios.milkdromeda.octo.client.map.BigMapScreen;
+import studios.milkdromeda.octo.client.map.MapCache;
+import studios.milkdromeda.octo.client.map.Terrain;
+import studios.milkdromeda.octo.client.map.Waypoints;
 import studios.milkdromeda.octo.client.music.MusicPlayer;
 import studios.milkdromeda.octo.client.ui.OctoMenuScreen;
 
@@ -24,6 +29,8 @@ public final class OctoClient implements ClientModInitializer {
 
     private static Config config;
     private static boolean menuKeyWasDown;
+    private static boolean mapKeyWasDown;
+    private static boolean waypointKeyWasDown;
 
     @Override
     public void onInitializeClient() {
@@ -51,8 +58,35 @@ public final class OctoClient implements ClientModInitializer {
         }
 
         menuKeyWasDown = menuKeyDown;
+
+        boolean playing = noScreen && minecraft.player != null && minecraft.level != null;
+        boolean mapKeyDown = playing && settings.minimap && InputConstants.isKeyDown(settings.mapKey);
+
+        if (mapKeyDown && !mapKeyWasDown && !menuKeyDown) {
+            minecraft.gui.setScreen(new BigMapScreen());
+        }
+
+        mapKeyWasDown = mapKeyDown;
+        boolean waypointKeyDown = playing && InputConstants.isKeyDown(settings.waypointKey);
+
+        if (waypointKeyDown && !waypointKeyWasDown) {
+            var player = minecraft.player;
+            var waypoint = Waypoints.add(minecraft, player.getBlockX(), player.getBlockY(), player.getBlockZ());
+            OctoHud.toast(waypoint.name + " set at " + waypoint.x + ", " + waypoint.y + ", " + waypoint.z
+                    + "  ·  " + keyName(settings.mapKey) + " for the map");
+        }
+
+        waypointKeyWasDown = waypointKeyDown;
         Stats.tick(minecraft);
+        Terrain.tick(minecraft);
         Minimap.tick(minecraft);
+        Waypoints.tick(minecraft);
+
+        if (settings.minimap) {
+            // A few chunks a tick for the big map, many while it is open.
+            MapCache.tick(minecraft, minecraft.gui.screen() instanceof BigMapScreen ? 24 : 3);
+        }
+
         MusicPlayer.get().tick(minecraft);
     }
 

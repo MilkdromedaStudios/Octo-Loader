@@ -46,13 +46,29 @@ public final class Config {
     /** The mouse wheel zooms further in and out while zooming. */
     public boolean scrollToZoom = true;
 
+    /** Everything Octo draws on the HUD, in percent of Minecraft's own GUI size. */
+    public int hudScale = 100;
+
     // --------------------------------------------------------- minimap
     public boolean minimap = true;
-    /** 0 small, 1 medium, 2 large. */
+    /** From before the size was a slider: 0 small, 1 medium, 2 large. Read once into {@link #minimapPixels}. */
     public int minimapSize = 1;
+    /** How big the minimap is on screen, in GUI pixels; 0 until set, then taken from {@link #minimapSize}. */
+    public int minimapPixels = 0;
     /** Blocks per pixel: 0 is one, 1 is two, 2 is four. */
     public int minimapScale = 0;
     public boolean minimapCoordinates = true;
+    /** What the maps show: 0 decides by where you are (smart altitude), 1 the surface, 2 caves. */
+    public int minimapLayer = 0;
+    /** The key that opens the big map: an SDL scancode, M by default. */
+    public int mapKey = 16;
+    /** The key that sets a waypoint where you stand: B by default. */
+    public int waypointKey = 5;
+    public boolean waypointsOnMap = true;
+    /** Markers floating over waypoints in the world, with their distance. */
+    public boolean waypointsInWorld = true;
+    /** A waypoint where you last died. */
+    public boolean deathWaypoint = true;
 
     // ----------------------------------------------------------- music
     /** Play the player's own music in place of Minecraft's. */
@@ -60,6 +76,12 @@ public final class Config {
     public int musicVolume = 70;
     public boolean shuffle = true;
     public boolean nowPlaying = true;
+    /** 0 shows the now-playing card when a song starts, 1 all the time. */
+    public int nowPlayingStyle = 0;
+    /** 0 at the bottom right, 1 at the top. */
+    public int nowPlayingPlace = 0;
+    /** The card's size, in percent. */
+    public int nowPlayingScale = 100;
 
     // ----------------------------------------------------- performance
     /** A lower frame rate while the game is not the window in front. */
@@ -102,6 +124,14 @@ public final class Config {
     void clamp() {
         zoomLevel = Math.max(2, Math.min(12, zoomLevel));
         minimapSize = Math.max(0, Math.min(2, minimapSize));
+
+        if (minimapPixels == 0) {
+            minimapPixels = new int[] { 72, 96, 128 }[minimapSize];
+        }
+
+        minimapPixels = Math.max(64, Math.min(256, minimapPixels));
+        hudScale = Math.max(50, Math.min(200, hudScale));
+        nowPlayingScale = Math.max(60, Math.min(200, nowPlayingScale));
         minimapScale = Math.max(0, Math.min(2, minimapScale));
         musicVolume = Math.max(0, Math.min(100, musicVolume));
         unfocusedFps = Math.max(5, Math.min(60, unfocusedFps));

@@ -1,32 +1,28 @@
 package studios.milkdromeda.octo.client.music;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-
-import javax.sound.sampled.AudioFormat;
 
 import org.lwjgl.openal.AL10;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.sounds.JOrbisAudioStream;
 import net.minecraft.sounds.SoundSource;
 
 import studios.milkdromeda.octo.client.Config;
 import studios.milkdromeda.octo.client.OctoClient;
 
 /**
- * The player's own music: the {@code .ogg} files in {@code <game>/octo/music},
- * played in place of Minecraft's music, decoded with the game's own Ogg
- * decoder and streamed through the game's OpenAL device on a thread of its
+ * The player's own music: the MP3, Ogg, FLAC, WAV and AIFF files in
+ * {@code <game>/octo/music}, played in place of Minecraft's music, decoded as
+ * they play and streamed through the game's OpenAL device on a thread of its
  * own, a few buffers ahead.
  */
 public final class MusicPlayer {
@@ -35,7 +31,11 @@ public final class MusicPlayer {
     private static final int CHUNK = 64 * 1024;
 
     private volatile List<Path> songs = List.of();
+    /** Songs that would not open, with when they were last changed: left out until they change. */
+    private final Map<Path, Long> unplayable = new ConcurrentHashMap<>();
     private volatile String nowPlaying;
+    /** What the now-playing card shows: the file's name at first, then its tags and cover. */
+    private volatile SongInfo info;
     private volatile long startedAt;
     private volatile boolean skip;
     private volatile float gain;
@@ -100,7 +100,13 @@ public final class MusicPlayer {
     }
 
     public String nowPlaying() {
-        return active() ? nowPlaying : null;
+        SongInfo song = info();
+        return song == null ? null : song.title();
+    }
+
+    /** The song playing now, or {@code null}. */
+    public SongInfo info() {
+        return active() && nowPlaying != null ? info : null;
     }
 
     public long startedAt() {
@@ -126,6 +132,7 @@ public final class MusicPlayer {
         if (now - lastScan > (wanted ? 5000 : 30000)) {
             lastScan = now;
             songs = scan(folder);
+            unplayable.entrySet().removeIf(entry -> modified(entry.getKey()) != entry.getValue());
         }
 
         if (active() && now >= retryAfter && (thread == null || !thread.isAlive())) {
@@ -141,10 +148,17 @@ public final class MusicPlayer {
         }
 
         try (var files = Files.list(folder)) {
-            return files.filter(file -> file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".ogg"))
-                    .sorted().toList();
+            return files.filter(file -> Files.isRegularFile(file) && Track.playable(file)).sorted().toList();
         } catch (IOException e) {
             return List.of();
+        }
+    }
+
+    private static long modified(Path file) {
+        try {
+            return Files.getLastModifiedTime(file).toMillis();
+        } catch (IOException e) {
+            return -1;
         }
     }
 
@@ -157,6 +171,7 @@ public final class MusicPlayer {
 
     private Path pick() {
         List<Path> list = new ArrayList<>(songs);
+        list.removeAll(unplayable.keySet());
 
         if (list.isEmpty()) {
             return null;
@@ -184,10 +199,22 @@ public final class MusicPlayer {
                 Path song = pick();
 
                 if (song == null) {
+                    // Nothing in the folder would play: looked at again in a while, not every tick.
+                    retryAfter = System.currentTimeMillis() + 10_000;
                     break;
                 }
 
-                play(source, buffers, song);
+                try {
+                    play(source, buffers, song);
+                } catch (IOException | RuntimeException | LinkageError e) {
+                    // That song, not the music: the next one plays. One that would not even
+                    // open is left out until the folder is looked at afresh.
+                    OctoClient.LOG.warn("Octo music could not play {}: {}", song.getFileName(), e.toString());
+
+                    if (nowPlaying == null) {
+                        unplayable.put(song, modified(song));
+                    }
+                }
             }
         } catch (Throwable e) {
             // Tried again in half a minute, not every tick.
@@ -211,14 +238,15 @@ public final class MusicPlayer {
 
     private void play(int source, int[] buffers, Path song) throws IOException, InterruptedException {
         skip = false;
+        nowPlaying = null;
 
-        try (InputStream in = new BufferedInputStream(Files.newInputStream(song));
-                JOrbisAudioStream stream = new JOrbisAudioStream(in)) {
-            AudioFormat format = stream.getFormat();
-            int alFormat = format.getChannels() == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
-            int rate = (int) format.getSampleRate();
+        try (Track stream = Track.open(song)) {
+            int alFormat = stream.channels() == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
+            int rate = stream.rate();
+            info = SongInfo.named(title(song));
             nowPlaying = title(song);
             startedAt = System.currentTimeMillis();
+            OctoClient.LOG.info("Octo music: playing {}", song.getFileName());
             boolean ended = false;
 
             // Fill every buffer, then start.
@@ -236,6 +264,9 @@ public final class MusicPlayer {
 
             AL10.alSourcef(source, AL10.AL_GAIN, gain);
             AL10.alSourcePlay(source);
+
+            // The tags and cover once it is playing, so a big cover never delays the song.
+            info = SongInfo.read(song, title(song));
 
             while (queued > 0 && active() && !skip) {
                 AL10.alSourcef(source, AL10.AL_GAIN, gain);
@@ -267,10 +298,10 @@ public final class MusicPlayer {
     }
 
     /** Decodes the next chunk into a buffer; false once the song has no more. */
-    private static boolean fill(JOrbisAudioStream stream, int buffer, int format, int rate) throws IOException {
+    private static boolean fill(Track stream, int buffer, int format, int rate) throws IOException {
         ByteBuffer data = stream.read(CHUNK);
 
-        if (data == null || !data.hasRemaining()) {
+        if (data == null) {
             return false;
         }
 

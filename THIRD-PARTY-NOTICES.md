@@ -99,6 +99,19 @@ service in their place.
 | [TwelveMonkeys ImageIO](https://github.com/haraldk/TwelveMonkeys) WebP plugin 3.12.0 | BSD 3-Clause | shaded, to read Modrinth's WebP icons and screenshots |
 | Eclipse Temurin Java runtime (Windows installer only) | GPL-2.0 with the Classpath Exception | bundled by jpackage as the app's own Java |
 
+## Bundled with Octo Client
+
+`octo-client.jar` (which Octo Launcher carries) also carries:
+
+| Component | Licence | Where |
+|---|---|---|
+| [JLayer](http://www.javazoom.net/javalayer/javalayer.html) 1.0.1 (`javazoom:jlayer`), the MP3 decoder | LGPL-2.1 | unmodified, as its own jar at `META-INF/jars/jlayer-1.0.1.jar`, with the licence as `META-INF/licenses/jlayer-LGPL-2.1.txt` |
+
+JLayer is kept as a separate, unchanged jar rather than shaded, so it can be
+swapped for another build of it, as the LGPL asks: replace the jar inside
+`octo-client.jar` (or the copy Octo Loader unpacks into `.octo/nested`).
+Octo Client's FLAC decoder is its own code.
+
 ## Licence compatibility
 
 This needs stating plainly rather than being buried.

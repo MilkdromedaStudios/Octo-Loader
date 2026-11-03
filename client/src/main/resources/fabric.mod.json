@@ -16,6 +16,9 @@
     "client": ["studios.milkdromeda.octo.client.OctoClient"]
   },
   "mixins": ["octo-client.mixins.json"],
+  "jars": [
+    { "file": "META-INF/jars/jlayer-1.0.1.jar" }
+  ],
   "depends": {
     "minecraft": "~${minecraft}"
   }

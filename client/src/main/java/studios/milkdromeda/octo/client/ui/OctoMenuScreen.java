@@ -132,6 +132,8 @@ public final class OctoMenuScreen extends Screen {
             case 1 -> {
                 rows.add(new Toggle("Show the HUD", "Octo's HUD over the game, beside Minecraft's own.",
                         () -> c.hud, v -> c.hud = v));
+                rows.add(new Slider("HUD size", "Everything Octo draws on screen: the panel, minimap, keys and "
+                        + "card.", 50, 200, 10, () -> c.hudScale, v -> c.hudScale = v, v -> v + "%"));
                 Loadout current = Loadout.of(c);
                 rows.add(new Choice("Loadout", current.description, Loadout.titles(), current::ordinal,
                         v -> c.loadout = Loadout.values()[v].name()));
@@ -164,25 +166,54 @@ public final class OctoMenuScreen extends Screen {
             case 3 -> {
                 rows.add(new Toggle("Minimap", "A map of the ground around you, north up.", () -> c.minimap,
                         v -> c.minimap = v));
-                rows.add(new Choice("Size", "How big the map is on screen.", List.of("Small", "Medium", "Large"),
-                        () -> c.minimapSize, v -> c.minimapSize = v));
+                rows.add(new Slider("Size", "How big the map is on screen.", 64, 256, 8, () -> c.minimapPixels,
+                        v -> c.minimapPixels = v, v -> v + " px"));
                 rows.add(new Choice("Range", "How much ground it covers.", List.of("Close", "Wide", "Far"),
                         () -> c.minimapScale, v -> c.minimapScale = v));
                 rows.add(new Toggle("Coordinates", "Your coordinates under the map.", () -> c.minimapCoordinates,
                         v -> c.minimapCoordinates = v));
+                rows.add(new Choice("Layer", "Auto shows caves when you are underground and the surface, "
+                        + "shaded by height, above it.", List.of("Auto", "Surface", "Caves"), () -> c.minimapLayer,
+                        v -> c.minimapLayer = v));
+                rows.add(new KeyRow("Big map key", "Opens the map full screen, with your waypoints.",
+                        () -> c.mapKey, v -> c.mapKey = v));
+                rows.add(new Action("Big map", () -> "Drag, zoom and set waypoints on it.", "Open", () -> {
+                    if (minecraft.player != null) {
+                        minecraft.gui.setScreen(new studios.milkdromeda.octo.client.map.BigMapScreen());
+                    }
+                }));
+                rows.add(new KeyRow("Waypoint key", "Sets a waypoint where you stand.", () -> c.waypointKey,
+                        v -> c.waypointKey = v));
+                rows.add(new Toggle("Waypoints on the map", "Each as a diamond; at the edge when further away.",
+                        () -> c.waypointsOnMap, v -> c.waypointsOnMap = v));
+                rows.add(new Toggle("Waypoints in the world", "A marker over each, with how far it is.",
+                        () -> c.waypointsInWorld, v -> c.waypointsInWorld = v));
+                rows.add(new Toggle("Death waypoint", "Marks where you last died.", () -> c.deathWaypoint,
+                        v -> c.deathWaypoint = v));
             }
             case 4 -> {
                 MusicPlayer music = MusicPlayer.get();
-                rows.add(new Toggle("Your music", "Plays the .ogg files in your music folder instead of "
-                        + "Minecraft's music.", () -> c.music, v -> c.music = v));
+                rows.add(new Toggle("Your music", "Plays the MP3, OGG, FLAC and WAV files in your music "
+                        + "folder instead of Minecraft's music.", () -> c.music, v -> c.music = v));
                 rows.add(new Slider("Volume", "Also follows the game's master volume.", 0, 100, 5,
                         () -> c.musicVolume, v -> c.musicVolume = v, v -> v + "%"));
-                rows.add(new Toggle("Shuffle", "Songs in a random order.", () -> c.shuffle, v -> c.shuffle = v));
-                rows.add(new Toggle("Show what's playing", "The song's name, briefly, when a new one starts.",
-                        () -> c.nowPlaying, v -> c.nowPlaying = v));
-                rows.add(new Action("Now playing", () -> music.nowPlaying() == null
-                        ? music.songCount() + (music.songCount() == 1 ? " song" : " songs") + " in your folder"
-                        : music.nowPlaying(), "Next", music::next));
+                rows.add(new Toggle("Shuffle", "On: songs in a random order. Off: in order by file name.",
+                        () -> c.shuffle, v -> c.shuffle = v));
+                rows.add(new Toggle("Now playing card", "The song's cover, title, artist and how far through it "
+                        + "is.", () -> c.nowPlaying, v -> c.nowPlaying = v));
+                rows.add(new Choice("Show the card", "Covers come from the song's tags, or a cover.jpg or "
+                        + "cover.png beside it.", List.of("On start", "Always"),
+                        () -> c.nowPlayingStyle, v -> c.nowPlayingStyle = v));
+                rows.add(new Choice("Card position", "The bottom right corner, or the top middle.",
+                        List.of("Corner", "Top"), () -> c.nowPlayingPlace, v -> c.nowPlayingPlace = v));
+                rows.add(new Slider("Card size", "How big the now-playing card is.", 60, 200, 10,
+                        () -> c.nowPlayingScale, v -> c.nowPlayingScale = v, v -> v + "%"));
+                rows.add(new Action("Now playing", () -> {
+                    var song = music.info();
+                    return song == null
+                            ? music.songCount() + (music.songCount() == 1 ? " song" : " songs") + " in your folder"
+                            : song.artist() == null ? song.title() : song.title() + " · " + song.artist();
+                }, "Next", music::next));
                 rows.add(new Action("Music folder", () -> MusicPlayer.folder(minecraft).toString(), "Open",
                         () -> MusicPlayer.openFolder(minecraft)));
             }
