@@ -95,7 +95,20 @@ def minecraftClasspath = providers.provider {
     return files
 }
 
+// Libraries that ship inside the mod as jars of their own, unchanged
+// (META-INF/jars, listed in fabric.mod.json), which Octo Loader puts on the
+// class path: JLayer, the MP3 decoder, under the LGPL.
+configurations {
+    bundled {
+        transitive = false
+    }
+}
+
 dependencies {
+    bundled 'javazoom:jlayer:1.0.1'
+    compileOnly 'javazoom:jlayer:1.0.1'
+    testImplementation 'javazoom:jlayer:1.0.1'
+
     // The game, as the mod sees it at runtime.
     compileOnly files(minecraftClasspath)
 
@@ -107,6 +120,8 @@ dependencies {
     compileOnly "com.google.code.gson:gson:${rootProject.gson_version}"
 
     testImplementation files(minecraftClasspath)
+    // The Fabric API the mod's entry point implements, which Octo Loader provides.
+    testImplementation project(':loader')
 }
 
 processResources {
@@ -117,6 +132,10 @@ processResources {
 }
 
 jar {
+    into('META-INF/jars') {
+        from configurations.bundled
+    }
+
     manifest {
         attributes(
                 'Implementation-Title': 'Octo Client',

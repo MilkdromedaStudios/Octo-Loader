@@ -212,7 +212,11 @@ public final class OctoMain {
         // Minecraft it is built for however the game was started, through Octo Launcher
         // or through the official launcher on the Octo installation.
         if (side == Side.CLIENT) {
-            Path client = octoClientFolder(System.getProperty("user.home"), version);
+            // Octo Launcher says where it keeps its files; started any other way, its usual place.
+            String launcherHome = System.getProperty("octo.launcherHome");
+            Path client = launcherHome == null || launcherHome.isBlank()
+                    ? octoClientFolder(System.getProperty("user.home"), version)
+                    : clientIn(Path.of(launcherHome), version);
 
             if (client != null && modDirs.stream().noneMatch(dir -> dir.equals(client))) {
                 modDirs.add(client);
@@ -239,11 +243,16 @@ public final class OctoMain {
      * off.
      */
     static Path octoClientFolder(String userHome, String minecraftVersion) {
-        if (userHome == null || minecraftVersion == null || minecraftVersion.isBlank()) {
+        return userHome == null ? null : clientIn(Path.of(userHome, ".octo-launcher"), minecraftVersion);
+    }
+
+    /** The same, in an Octo Launcher folder given by {@code -Docto.launcherHome}. */
+    static Path clientIn(Path launcherHome, String minecraftVersion) {
+        if (minecraftVersion == null || minecraftVersion.isBlank()) {
             return null;
         }
 
-        Path folder = Path.of(userHome, ".octo-launcher", "client").toAbsolutePath().normalize();
+        Path folder = launcherHome.resolve("client").toAbsolutePath().normalize();
         Path jar = folder.resolve("octo-client.jar");
 
         if (!Files.isRegularFile(jar)) {

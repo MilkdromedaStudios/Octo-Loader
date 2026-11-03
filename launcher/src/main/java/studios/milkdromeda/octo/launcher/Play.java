@@ -146,6 +146,8 @@ public final class Play {
         progress.update("Starting Minecraft", 0, 0);
         Path natives = GameFiles.unpackNatives(game, profile, platform);
         List<String> extra = new ArrayList<>();
+        // Where Octo Client is: Octo Loader would otherwise look under the game's own home folder.
+        extra.add("-Docto.launcherHome=" + LauncherSettings.home().toAbsolutePath());
 
         for (String option : settings.jvmArguments.trim().split("\\s+")) {
             if (!option.isBlank()) {

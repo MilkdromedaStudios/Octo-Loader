@@ -123,6 +123,9 @@ class OctoMainTest {
         Path folder = clientJar(home, "26.3");
 
         assertEquals(folder, OctoMain.octoClientFolder(home.toString(), "26.3"));
+        assertEquals(folder, OctoMain.clientIn(home.resolve(".octo-launcher"), "26.3"),
+                "where Octo Launcher says it keeps its files");
+        assertEquals(null, OctoMain.clientIn(tempDir.resolve("elsewhere"), "26.3"));
         assertEquals(folder, OctoMain.octoClientFolder(home.toString(), "26.3.1"), "a patch release too");
         assertEquals(null, OctoMain.octoClientFolder(home.toString(), "1.21.1"), "not another version");
         assertEquals(null, OctoMain.octoClientFolder(home.toString(), "26.30"), "nor one that only starts alike");
