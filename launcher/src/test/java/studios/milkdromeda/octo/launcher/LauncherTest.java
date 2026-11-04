@@ -1,5 +1,6 @@
 package studios.milkdromeda.octo.launcher;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -34,9 +35,35 @@ class LauncherTest {
     }
 
     @Test
+    void releasesAreComparedByTheirNumbers() {
+        assertTrue(Updates.newer("v1.0.72", "v1.0.73"));
+        assertTrue(Updates.newer("v1.0.99", "v1.0.100"), "as numbers, not as text");
+        assertTrue(Updates.newer("v1.0.140", "v1.1.0"));
+        assertFalse(Updates.newer("v1.0.73", "v1.0.73"), "the same release");
+        assertFalse(Updates.newer("v1.0.73", "v1.0.72"), "never back to an older one");
+        assertFalse(Updates.newer("v1.1.0", "v1.0.140"));
+        assertTrue(Updates.newer("1.0.72", "v1.0.73"), "with or without the v");
+
+        // Builds from before the numbering move up to the first numbered release, and no further back.
+        assertTrue(Updates.newer("build-0123456789abcdef", "v1.0.72"));
+        assertFalse(Updates.newer("v1.0.72", "build-0123456789abcdef"));
+        assertTrue(Updates.newer("build-aaaa", "build-bbbb"), "between two of those, a different one, as before");
+        assertFalse(Updates.newer("build-aaaa", "build-aaaa"));
+
+        // Nothing downloaded yet: anything is newer; nothing offered: nothing is.
+        assertTrue(Updates.newer(null, "v1.0.72"));
+        assertFalse(Updates.newer("v1.0.72", null));
+        assertArrayEquals(new int[] { 1, 0, 72 }, Updates.version("v1.0.72"));
+        assertNull(Updates.version("build-abc"));
+    }
+
+    @Test
     void aDevBuildIsNeverOfferedAnUpdate() {
         assertEquals("dev", Launcher.build());
         assertFalse(Updates.isNewer(new Updates.Release("build-abc", "x", "u", "l", "n", Map.of())));
+        assertFalse(Updates.isNewer(new Updates.Release("v9.9.9", "x", "u", "l", "n", Map.of())));
+        assertEquals(studios.milkdromeda.octo.installer.Installer.VERSION, Launcher.version(),
+                "not a release: the project's version");
     }
 
     @Test

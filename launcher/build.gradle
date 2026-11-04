@@ -69,6 +69,8 @@ jar {
                 'Implementation-Title': 'Octo Launcher',
                 'Implementation-Version': project.version,
                 'Octo-Build': buildId,
+                // The release's number (1.0.72), shown in the launcher; the workflows set OCTO_VERSION.
+                'Octo-Version': System.getenv('OCTO_VERSION') ?: project.version,
                 'Octo-Msa-Client-Id': msaClientId
         )
     }

@@ -24,6 +24,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Work out the release number
+        shell: bash
+        # <major>.<minor> from gradle.properties, then this workflow's run number:
+        # every build of main is a release one higher than the last (1.0.72, 1.0.73...).
+        run: |
+          BASE="$(grep -E '^version=' gradle.properties | cut -d= -f2 | tr -d '\r' | cut -d. -f1,2)"
+          VERSION="$BASE.${{ github.run_number }}"
+          echo "OCTO_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "OCTO_BUILD=v$VERSION" >> "$GITHUB_ENV"
+          echo "This build is release v$VERSION"
+
       - name: Build and test
         run: ./gradlew build --stacktrace
 
@@ -77,8 +88,11 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.sha }}
-          name: Octo Loader Build ${{ github.sha }}
+          tag_name: ${{ env.OCTO_BUILD }}
+          target_commitish: ${{ github.sha }}
+          name: Octo Loader ${{ env.OCTO_VERSION }}
+          # What changed since the last release: the pull requests merged, by GitHub.
+          generate_release_notes: true
           files: |
             release/installer.jar
             release/octo-launcher.jar
@@ -119,11 +133,22 @@ jobs:
             "$($wix.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           }
 
+      - name: Work out the release number
+        shell: bash
+        # <major>.<minor> from gradle.properties, then this workflow's run number:
+        # every build of main is a release one higher than the last (1.0.72, 1.0.73...).
+        run: |
+          BASE="$(grep -E '^version=' gradle.properties | cut -d= -f2 | tr -d '\r' | cut -d. -f1,2)"
+          VERSION="$BASE.${{ github.run_number }}"
+          echo "OCTO_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "OCTO_BUILD=v$VERSION" >> "$GITHUB_ENV"
+          echo "This build is release v$VERSION"
+
       - name: Build the installer
         shell: bash
         env:
           OCTO_MSA_CLIENT_ID: ${{ secrets.CLIENT_ID || vars.OCTO_MSA_CLIENT_ID }}
-        run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion=1.0.${{ github.run_number }}
+        run: ./gradlew :launcher:nativePackage -PpackageType=exe -PappVersion="$OCTO_VERSION"
 
       - name: Collect it
         shell: bash
@@ -137,7 +162,7 @@ jobs:
       - name: Add it to the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.sha }}
+          tag_name: ${{ env.OCTO_BUILD }}
           files: |
             release/OctoLauncher-Setup.exe
             release/checksums-windows.txt

@@ -43,7 +43,7 @@ import javax.swing.UIManager;
 final class InstallerUi {
     private static final Dimension MINIMUM = new Dimension(780, 640);
 
-    private final JFrame frame = new JFrame("Octo Loader " + Installer.VERSION);
+    private final JFrame frame = new JFrame("Octo Loader " + Installer.release());
     private final JTextArea output = new JTextArea();
 
     /** The one line that says how the last thing went, drawn as a chip. */
@@ -131,7 +131,7 @@ final class InstallerUi {
     }
 
     private JComponent versionBadge() {
-        JLabel badge = new JLabel(Installer.VERSION) {
+        JLabel badge = new JLabel(Installer.release()) {
             @Override
             protected void paintComponent(Graphics graphics) {
                 Graphics2D canvas = Theme.smooth(graphics);

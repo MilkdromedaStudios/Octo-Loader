@@ -42,7 +42,9 @@ jar {
         attributes(
                 'Main-Class': 'studios.milkdromeda.octo.installer.Installer',
                 'Implementation-Title': 'Octo Installer',
-                'Implementation-Version': project.version
+                'Implementation-Version': project.version,
+                // The release's number (1.0.72) for a build of main, which the window shows.
+                'Octo-Version': System.getenv('OCTO_VERSION') ?: project.version
         )
     }
 }
