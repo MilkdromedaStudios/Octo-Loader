@@ -114,6 +114,20 @@ class ModsTest {
     }
 
     @Test
+    void searchesEveryLoaderOctoRunsUnlessOneIsChosen() {
+        String every = studios.milkdromeda.octo.launcher.mods.Modrinth.facets(null, null, null).toString();
+        for (String loader : List.of("fabric", "quilt", "forge", "neoforge")) {
+            assertTrue(every.contains("categories:" + loader), loader + " mods are searched");
+        }
+
+        String forge = Modrinth.facets("26.3", "storage", "forge").toString();
+        assertTrue(forge.contains("categories:forge"));
+        assertFalse(forge.contains("categories:fabric"), "one loader chosen: only its mods");
+        assertTrue(forge.contains("versions:26.3"));
+        assertTrue(forge.contains("categories:storage"));
+    }
+
+    @Test
     void readsADescriptionAsPlainParagraphs() {
         String markdown = "Intro.\n\n---\n\n<p align=\"center\">\n  <img src=\"x.png\">\n</p>\n\n\n"
                 + "## \uD83D\uDCE6 Install\n- *Fast* &#183; [docs](https://x)\n";

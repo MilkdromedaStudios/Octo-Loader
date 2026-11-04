@@ -210,10 +210,12 @@ final class HomePage implements App.Page {
             int w = getWidth();
             int h = getHeight();
             g.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, 24, 24));
-            g.setPaint(new GradientPaint(0, 0, new Color(0x1C, 0x13, 0x42), w, h, new Color(0x06, 0x1B, 0x30)));
+            g.setPaint(new GradientPaint(0, 0, Style.HERO_FROM, w, h, Style.HERO_TO));
             g.fillRect(0, 0, w, h);
-            glow(g, w * 0.15f, h * 0.05f, Math.max(w, h) * 0.55f, Style.alpha(Style.VIOLET, 120));
-            glow(g, w * 0.95f, h * 1.0f, Math.max(w, h) * 0.5f, Style.alpha(Style.CYAN, 95));
+            // Octo glows; Dark and Light keep to a quiet wash of their accent.
+            float glows = Style.look() == Style.Look.OCTO ? 1f : 0.3f;
+            glow(g, w * 0.15f, h * 0.05f, Math.max(w, h) * 0.55f, Style.alpha(Style.VIOLET, (int) (120 * glows)));
+            glow(g, w * 0.95f, h * 1.0f, Math.max(w, h) * 0.5f, Style.alpha(Style.CYAN, (int) (95 * glows)));
 
             // The art takes the right side, and steps back when the window
             // is narrow so it never sits under the text and buttons.
@@ -227,7 +229,7 @@ final class HomePage implements App.Page {
                 float x = w * 0.48f + random.nextFloat() * w * 0.52f;
                 float y = random.nextFloat() * h;
                 block(g, x, y, size, random.nextBoolean() ? Style.VIOLET : Style.CYAN,
-                        (roomy ? 40 : 18) + random.nextInt(roomy ? 70 : 30));
+                        (int) (((roomy ? 40 : 18) + random.nextInt(roomy ? 70 : 30)) * glows));
             }
 
             Image creeper = mob;
@@ -252,10 +254,12 @@ final class HomePage implements App.Page {
             }
 
             g.setComposite(AlphaComposite.SrcOver);
-            g.setPaint(new GradientPaint(0, 0, new Color(0, 0, 0, 130), w * 0.62f, 0, new Color(0, 0, 0, 0)));
+            // A shade under the text so it reads over the art: dark, or light on Light.
+            Color shade = Style.light() ? new Color(255, 255, 255, 170) : new Color(0, 0, 0, 130);
+            g.setPaint(new GradientPaint(0, 0, shade, w * 0.62f, 0, Style.alpha(shade, 0)));
             g.fillRect(0, 0, w, h);
             g.setClip(null);
-            g.setColor(Style.alpha(Color.WHITE, 20));
+            g.setColor(Style.alpha(Style.INK, 20));
             g.drawRoundRect(0, 0, w - 1, h - 1, 24, 24);
             g.dispose();
         }
@@ -513,7 +517,7 @@ final class HomePage implements App.Page {
             Graphics2D g = Style.smooth(graphics);
             int w = getWidth();
             int h = getHeight();
-            g.setColor(Style.alpha(Color.WHITE, 26));
+            g.setColor(Style.alpha(Style.INK, 26));
             g.fillRoundRect(0, 0, w, h, h, h);
             g.setPaint(Style.accent(0, w));
 
@@ -579,8 +583,19 @@ final class HomePage implements App.Page {
     private JComponent newsCard(News.Item item, int index) {
         Widgets.Card card = new Widgets.Card(Style.PANEL, 16, true).hoverable(() -> browse(item.url()));
         card.setLayout(new BorderLayout());
-        Color[][] palettes = { { Style.VIOLET, new Color(0x2A, 0x1A, 0x6E) }, { Style.CYAN, new Color(0x06, 0x30, 0x52) },
-                { new Color(0xE0, 0x5C, 0xFF), new Color(0x3A, 0x10, 0x4A) } };
+        // Each card's colour and the deep one it fades from: Octo's vivid three;
+        // quiet tints of slate, blue and sage on Dark and Light.
+        Color[][] palettes = switch (Style.look()) {
+            case DARK -> new Color[][] { { Style.VIOLET, new Color(0x1B, 0x22, 0x33) },
+                    { new Color(0x7A, 0x86, 0x99), new Color(0x1A, 0x1D, 0x24) },
+                    { new Color(0x4F, 0x9D, 0x8A), new Color(0x16, 0x21, 0x1F) } };
+            case LIGHT -> new Color[][] { { Style.VIOLET, new Color(0xDC, 0xE5, 0xFB) },
+                    { new Color(0x64, 0x74, 0x8B), new Color(0xE5, 0xE9, 0xEF) },
+                    { new Color(0x0F, 0x8A, 0x6B), new Color(0xDD, 0xEF, 0xE9) } };
+            default -> new Color[][] { { Style.VIOLET, new Color(0x2A, 0x1A, 0x6E) },
+                    { Style.CYAN, new Color(0x06, 0x30, 0x52) },
+                    { new Color(0xE0, 0x5C, 0xFF), new Color(0x3A, 0x10, 0x4A) } };
+        };
         Color[] palette = palettes[index % palettes.length];
         JPanel art = new JPanel() {
             @Override
@@ -597,9 +612,11 @@ final class HomePage implements App.Page {
                 shape.append(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h + 20, 16, 16), false);
                 g.setClip(new java.awt.geom.Rectangle2D.Float(0, 0, w, h));
                 g.clip(shape);
-                g.setPaint(new GradientPaint(0, 0, palette[1], w, h, Style.mix(palette[0], Color.BLACK, 0.15f)));
+                boolean octo = Style.look() == Style.Look.OCTO;
+                g.setPaint(new GradientPaint(0, 0, palette[1], w, h, octo ? Style.mix(palette[0], Color.BLACK, 0.15f)
+                        : Style.mix(palette[1], palette[0], 0.35f)));
                 g.fillRect(0, 0, w, h);
-                g.setColor(Style.alpha(Color.WHITE, 16));
+                g.setColor(Style.alpha(Style.INK, octo ? 16 : 8));
 
                 for (int i = -h; i < w; i += 16) {
                     g.drawLine(i, h, i + h, 0);
@@ -610,7 +627,7 @@ final class HomePage implements App.Page {
                 g.drawImage(mark, w - 76, (h - 64) / 2, 64, 64, null);
                 g.setComposite(AlphaComposite.SrcOver);
                 g.setFont(Style.strong(11.5f));
-                g.setColor(Style.alpha(Color.WHITE, 230));
+                g.setColor(Style.light() ? Style.alpha(Style.TEXT, 210) : Style.alpha(Color.WHITE, 230));
                 g.drawString(index == 0 ? "NEW RELEASE" : "RELEASE", 16, 26);
                 g.dispose();
             }

@@ -70,6 +70,29 @@ class LauncherTest {
     }
 
     @Test
+    void themesAreChosenByTheirSettingsNameAndRepaintTheWholePalette() {
+        assertEquals(studios.milkdromeda.octo.launcher.ui.Style.Look.DARK,
+                studios.milkdromeda.octo.launcher.ui.Style.Look.of("dark"));
+        assertEquals(studios.milkdromeda.octo.launcher.ui.Style.Look.OCTO,
+                studios.milkdromeda.octo.launcher.ui.Style.Look.of("something else"), "unknown: the original look");
+
+        try {
+            studios.milkdromeda.octo.launcher.ui.Style.apply(studios.milkdromeda.octo.launcher.ui.Style.Look.LIGHT);
+            assertEquals(java.awt.Color.BLACK, studios.milkdromeda.octo.launcher.ui.Style.INK, "dark ink on light");
+            assertTrue(studios.milkdromeda.octo.launcher.ui.Style.TEXT.getRed() < 64, "dark text on light");
+
+            studios.milkdromeda.octo.launcher.ui.Style.apply(studios.milkdromeda.octo.launcher.ui.Style.Look.DARK);
+            assertTrue(studios.milkdromeda.octo.launcher.ui.Style.glass());
+            assertTrue(studios.milkdromeda.octo.launcher.ui.Style.PANEL.getAlpha() < 255, "glass panels let through");
+            // Mixing a glass panel with a colour keeps it glass.
+            assertTrue(studios.milkdromeda.octo.launcher.ui.Style.mix(studios.milkdromeda.octo.launcher.ui.Style.PANEL,
+                    studios.milkdromeda.octo.launcher.ui.Style.RED, 0.1f).getAlpha() < 128);
+        } finally {
+            studios.milkdromeda.octo.launcher.ui.Style.apply(studios.milkdromeda.octo.launcher.ui.Style.Look.OCTO);
+        }
+    }
+
+    @Test
     void selectsAProfileByMarkingItUsedLast() throws IOException {
         Files.writeString(game.resolve("launcher_profiles.json"),
                 "{\"profiles\":{\"octo-loader-26.3\":{\"name\":\"Octo Loader 26.3\",\"javaArgs\":\"-Xmx6G\"}}}");

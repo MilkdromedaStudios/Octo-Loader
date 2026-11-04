@@ -90,6 +90,7 @@ public final class OctoMenuScreen extends Screen {
 
     @Override
     protected void init() {
+        Theme.follow();
         panelW = Math.min(600, width - 24);
         panelH = Math.min(340, height - 24);
         panelX = (width - panelW) / 2;
@@ -120,10 +121,14 @@ public final class OctoMenuScreen extends Screen {
 
         switch (category) {
             case 0 -> {
-                rows.add(new Toggle("Octo look", "Buttons and sliders in Octo's style, all through the game.",
-                        () -> c.modernWidgets, v -> c.modernWidgets = v));
-                rows.add(new Choice("Accent colour", "The colour of switches, sliders and highlights.",
-                        List.of(Theme.ACCENT_NAMES), () -> c.accent, v -> c.accent = v));
+                rows.add(new Toggle("Octo look", "Buttons and sliders in Octo's style, in the "
+                        + Character.toUpperCase(Theme.look().charAt(0)) + Theme.look().substring(1)
+                        + " theme chosen in Octo Launcher.", () -> c.modernWidgets, v -> c.modernWidgets = v));
+                // The accent is the player's on the Octo theme; Dark and Light bring their own.
+                if (Theme.look().equals("octo")) {
+                    rows.add(new Choice("Accent colour", "The colour of switches, sliders and highlights.",
+                            List.of(Theme.ACCENT_NAMES), () -> c.accent, v -> c.accent = v));
+                }
                 rows.add(new Toggle("Soft clicks", "Gentler, lighter button sounds.", () -> c.softClicks,
                         v -> c.softClicks = v));
                 rows.add(new KeyRow("Menu key", "Opens this menu from anywhere in the game.", () -> c.menuKey,

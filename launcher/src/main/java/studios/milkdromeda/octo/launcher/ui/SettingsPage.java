@@ -40,6 +40,7 @@ final class SettingsPage implements App.Page {
 
         JPanel column = Widgets.stack(18);
         column.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
+        column.add(group("Appearance", themeRow()));
 
         JComponent officialRow = switchRow("Play through the Minecraft Launcher instead", "Octo selects itself "
                 + "there, and the Minecraft Launcher signs you in and starts the game.", settings.useOfficialLauncher,
@@ -188,6 +189,31 @@ final class SettingsPage implements App.Page {
             }
         });
         row.add(field);
+        return row;
+    }
+
+    /** Octo, Dark or Light: a swatch of each, the one in use marked. Octo Client follows the choice. */
+    private JComponent themeRow() {
+        JPanel row = Widgets.clear(new BorderLayout(16, 0));
+        row.add(labels("Theme", "Octo is the original look. Dark is graphite and frosted glass, Light is bright "
+                + "and calm. Octo Client in the game follows what you pick here."), BorderLayout.CENTER);
+        JPanel choices = Widgets.row(8);
+        choices.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+        Style.Look current = Style.look();
+
+        for (Style.Look look : Style.Look.values()) {
+            Widgets.Button choice = new Widgets.Button(look.label, null,
+                    look == current ? Widgets.Kind.PRIMARY : Widgets.Kind.SECONDARY, 12);
+            choice.addActionListener(event -> {
+                if (look != Style.look()) {
+                    app.settings().theme = look.id;
+                    app.retheme();
+                }
+            });
+            choices.add(choice);
+        }
+
+        row.add(choices, BorderLayout.EAST);
         return row;
     }
 

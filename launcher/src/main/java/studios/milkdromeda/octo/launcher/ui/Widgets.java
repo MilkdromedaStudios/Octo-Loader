@@ -90,7 +90,7 @@ public final class Widgets {
         @Override
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = Style.smooth(graphics);
-            g.setColor(hoverable && hover ? Style.mix(fill, Color.WHITE, 0.04f) : fill);
+            g.setColor(hoverable && hover ? Style.mix(fill, Style.INK, 0.04f) : fill);
             g.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
 
             if (border) {

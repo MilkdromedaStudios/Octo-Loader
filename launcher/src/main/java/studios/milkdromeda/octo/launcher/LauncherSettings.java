@@ -44,7 +44,9 @@ public final class LauncherSettings {
     public String javaPath = "";
     /** More options for Java, as typed. */
     public String jvmArguments = "";
-    /** The Microsoft app registration to sign in with, when this build has none of its own. */
+    /** The look: "octo", "dark" (frosted glass) or "light". Octo Client follows it too. */
+    public String theme = "octo";
+        /** The Microsoft app registration to sign in with, when this build has none of its own. */
     public String microsoftClientId = "";
 
     public Path gameDir() {

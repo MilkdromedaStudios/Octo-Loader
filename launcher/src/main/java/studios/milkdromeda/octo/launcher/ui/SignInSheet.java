@@ -262,7 +262,7 @@ final class SignInSheet extends Sheet {
             Graphics2D g = Style.smooth(graphics);
             g.setStroke(new java.awt.BasicStroke(2.2f, java.awt.BasicStroke.CAP_ROUND,
                     java.awt.BasicStroke.JOIN_ROUND));
-            g.setColor(Style.alpha(Color.WHITE, 30));
+            g.setColor(Style.alpha(Style.INK, 30));
             g.drawOval(2, 2, 14, 14);
             g.setColor(Style.VIOLET);
             g.drawArc(2, 2, 14, 14, -angle, 100);

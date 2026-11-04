@@ -53,6 +53,7 @@ public final class ClientWindow implements App {
     private static final int CORNER = 14;
 
     private final JFrame frame = new JFrame("Octo Launcher");
+    private String currentPage = "Home";
     private final LauncherSettings settings = LauncherSettings.load();
     private final CardLayout cards = new CardLayout();
     private final JPanel pages = Widgets.clear(cards);
@@ -92,6 +93,11 @@ public final class ClientWindow implements App {
     }
 
     private void open() {
+        open("Home");
+    }
+
+    private void open(String firstPage) {
+        Style.apply(Style.Look.of(settings.theme));
         studios.milkdromeda.octo.launcher.mods.Modrinth.userAgent(launcherUserAgent());
         studios.milkdromeda.octo.launcher.game.Net.userAgent(launcherUserAgent());
         frame.setUndecorated(true);
@@ -113,8 +119,7 @@ public final class ClientWindow implements App {
             @Override
             protected void paintComponent(Graphics graphics) {
                 Graphics2D g = Style.smooth(graphics);
-                g.setColor(Style.WINDOW);
-                g.fillRect(0, 0, getWidth(), getHeight());
+                Style.backdrop(g, getWidth(), getHeight());
                 g.setColor(Style.LINE);
                 g.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
                 g.dispose();
@@ -150,7 +155,7 @@ public final class ClientWindow implements App {
         resizable();
         frame.setVisible(true);
         placeToasts();
-        go(System.getProperty("octo.launcher.page", "Home"));
+        go(System.getProperty("octo.launcher.page", firstPage));
         changed();
 
         // -Docto.launcher.mod=create: opens that mod's page, for checking it.
@@ -561,12 +566,31 @@ public final class ClientWindow implements App {
     }
 
     @Override
+    public void retheme() {
+        save();
+        java.awt.Rectangle bounds = frame.getBounds();
+        int state = frame.getExtendedState();
+        String page = currentPage;
+        frame.dispose();
+        SwingUtilities.invokeLater(() -> {
+            ClientWindow next = new ClientWindow();
+            next.open(page);
+            next.frame.setExtendedState(state);
+
+            if (state == JFrame.NORMAL) {
+                next.frame.setBounds(bounds);
+            }
+        });
+    }
+
+    @Override
     public void go(String page) {
         if (!byName.containsKey(page)) {
             page = "Home";
         }
 
         cards.show(pages, page);
+        currentPage = page;
         String shown = page;
         rail.forEach((name, button) -> button.selected(name.equals(shown)));
     }

@@ -39,7 +39,10 @@ public interface App {
     /** Something changed on disk: every page reads again. */
     void changed();
 
-    /** Saves the settings, telling the player if it could not. */
+    /** Takes on the theme in the settings: the window is built again in it, on the same page. */
+    void retheme();
+
+        /** Saves the settings, telling the player if it could not. */
     void save();
 
     /** Opens a mod's page over the window. */
