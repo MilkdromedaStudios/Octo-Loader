@@ -255,9 +255,25 @@ public final class MixinSupport {
 
     private static List<Config> discover(List<LoadedMod> mods, Side side) {
         List<Config> out = new ArrayList<>();
+        Set<String> loaded = new java.util.HashSet<>();
+        mods.forEach(each -> loaded.add(each.id()));
+        // What Octo itself is: the game, Java and the loaders it stands in for.
+        loaded.addAll(studios.milkdromeda.octo.runtime.BuiltinMods.IDS);
+        loaded.addAll(Set.of("neoforge", "forge", "fml", "quilt_loader"));
 
         for (LoadedMod mod : mods) {
             Set<String> declared = new LinkedHashSet<>(mod.metadata().mixinConfigs(side));
+            declared.removeIf(config -> {
+                List<String> required = mod.metadata().mixinRequires(config);
+
+                if (loaded.containsAll(required)) {
+                    return false;
+                }
+
+                LOG.debug("{}: leaves out mixin config {}, which is for when {} {} installed", mod.id(), config,
+                        String.join(", ", required), required.size() == 1 ? "is" : "are");
+                return true;
+            });
 
             try (ModSource source = ModSource.open(mod.effectivePath())) {
                 declared.addAll(fromManifest(source));

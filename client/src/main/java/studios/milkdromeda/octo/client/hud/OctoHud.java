@@ -291,7 +291,7 @@ public final class OctoHud {
             Draw.round(g, x, y, w, h, 4, Theme.alpha(Theme.WINDOW, 170));
         }
 
-        g.centeredText(font, label, x + w / 2, y + (h - 8) / 2, down ? 0xFFFFFFFF : Theme.MUTED);
+        g.centeredText(font, label, x + w / 2, y + (h - 8) / 2, down ? Theme.TEXT : Theme.MUTED);
     }
 
     // ----------------------------------------------------- now playing

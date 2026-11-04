@@ -56,6 +56,9 @@ final class ModsPage implements App.Page {
     private final Text resultCount = Widgets.line(" ", Style.font(Font.PLAIN, 12.5f), Style.FAINT);
     private final Widgets.Switch onlyThisVersion = new Widgets.Switch(false);
     private final Widgets.Button sortButton = Widgets.dropdown("Most relevant");
+    private final Widgets.Button loaderButton = Widgets.dropdown("Every loader");
+    /** Mods of one loader only, or of every one (null): Octo runs them all together. */
+    private String loader;
     private final JPanel categoryRow = Widgets.flow(8, 8);
     private String sort = "relevance";
     private String category;
@@ -223,6 +226,8 @@ final class ModsPage implements App.Page {
         toggle.add(toggleLabel);
         onlyThisVersion.onChange(value -> newSearch());
         right.add(toggle);
+        loaderButton.addActionListener(event -> chooseLoader());
+        right.add(loaderButton);
         sortButton.addActionListener(event -> chooseSort());
         right.add(sortButton);
         bar.add(right, BorderLayout.EAST);
@@ -305,6 +310,26 @@ final class ModsPage implements App.Page {
         return chip;
     }
 
+    private void chooseLoader() {
+        JPopupMenu menu = new JPopupMenu();
+        String[][] options = { { "", "Every loader" }, { "fabric", "Fabric" }, { "quilt", "Quilt" },
+                { "forge", "Forge" }, { "neoforge", "NeoForge" } };
+
+        for (String[] option : options) {
+            JMenuItem item = new JMenuItem(option[1]);
+            item.setFont(Style.font(Font.PLAIN, 13f));
+            item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
+            item.addActionListener(event -> {
+                loader = option[0].isEmpty() ? null : option[0];
+                loaderButton.setText(option[1]);
+                newSearch();
+            });
+            menu.add(item);
+        }
+
+        menu.show(loaderButton, 0, loaderButton.getHeight() + 6);
+    }
+
     private void chooseSort() {
         JPopupMenu menu = new JPopupMenu();
         String[][] options = { { "relevance", "Most relevant" }, { "downloads", "Most downloaded" },
@@ -345,7 +370,8 @@ final class ModsPage implements App.Page {
         String version = onlyThisVersion.isOn() ? app.selectedVersion() : null;
         more.setEnabled(false);
         resultCount.setText("Searching Modrinth...");
-        app.run(() -> Modrinth.search(query, version, category, sort, offset, 24), page -> {
+        String onlyLoader = loader;
+        app.run(() -> Modrinth.search(query, version, category, onlyLoader, sort, offset, 24), page -> {
             if (generation != searchGeneration) {
                 return;
             }

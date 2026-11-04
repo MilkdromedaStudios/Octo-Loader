@@ -146,8 +146,15 @@ public final class ModResolver {
                 continue;
             }
 
-            ModCandidate winner = candidate.metadata().version().compareTo(existing.metadata().version()) > 0
-                    ? candidate : existing;
+            int newer = candidate.metadata().version().compareTo(existing.metadata().version());
+            // The same version in a jar and in a jar inside it: the inner one
+            // is the mod, the outer only carries it. NeoForge's Sodium is a
+            // thin jar of start-up services around its real jar, and keeping
+            // the outer one dropped every class Sodium has.
+            ModCandidate winner = newer > 0 ? candidate
+                    : newer < 0 ? existing
+                    : nestedIn(candidate, existing) ? candidate
+                    : existing;
             ModCandidate loser = winner == candidate ? existing : candidate;
 
             selected.put(candidate.id(), winner);
@@ -158,6 +165,17 @@ public final class ModResolver {
         }
 
         return selected;
+    }
+
+    /** Whether {@code inner} was found inside {@code outer}, at any depth. */
+    static boolean nestedIn(ModCandidate inner, ModCandidate outer) {
+        for (ModCandidate at = inner.parent(); at != null; at = at.parent()) {
+            if (at == outer || at.path().equals(outer.path())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

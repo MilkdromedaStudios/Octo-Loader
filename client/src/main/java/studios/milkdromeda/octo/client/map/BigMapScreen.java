@@ -293,7 +293,7 @@ public final class BigMapScreen extends Screen {
         int cw = font.width(centre) + 16;
         int cx = centreButtonX();
         Draw.round(g, cx, 8, cw, 22, 7, Theme.alpha(follow ? Theme.WINDOW : Theme.accent(), 225));
-        g.text(font, centre, cx + 8, 15, follow ? Theme.MUTED : 0xFFFFFFFF, false);
+        g.text(font, centre, cx + 8, 15, follow ? Theme.MUTED : Theme.TEXT, false);
     }
 
     private String detail() {
@@ -316,7 +316,7 @@ public final class BigMapScreen extends Screen {
         int aw = font.width(add) + 12;
         boolean overAdd = inside(mouseX, mouseY, 8 + PANEL_W - aw - 6, top + 4, aw, 16);
         Draw.round(g, 8 + PANEL_W - aw - 6, top + 4, aw, 16, 5, overAdd ? Theme.accentEnd() : Theme.accent());
-        g.text(font, add, 8 + PANEL_W - aw, top + 8, 0xFFFFFFFF, false);
+        g.text(font, add, 8 + PANEL_W - aw, top + 8, Theme.TEXT, false);
 
         int rowsTop = top + 26;
         int visible = Math.max(0, (bottom - rowsTop - 4) / ROW_H);

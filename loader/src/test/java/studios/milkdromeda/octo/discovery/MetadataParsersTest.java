@@ -278,6 +278,32 @@ class MetadataParsersTest {
     }
 
     @Test
+    @DisplayName("a NeoForge mixin config with requiredMods is kept for when those mods are there")
+    void neoForgeMixinRequirements() throws IOException {
+        Path jar = new JarBuilder()
+                .file("META-INF/neoforge.mods.toml", """
+                        modLoader="javafml"
+                        loaderVersion="[1,)"
+                        license="MIT"
+                        [[mods]]
+                        modId="sodiumlike"
+                        version="0.9.3"
+                        [[mixins]]
+                        config="common.mixins.json"
+                        [[mixins]]
+                        config="frapi.mixins.json"
+                        requiredMods=["fabric_renderer_api_v1"]
+                        """)
+                .writeTo(directory.resolve("sodiumlike.jar"));
+
+        ModCandidate mod = discover(jar);
+
+        assertEquals(java.util.List.of("common.mixins.json", "frapi.mixins.json"), mod.metadata().mixinConfigs());
+        assertEquals(java.util.List.of(), mod.metadata().mixinRequires("common.mixins.json"));
+        assertEquals(java.util.List.of("fabric_renderer_api_v1"), mod.metadata().mixinRequires("frapi.mixins.json"));
+    }
+
+    @Test
     @DisplayName("mcmod.info, the 1.7-through-1.12 format")
     void legacyForge() throws IOException {
         Path jar = new JarBuilder().file("mcmod.info", """

@@ -116,10 +116,25 @@ public final class Modrinth {
      */
     public static Page search(String query, String gameVersion, String category, String sort, int offset, int limit)
             throws IOException, InterruptedException {
+        return search(query, gameVersion, category, null, sort, offset, limit);
+    }
+
+    /**
+     * What a search asks Modrinth for: mods, of one loader or of any Octo
+     * runs (one group, so any of them matches), for a version and a category
+     * when they are given.
+     */
+    public static JsonArray facets(String gameVersion, String category, String loader) {
         JsonArray facets = new JsonArray();
         facets.add(facet("project_type:mod"));
         JsonArray loaders = new JsonArray();
-        LOADERS.forEach(loader -> loaders.add("categories:" + loader));
+
+        if (loader != null && LOADERS.contains(loader)) {
+            loaders.add("categories:" + loader);
+        } else {
+            LOADERS.forEach(each -> loaders.add("categories:" + each));
+        }
+
         facets.add(loaders);
 
         if (gameVersion != null && !gameVersion.isBlank()) {
@@ -130,6 +145,18 @@ public final class Modrinth {
             facets.add(facet("categories:" + category));
         }
 
+        return facets;
+    }
+
+    /**
+     * As {@link #search(String, String, String, String, int, int)}, for mods
+     * of one loader: {@code fabric}, {@code quilt}, {@code forge} or
+     * {@code neoforge}; {@code null} for mods of any of them, which Octo runs
+     * side by side.
+     */
+    public static Page search(String query, String gameVersion, String category, String loader, String sort,
+            int offset, int limit) throws IOException, InterruptedException {
+        JsonArray facets = facets(gameVersion, category, loader);
         String path = "/search?query=" + encode(query == null ? "" : query) + "&facets=" + encode(facets.toString())
                 + "&index=" + encode(sort == null ? "relevance" : sort) + "&offset=" + offset + "&limit=" + limit;
         return parsePage(get(path).getAsJsonObject());

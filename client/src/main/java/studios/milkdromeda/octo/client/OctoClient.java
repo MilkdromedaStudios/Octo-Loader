@@ -35,6 +35,7 @@ public final class OctoClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         config();
+        studios.milkdromeda.octo.client.ui.Theme.follow();
         LOG.info("Octo Client ready: {} opens its menu", keyName(config.menuKey));
     }
 

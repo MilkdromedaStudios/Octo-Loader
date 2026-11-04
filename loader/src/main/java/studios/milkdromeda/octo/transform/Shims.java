@@ -143,6 +143,13 @@ public final class Shims {
             // A task queued for the game's thread: tell(task) until 26.x,
             // schedule(task) now. Catnip opens every Create screen this way.
             Map.entry("net/minecraft/util/thread/BlockableEventLoop.tell(Ljava/lang/Runnable;)V", "eventLoopTell"),
+            // NeoForge's patch names an order-independent-transparency pipeline
+            // set by an Identifier; the game's own builder takes a string.
+            // NeoForge's own pipelines are made so, and a null there stopped
+            // every NeoForge mod that touches them (Iris) from starting.
+            Map.entry("net/minecraft/client/renderer/oit/OitPipelineSet.builder(Lnet/minecraft/resources/Identifier;"
+                    + "Lcom/mojang/renderpearl/api/pipeline/RenderPipeline$Builder;)"
+                    + "Lnet/minecraft/client/renderer/oit/OitPipelineSet$Builder;", "oitPipelineBuilder"),
             // NeoForge's patch to the game's language manager: the language
             // chosen, as a Java locale. Catnip wraps every line of Create's
             // config with it, and a null there stopped the screen opening.
@@ -812,6 +819,13 @@ public final class Shims {
         }
 
         return java.util.Locale.forLanguageTag(text.replace('_', '-'));
+    }
+
+    /** {@code OitPipelineSet.builder(id, base)}: the game's builder, named after the whole identifier. */
+    public static Object oitPipelineBuilder(Object id, Object base, Class<?> owner) {
+        String name = String.valueOf(id).replace(':', '/');
+        return callStatic(owner, "builder", new Class<?>[] { String.class,
+                game(owner, "com.mojang.renderpearl.api.pipeline.RenderPipeline$Builder") }, name, base);
     }
 
     /** {@code RenderSystem.renderThreadTesselator()}: the one tesselator. */

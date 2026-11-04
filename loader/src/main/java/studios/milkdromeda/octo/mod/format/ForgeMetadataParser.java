@@ -182,7 +182,17 @@ public final class ForgeMetadataParser implements MetadataParser {
                     String path = string(mixin, "config", null);
 
                     if (path != null) {
-                        builder.mixinConfig(path);
+                        // NeoForge applies a config with requiredMods only
+                        // alongside those mods: Sodium's FRAPI mixins need a
+                        // Fabric renderer API that a plain NeoForge has not got.
+                        Object required = mixin.get(List.of("requiredMods"));
+                        List<String> requiredMods = new java.util.ArrayList<>();
+
+                        if (required instanceof List<?> ids) {
+                            ids.forEach(id -> requiredMods.add(String.valueOf(id)));
+                        }
+
+                        builder.mixinConfigRequiring(path, requiredMods);
                     }
                 } else if (entry instanceof String path) {
                     builder.mixinConfig(path);

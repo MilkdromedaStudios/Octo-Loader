@@ -156,29 +156,57 @@ public final class GlContextGuard implements Transformer {
     }
 
     private static volatile java.lang.invoke.MethodHandle capabilities;
+    /** Set once LWJGL's GL class could not be found at all: then nothing is ever skipped. */
+    private static volatile boolean unknowable;
 
     /**
-     * Whether this thread has OpenGL to call: LWJGL's capabilities for it,
-     * which it has only where a context was made current on it.
+     * Whether this thread may call OpenGL. Only a definite "no" skips a call:
+     * LWJGL saying there are no capabilities for this thread. Anything Octo
+     * cannot tell — LWJGL not where it looked — lets every call through, as
+     * if this guard were not there, rather than silence a mod's drawing.
      */
     public static boolean hasContext() {
-        try {
-            java.lang.invoke.MethodHandle handle = capabilities;
+        if (unknowable) {
+            return true;
+        }
+
+        java.lang.invoke.MethodHandle handle = capabilities;
+
+        if (handle == null) {
+            handle = findCapabilities();
 
             if (handle == null) {
-                Class<?> gl = Class.forName("org.lwjgl.opengl.GL", false,
-                        Thread.currentThread().getContextClassLoader());
-                handle = java.lang.invoke.MethodHandles.publicLookup().findStatic(gl, "getCapabilities",
-                        java.lang.invoke.MethodType.methodType(Class.forName("org.lwjgl.opengl.GLCapabilities", false,
-                                gl.getClassLoader())));
-                capabilities = handle;
+                unknowable = true;
+                return true;
             }
 
-            return handle.invoke() != null;
-        } catch (Throwable e) {
-            // LWJGL says there is none by throwing.
-            return false;
+            capabilities = handle;
         }
+
+        try {
+            return handle.invoke() != null;
+        } catch (IllegalStateException e) {
+            // LWJGL's own answer: no context was made current on this thread.
+            return false;
+        } catch (Throwable e) {
+            return true;
+        }
+    }
+
+    private static java.lang.invoke.MethodHandle findCapabilities() {
+        for (ClassLoader loader : new ClassLoader[] { Thread.currentThread().getContextClassLoader(),
+                GlContextGuard.class.getClassLoader(), ClassLoader.getSystemClassLoader() }) {
+            try {
+                Class<?> gl = Class.forName("org.lwjgl.opengl.GL", false, loader);
+                return java.lang.invoke.MethodHandles.publicLookup().findStatic(gl, "getCapabilities",
+                        java.lang.invoke.MethodType.methodType(Class.forName("org.lwjgl.opengl.GLCapabilities", false,
+                                gl.getClassLoader())));
+            } catch (Throwable e) {
+                // The next loader.
+            }
+        }
+
+        return null;
     }
 
     /** Said once per GL method: a mod drew with OpenGL where 26.x had no context for it. */

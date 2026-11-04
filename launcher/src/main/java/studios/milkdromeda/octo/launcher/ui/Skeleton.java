@@ -14,7 +14,10 @@ import javax.swing.Timer;
  * something is still loading so the page has its shape from the start.
  */
 public final class Skeleton extends JComponent {
-    private static final Color BASE = Style.mix(Style.PANEL, Style.RAISED, 0.5f);
+    /** The bar colour, from the theme in use when it paints. */
+    private static Color base() {
+        return Style.mix(Style.PANEL, Style.RAISED, 0.5f);
+    }
     private final Timer shimmer;
     private final int height;
     private final boolean withIcon;
@@ -59,12 +62,12 @@ public final class Skeleton extends JComponent {
         int x = 16;
 
         if (withIcon) {
-            g.setColor(BASE);
+            g.setColor(base());
             g.fillRoundRect(16, 16, 56, 56, 14, 14);
             x = 88;
         }
 
-        g.setColor(BASE);
+        g.setColor(base());
         g.fillRoundRect(x, 20, Math.max(40, (w - x) / 2), 12, 6, 6);
         g.fillRoundRect(x, 44, Math.max(40, w - x - 24), 9, 5, 5);
         g.fillRoundRect(x, 60, Math.max(40, (w - x) * 2 / 3), 9, 5, 5);

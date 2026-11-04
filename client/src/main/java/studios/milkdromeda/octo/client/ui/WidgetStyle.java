@@ -40,7 +40,7 @@ public final class WidgetStyle {
             Draw.round(g, x, y, w, h, r, faded(Theme.alpha(Theme.RAISED, 225), widget));
             Draw.outline(g, x, y, w, h, r, faded(Theme.LINE, widget));
             // A faint highlight on the top edge gives it depth.
-            g.fill(x + r, y + 1, x + w - r, y + 2, faded(Theme.alpha(0xFFFFFFFF, 14), widget));
+            g.fill(x + r, y + 1, x + w - r, y + 2, faded(Theme.alpha(Theme.INK, 14), widget));
         }
     }
 
@@ -67,7 +67,7 @@ public final class WidgetStyle {
         int y = widget.getY();
         int h = widget.getHeight();
         int x = handleX + handleWidth / 2 - 2;
-        int colour = widget.isActive() ? 0xFFFFFFFF : Theme.MUTED;
+        int colour = widget.isActive() ? Theme.TEXT : Theme.MUTED;
         Draw.round(g, x, y + 3, 4, h - 6, 2, faded(colour, widget));
     }
 }
