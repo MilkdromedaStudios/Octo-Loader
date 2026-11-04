@@ -45,6 +45,20 @@ public final class ModInfos {
         return FORGE.computeIfAbsent(modId, ForgeInfo::new);
     }
 
+    /**
+     * What a mod's {@code [modproperties.<id>]} table holds. Mods read each
+     * other's: Iris names its settings page for Sodium's menu with
+     * {@code "sodium:config_api_user"}, and with none Iris had no page there.
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> properties(String modId) {
+        return mod(modId).map(loaded -> loaded.metadata().customValues().get(MOD_PROPERTIES))
+                .filter(Map.class::isInstance).map(value -> (Map<String, Object>) value).orElse(Map.of());
+    }
+
+    /** Where a Forge or NeoForge mod's properties table is kept among its metadata's custom values. */
+    public static final String MOD_PROPERTIES = "modproperties";
+
     private static Optional<LoadedMod> mod(String modId) {
         return OctoRuntime.isRunning() ? OctoRuntime.get().mod(modId) : Optional.empty();
     }
@@ -160,7 +174,7 @@ public final class ModInfos {
 
         @Override
         public Map<String, Object> getModProperties() {
-            return Map.of();
+            return properties(modId);
         }
 
         @Override
@@ -268,7 +282,7 @@ public final class ModInfos {
 
         @Override
         public Map<String, Object> getModProperties() {
-            return Map.of();
+            return properties(modId);
         }
 
         @Override

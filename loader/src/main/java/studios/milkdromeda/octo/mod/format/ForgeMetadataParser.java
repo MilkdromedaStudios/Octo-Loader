@@ -98,6 +98,7 @@ public final class ForgeMetadataParser implements MetadataParser {
 
             readDependencies(config, id, builder);
             readMixins(config, mod, builder);
+            readModProperties(config, id, builder);
             readAccessTransformers(config, source, builder);
 
             out.add(builder.build());
@@ -169,6 +170,22 @@ public final class ForgeMetadataParser implements MetadataParser {
             case "AFTER" -> ModDependency.Ordering.AFTER;
             default -> ModDependency.Ordering.NONE;
         };
+    }
+
+    /**
+     * The mod's {@code [modproperties.<id>]} table, which other mods read
+     * through its {@code IModInfo}: Iris's settings page for Sodium's menu is
+     * named there.
+     */
+    private static void readModProperties(Config config, String id, ModMetadata.Builder builder) {
+        Object table = config.get(List.of("modproperties", id));
+
+        if (table instanceof UnmodifiableConfig properties) {
+            java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
+            properties.entrySet().forEach(entry -> values.put(entry.getKey(), entry.getValue()));
+            builder.customValue(studios.milkdromeda.octo.bridge.forge.ModInfos.MOD_PROPERTIES,
+                    java.util.Collections.unmodifiableMap(values));
+        }
     }
 
     private static void readMixins(Config config, UnmodifiableConfig mod, ModMetadata.Builder builder) {

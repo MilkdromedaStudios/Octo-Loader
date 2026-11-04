@@ -304,6 +304,27 @@ class MetadataParsersTest {
     }
 
     @Test
+    @DisplayName("a NeoForge mod's [modproperties.<id>] table is kept, for the mods that read it")
+    void neoForgeModProperties() throws IOException {
+        Path jar = new JarBuilder()
+                .file("META-INF/neoforge.mods.toml", """
+                        modLoader="javafml"
+                        loaderVersion="[1,)"
+                        license="MIT"
+                        [[mods]]
+                        modId="irislike"
+                        version="1.11.7"
+                        [modproperties.irislike]
+                        "sodium:config_api_user" = "net.example.IrisConfig"
+                        """)
+                .writeTo(directory.resolve("irislike.jar"));
+
+        Object properties = discover(jar).metadata().customValues()
+                .get(studios.milkdromeda.octo.bridge.forge.ModInfos.MOD_PROPERTIES);
+        assertEquals(java.util.Map.of("sodium:config_api_user", "net.example.IrisConfig"), properties);
+    }
+
+    @Test
     @DisplayName("mcmod.info, the 1.7-through-1.12 format")
     void legacyForge() throws IOException {
         Path jar = new JarBuilder().file("mcmod.info", """
