@@ -414,6 +414,9 @@ Everything rebuilt, restored, bridged or bypassed is listed in the log and the m
 - **Models a mod asks for by name** (NeoForge's and Forge's `ModelEvent.RegisterAdditional`, which Flywheel's partial models and many other mods use) are loaded and baked with the game's own models, then handed back through `BakingCompleted.getModels()` and `ModelManager.getModel`.
 - **Baked quads** read and built the old way, as 32 ints of vertex data, are translated to and from 26.x's quad records, so mods that reshape or re-texture models keep working.
 - **Vertex buffers** a mod builds itself get the vertex layout it was written for, and mixin accessors for render state 26.x removed answer a sensible default instead of crashing the frame.
+- **Item definitions** are made for items that only have a 1.21-style item model. Since 1.21.4 an item is drawn from `assets/<mod>/items/<id>.json`, which older mods don't have, so every one of their items drew as the missing texture. A mod's own definition always wins.
+- **NeoForge's and Forge's OBJ and composite models** (`neoforge:obj`, `neoforge:composite`) are baked into the game's own quads. The plain game ignores a model `loader` it doesn't know, which left those blocks invisible once placed (Create's blaze burner, flywheel, chain conveyor and links) and their items blank.
+- **Block items keep their names.** A block's item used its block's name (`block.create.cogwheel`) until 1.21.2 and has its own key now; older mods' block names, and tooltips, are offered under the new key where it has none.
 
 ### What the loaders' patched game did, done again
 

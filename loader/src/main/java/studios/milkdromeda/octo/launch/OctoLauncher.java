@@ -362,6 +362,12 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ServerLevelCapabilities());
         }
 
+        // Client assets from before 1.21.4, whatever loader the mod is for: item
+        // definitions for item models that have none, and block items' names.
+        if (context.side() == Side.CLIENT && !mods.isEmpty()) {
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.LegacyClientAssetsHook());
+        }
+
         // Their data and assets, which only reach the game as packs.
         if (mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE || mod.format() == ModFormat.FORGE)) {
             classLoader.addGlobalTransformer(new ModPackHook());
