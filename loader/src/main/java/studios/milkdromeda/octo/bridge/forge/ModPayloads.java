@@ -116,6 +116,28 @@ public final class ModPayloads {
         }
     }
 
+    private static volatile Object[] openScreenType;
+
+    /** {@code AdvancedOpenScreenPayload.STREAM_CODEC} when {@code id} is its type's id. */
+    private static Object openScreenCodec(ClassLoader loader, Object id) {
+        try {
+            Object[] known = openScreenType;
+
+            if (known == null) {
+                Class<?> payload = Class.forName("net.neoforged.neoforge.network.payload.AdvancedOpenScreenPayload",
+                        true, loader);
+                Object payloadType = payload.getField("TYPE").get(null);
+                known = new Object[] { payloadType.getClass().getMethod("id").invoke(payloadType),
+                        payload.getField("STREAM_CODEC").get(null) };
+                openScreenType = known;
+            }
+
+            return known[0].equals(id) ? known[1] : null;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+            return null;
+        }
+    }
+
     /** {@code new RegistryFriendlyByteBuf(bytes, entity.registryAccess())}. */
     private static Object spawnBuffer(ClassLoader loader, Object entity, Object bytes)
             throws ReflectiveOperationException {
@@ -199,6 +221,13 @@ public final class ModPayloads {
             return spawn;
         }
 
+        // And its open-screen payload, which Octo sends for menus opened with extra data (NeoMenus).
+        Object openScreen = openScreenCodec(type.getClassLoader(), id);
+
+        if (openScreen != null) {
+            return openScreen;
+        }
+
         try {
             for (Object byId : registrations(type).values()) {
                 Object registration = ((Map<?, ?>) byId).get(id);
@@ -242,6 +271,19 @@ public final class ModPayloads {
             if (clientbound && payload.getClass().getName()
                     .equals("net.neoforged.neoforge.network.payload.AdvancedAddEntityPayload")) {
                 return spawnData(listener, payload);
+            }
+
+            if (clientbound && NeoMenus.isOpenScreen(payload)) {
+                Object minecraft = field(listener, "minecraft");
+                enqueue(minecraft, (Runnable) () -> {
+                    try {
+                        NeoMenus.openScreen(minecraft, payload);
+                    } catch (Throwable e) {
+                        Failures.rethrowIfFatal(e);
+                        report("open a menu", Failures.unwrap(e));
+                    }
+                });
+                return true;
             }
 
             Object payloadType = payload.getClass().getMethod("type").invoke(payload);

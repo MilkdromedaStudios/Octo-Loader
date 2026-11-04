@@ -1951,6 +1951,12 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
+                    if (opcode == Opcodes.GETFIELD && classVersion >= Opcodes.V1_5
+                            && emitInstanceFieldShim(owner, name, descriptor)) {
+                        record(context, owner, name, className, "it is read from where this version keeps it");
+                        return;
+                    }
+
                     switch (opcode) {
                         case Opcodes.GETSTATIC -> pushDefault(type, owner);
                         case Opcodes.GETFIELD -> {
@@ -1966,6 +1972,21 @@ public final class MissingMemberTransformer implements Transformer {
 
                     changed = true;
                     record(context, owner, name, className, "reads return a default and writes go nowhere");
+                }
+
+                /** Reads a removed instance field through its shim, taking the owner, if it has one. */
+                private boolean emitInstanceFieldShim(String owner, String name, String descriptor) {
+                    String shim = Shims.instanceFieldShimFor(owner, name, descriptor);
+
+                    if (shim == null) {
+                        return false;
+                    }
+
+                    delegate.visitMethodInsn(Opcodes.INVOKESTATIC, Shims.owner(), shim,
+                            "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                    delegate.visitTypeInsn(Opcodes.CHECKCAST, Type.getType(descriptor).getInternalName());
+                    changed = true;
+                    return true;
                 }
 
                 /** Reads a removed static field through its shim, if it has one. */

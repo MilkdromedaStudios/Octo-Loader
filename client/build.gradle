@@ -95,6 +95,9 @@ def minecraftClasspath = providers.provider {
     return files
 }
 
+// Octo Loader compiles the old game classes it carries for 26.x against the same jars.
+ext.minecraftClasspath = minecraftClasspath
+
 // Libraries that ship inside the mod as jars of their own, unchanged
 // (META-INF/jars, listed in fabric.mod.json), which Octo Loader puts on the
 // class path: JLayer, the MP3 decoder, under the LGPL.

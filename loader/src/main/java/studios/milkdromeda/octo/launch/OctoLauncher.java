@@ -374,6 +374,17 @@ public final class OctoLauncher {
         if (mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE || mod.format() == ModFormat.FORGE)) {
             classLoader.addGlobalTransformer(new ModPackHook());
 
+            // And their menus opened with extra data, which their loaders' patched
+            // ServerPlayer opens and their menu types are built from.
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.NeoMenuHooks());
+
+            // And on a client, the screen events their patched client fires: the
+            // buttons mods add to the game's screens, the screens they swap in,
+            // and what they draw over screens.
+            if (context.side() == Side.CLIENT) {
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ScreenEventHooks());
+            }
+
             // And the models they ask for by name, which their loaders'
             // patched client loads with the game's.
             if (context.side() == Side.CLIENT) {
@@ -846,6 +857,13 @@ public final class OctoLauncher {
         MixinInterfaces.collect(mods, index);
         gameGaps = MissingMemberTransformer.forTranslatedMods(index,
                 apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES).withEquivalents(equivalents);
+
+        // Older screens draw through the GuiGraphics Octo carries for 26.x:
+        // before the bypass, which would otherwise skip every old drawing call.
+        if (translated && context.side() == Side.CLIENT) {
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.LegacyScreenBridge(index));
+        }
+
         classLoader.addGlobalTransformer(gameGaps);
 
         if (translated) {
@@ -853,9 +871,12 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new RegistrateSupport());
             classLoader.addGlobalTransformer(new UnboundComponents());
             classLoader.addGlobalTransformer(new ValueIoBridge(index));
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.InteractionBridge(index));
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.FinalFieldWrites(index));
 
             if (context.side() == Side.CLIENT) {
                 classLoader.addGlobalTransformer(new LegacyRendererBridge());
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.GlContextGuard());
             }
 
             classLoader.addGlobalTransformer(new AbstractGaps(index));

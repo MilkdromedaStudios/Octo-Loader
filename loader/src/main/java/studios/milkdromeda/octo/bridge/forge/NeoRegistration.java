@@ -77,6 +77,20 @@ public final class NeoRegistration {
                     (net.neoforged.bus.api.Event) find(loader,
                             "net.neoforged.neoforge.client.event.EntityRenderersEvent$RegisterRenderers")
                             .getConstructor().newInstance()));
+
+            // And their menus' screens: NeoForge's patched MenuScreens asks for them
+            // with the game's own table, which this hands over. Without it every
+            // mod menu opened to nothing: "no screen is registered for the menu".
+            step("register the mods' menu screens", () -> {
+                Class<?> screens = find(loader, "net.minecraft.client.gui.screens.MenuScreens");
+                java.lang.reflect.Field table = screens.getDeclaredField("SCREENS");
+                table.setAccessible(true);
+                Object map = table.get(null);
+                net.neoforged.fml.ModLoader.postEventWrapContainerInModOrder((net.neoforged.bus.api.Event) find(loader,
+                        "net.neoforged.neoforge.client.event.RegisterMenuScreensEvent")
+                        .getConstructor(java.util.Map.class).newInstance(map));
+                LOG.info("{} menu screen(s) registered", ((java.util.Map<?, ?>) map).size());
+            });
         }
 
         LOG.info("NeoForge registration ran: {}", summary(loader));
