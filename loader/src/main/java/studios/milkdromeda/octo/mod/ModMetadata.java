@@ -29,6 +29,8 @@ public final class ModMetadata {
     private final List<ModDependency> dependencies;
     private final List<String> mixinConfigs;
     private final Map<String, Side> mixinSides;
+    /** Mixin configs a mod applies only when other mods are there: NeoForge's {@code requiredMods}. */
+    private final Map<String, List<String>> mixinRequirements;
     private final List<String> accessWideners;
     private final List<String> accessTransformers;
     private final List<String> nestedJars;
@@ -49,6 +51,7 @@ public final class ModMetadata {
         this.dependencies = List.copyOf(builder.dependencies);
         this.mixinConfigs = List.copyOf(builder.mixinConfigs);
         this.mixinSides = Map.copyOf(builder.mixinSides);
+        this.mixinRequirements = Map.copyOf(builder.mixinRequirements);
         this.accessWideners = List.copyOf(builder.accessWideners);
         this.accessTransformers = List.copyOf(builder.accessTransformers);
         this.nestedJars = List.copyOf(builder.nestedJars);
@@ -131,6 +134,11 @@ public final class ModMetadata {
      * failure stopped every config after it from being prepared — registry sync
      * and the rest of Fabric API's mixins included.
      */
+    /** The mods a mixin config applies only alongside; none for most. */
+    public List<String> mixinRequires(String config) {
+        return mixinRequirements.getOrDefault(config, List.of());
+    }
+
     public List<String> mixinConfigs(Side physical) {
         List<String> out = new ArrayList<>(mixinConfigs.size());
 
@@ -205,6 +213,7 @@ public final class ModMetadata {
         builder.dependencies.addAll(dependencies);
         builder.mixinConfigs.addAll(mixinConfigs);
         builder.mixinSides.putAll(mixinSides);
+        builder.mixinRequirements.putAll(mixinRequirements);
         builder.accessWideners.addAll(accessWideners);
         builder.accessTransformers.addAll(accessTransformers);
         builder.nestedJars.addAll(nestedJars);
@@ -234,6 +243,7 @@ public final class ModMetadata {
         private final List<ModDependency> dependencies = new ArrayList<>();
         private final List<String> mixinConfigs = new ArrayList<>();
         private final Map<String, Side> mixinSides = new LinkedHashMap<>();
+        private final Map<String, List<String>> mixinRequirements = new LinkedHashMap<>();
         private final List<String> accessWideners = new ArrayList<>();
         private final List<String> accessTransformers = new ArrayList<>();
         private final List<String> nestedJars = new ArrayList<>();
@@ -302,6 +312,17 @@ public final class ModMetadata {
 
         public Builder mixinConfig(String value) {
             this.mixinConfigs.add(value);
+            return this;
+        }
+
+        /** A mixin config applied only when every one of these mods is loaded too. */
+        public Builder mixinConfigRequiring(String value, List<String> requiredMods) {
+            mixinConfig(value);
+
+            if (requiredMods != null && !requiredMods.isEmpty()) {
+                this.mixinRequirements.put(value, List.copyOf(requiredMods));
+            }
+
             return this;
         }
 

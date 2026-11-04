@@ -80,4 +80,20 @@ class PlatformVersionsTest {
         assertTrue(resolution.order().stream().anyMatch(candidate -> candidate.id().equals("user")),
                 "user should load: " + resolution.problems());
     }
+
+    @Test
+    @DisplayName("the same mod in a jar and in a jar inside it: the inner one, which has the code, is kept")
+    void theNestedJarWinsATie() {
+        ModCandidate outer = new ModCandidate(Path.of("sodium-neoforge.jar"),
+                ModMetadata.builder("sodium", ModFormat.NEOFORGE).version("0.9.3").build(), null);
+        ModCandidate inner = new ModCandidate(Path.of("META-INF_jarjar_sodium-mod.jar"),
+                ModMetadata.builder("sodium", ModFormat.NEOFORGE).version("0.9.3").build(), outer);
+
+        Resolution resolution = resolve(List.of(outer, inner));
+        assertEquals(1, resolution.order().size());
+        assertEquals(inner.path(), resolution.order().get(0).path());
+
+        // Found the other way round, the same.
+        assertEquals(inner.path(), resolve(List.of(inner, outer)).order().get(0).path());
+    }
 }

@@ -205,8 +205,23 @@ public final class ModDiscoverer {
                 }
 
                 ids.add(candidate.id());
-                out.add(candidate);
-                out.addAll(extractNested(source, candidate, discovery));
+                List<ModCandidate> inner = extractNested(source, candidate, discovery);
+                ModCandidate itself = sameModInside(candidate, inner);
+
+                if (itself != null) {
+                    // The mod again, whole, in a jar inside this one: NeoForge's
+                    // Sodium is a thin jar of start-up services around its real
+                    // jar, both declaring the same mod. The inner one is the mod
+                    // (its mixins and access transformer are there); this one's
+                    // own classes still go on the class path, as its library.
+                    LOG.info("{}: the mod is the jar inside {}; this one's classes go on the class path with it",
+                            candidate.id(), file.getFileName());
+                    discovery.library(file, candidate.id(), false);
+                } else {
+                    out.add(candidate);
+                }
+
+                out.addAll(inner);
             }
 
             discovery.accept(file, nested, ids);
@@ -223,6 +238,18 @@ public final class ModDiscoverer {
         }
 
         return out;
+    }
+
+    /** A jar found directly inside {@code outer} that declares the same mod, at the same version. */
+    static ModCandidate sameModInside(ModCandidate outer, List<ModCandidate> inner) {
+        for (ModCandidate candidate : inner) {
+            if (candidate.parent() == outer && candidate.id().equals(outer.id())
+                    && candidate.metadata().version().compareTo(outer.metadata().version()) == 0) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
