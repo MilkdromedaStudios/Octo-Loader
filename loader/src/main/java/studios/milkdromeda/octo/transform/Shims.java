@@ -132,6 +132,27 @@ public final class Shims {
             tagFactory("EntityTypeTags"),
             tagFactory("BiomeTags"),
             Map.entry("net/minecraft/world/item/DyeColor.getTag()Lnet/minecraft/tags/TagKey;", "dyeColorTag"),
+            // Interaction results became a sealed type in 1.21.2; a right click that
+            // succeeded on its side answered sidedSuccess(isClientSide).
+            Map.entry("net/minecraft/world/InteractionResult.sidedSuccess(Z)Lnet/minecraft/world/InteractionResult;",
+                    "interactionSidedSuccess"),
+            // The screen moved from Minecraft to its Gui in 26.1: a mod opening
+            // its screen with minecraft.setScreen(...) opened nothing.
+            Map.entry("net/minecraft/client/Minecraft.setScreen(Lnet/minecraft/client/gui/screens/Screen;)V",
+                    "minecraftSetScreen"),
+            // A task queued for the game's thread: tell(task) until 26.x,
+            // schedule(task) now. Catnip opens every Create screen this way.
+            Map.entry("net/minecraft/util/thread/BlockableEventLoop.tell(Ljava/lang/Runnable;)V", "eventLoopTell"),
+            // NeoForge's patch to the game's language manager: the language
+            // chosen, as a Java locale. Catnip wraps every line of Create's
+            // config with it, and a null there stopped the screen opening.
+            Map.entry("net/minecraft/client/resources/language/LanguageManager.getJavaLocale()Ljava/util/Locale;",
+                    "languageJavaLocale"),
+            // The render thread's tesselator, which Octo carries for 26.x.
+            Map.entry("com/mojang/blaze3d/systems/RenderSystem.renderThreadTesselator()"
+                    + "Lcom/mojang/blaze3d/vertex/Tesselator;", "renderThreadTesselator"),
+            Map.entry("net/minecraft/client/Minecraft.tell(Ljava/lang/Runnable;)V", "eventLoopTell"),
+            Map.entry("net/minecraft/server/MinecraftServer.tell(Ljava/lang/Runnable;)V", "eventLoopTell"),
             // Tool rules named a block tag until 26.x, which takes the blocks themselves.
             Map.entry(TOOL_RULE + ".minesAndDrops(Lnet/minecraft/tags/TagKey;F)L" + TOOL_RULE + ";",
                     "toolRuleMinesAndDrops"),
@@ -704,12 +725,128 @@ public final class Shims {
             Map.entry(CRAFTING + "RecipeSerializer.SHAPED_RECIPE:L" + CRAFTING + "RecipeSerializer;",
                     "recipeSerializerShaped"),
             Map.entry(CRAFTING + "RecipeSerializer.SHAPELESS_RECIPE:L" + CRAFTING + "RecipeSerializer;",
-                    "recipeSerializerShapeless"));
+                    "recipeSerializerShapeless"),
+            // The title panorama screens drew behind themselves, the game
+            // renderer's since 26.1 (Octo carries the old class over it).
+            Map.entry("net/minecraft/client/gui/screens/Screen.PANORAMA:"
+                    + "Lnet/minecraft/client/renderer/PanoramaRenderer;", "screenPanorama"),
+            Map.entry("net/minecraft/client/gui/screens/TitleScreen.PANORAMA:"
+                    + "Lnet/minecraft/client/renderer/PanoramaRenderer;", "screenPanorama"));
 
 
     private static Map.Entry<String, String> capability(String group, String field, String kind, String shim) {
         return Map.entry(CAPABILITIES + "Capabilities$" + group + "." + field + ":L" + CAPABILITIES + kind
                 + "Capability;", shim);
+    }
+
+    /**
+     * Instance fields a removal moved behind another object, read through a
+     * shim taking the field's owner: {@code minecraft.screen}, the screen
+     * showing, has been {@code minecraft.gui.screen()} since 26.1, and every
+     * mod asking whether its own screen was open was told none was.
+     */
+    private static final Map<String, String> INSTANCE_FIELD_SHIMS = Map.of(
+            "net/minecraft/client/Minecraft.screen:Lnet/minecraft/client/gui/screens/Screen;", "minecraftScreen");
+
+    /** @return the shim's name for reading this instance field, or {@code null} when there is none */
+    static String instanceFieldShimFor(String owner, String name, String descriptor) {
+        return INSTANCE_FIELD_SHIMS.get(owner + "." + name + ":" + descriptor);
+    }
+
+    private static volatile Object panorama;
+
+    /** {@code Screen.PANORAMA}: one panorama renderer, drawing the game's. */
+    public static Object screenPanorama(Class<?> owner) {
+        Object current = panorama;
+
+        if (current == null) {
+            try {
+                Class<?> type = game(owner, "net.minecraft.client.renderer.PanoramaRenderer");
+                current = type.getConstructor(game(owner, "net.minecraft.client.renderer.CubeMap"))
+                        .newInstance((Object) null);
+                panorama = current;
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("no panorama renderer could be made", e);
+            }
+        }
+
+        return current;
+    }
+
+    /** {@code minecraft.screen}: the screen its Gui shows. */
+    public static Object minecraftScreen(Object minecraft) {
+        return minecraft == null ? null : call(gui(minecraft), "screen");
+    }
+
+    /** {@code minecraft.setScreen(screen)}: shown by its Gui. */
+    public static void minecraftSetScreen(Object minecraft, Object screen) {
+        Object gui = gui(minecraft);
+
+        for (Method method : gui.getClass().getMethods()) {
+            if (method.getName().equals("setScreen") && method.getParameterCount() == 1) {
+                try {
+                    method.invoke(gui, screen);
+                    return;
+                } catch (InvocationTargetException e) {
+                    throw sneakyThrow(e.getCause());
+                } catch (IllegalAccessException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        }
+
+        throw new IllegalStateException("this Minecraft's Gui cannot set a screen");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> RuntimeException sneakyThrow(Throwable e) throws T {
+        throw (T) e;
+    }
+
+    /** {@code languageManager.getJavaLocale()}: the chosen language's code, "en_us", as a locale. */
+    public static Object languageJavaLocale(Object languageManager) {
+        Object code = languageManager == null ? null : call(languageManager, "getSelected");
+
+        if (!(code instanceof String text) || text.isEmpty()) {
+            return java.util.Locale.getDefault();
+        }
+
+        return java.util.Locale.forLanguageTag(text.replace('_', '-'));
+    }
+
+    /** {@code RenderSystem.renderThreadTesselator()}: the one tesselator. */
+    public static Object renderThreadTesselator(Class<?> owner) {
+        return callStatic(game(owner, "com.mojang.blaze3d.vertex.Tesselator"), "getInstance", new Class<?>[0]);
+    }
+
+    /** {@code loop.tell(task)}: queued to run on the loop's thread, as it was. */
+    public static void eventLoopTell(Object loop, Object task) {
+        for (Class<?> type = loop.getClass(); type != null; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getName().equals("schedule") && method.getParameterCount() == 1
+                        && method.getParameterTypes()[0].isInstance(task)) {
+                    try {
+                        method.setAccessible(true);
+                        method.invoke(loop, task);
+                        return;
+                    } catch (InvocationTargetException e) {
+                        throw sneakyThrow(e.getCause());
+                    } catch (IllegalAccessException e) {
+                        throw new IllegalStateException(e);
+                    }
+                }
+            }
+        }
+
+        ((java.util.concurrent.Executor) loop).execute((Runnable) task);
+    }
+
+    private static Object gui(Object minecraft) {
+        try {
+            return minecraft.getClass().getField("gui").get(minecraft);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("this Minecraft has no Gui", e);
+        }
     }
 
     /** @return the shim's name for this static field, or {@code null} when there is none */
@@ -1065,6 +1202,11 @@ public final class Shims {
     }
 
     /** {@code DyeColor.getTag()}: the common tag for dyes of that colour, {@code c:dyes/red}. */
+    /** {@code InteractionResult.sidedSuccess(client)}: a success, swinging the arm on the client as it did. */
+    public static Object interactionSidedSuccess(boolean client, Class<?> owner) {
+        return staticField(owner, client ? "SUCCESS" : "SUCCESS_SERVER");
+    }
+
     public static Object dyeColorTag(Object color) {
         Class<?> identifier = game(color.getClass(), "net.minecraft.resources.Identifier");
         Object id = callStatic(identifier, "fromNamespaceAndPath", new Class<?>[] { String.class, String.class }, "c",

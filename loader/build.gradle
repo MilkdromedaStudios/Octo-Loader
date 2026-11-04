@@ -1,5 +1,8 @@
 description = 'Octo Loader runtime — one loader that boots Minecraft and runs Fabric, Quilt, Forge, NeoForge and legacy mods side by side.'
 
+// The old game classes carried for 26.x compile against the game jars the client module resolves.
+evaluationDependsOn(":client")
+
 base {
     archivesName = 'octo-loader'
 }
@@ -36,6 +39,28 @@ sourceSets {
     provided {
         java.srcDir 'src/provided/java'
         compileClasspath += sourceSets.gameStubs.output + sourceSets.main.output + sourceSets.main.compileClasspath
+    }
+
+    // Game classes 26.x no longer has, written against 26.x for mods built
+    // before it: the GuiGraphics every older screen draws with, over the
+    // extractor the game draws with now. Compiled against the real 26.3 jar
+    // (the one Octo Client builds against) and the shapes of the classes the
+    // game dropped that they still name; packed with the provided classes.
+    legacyStubs {
+        java.srcDir 'src/legacystubs/java'
+        compileClasspath += files(project(':client').minecraftClasspath)
+    }
+
+    legacyClient {
+        java.srcDir 'src/legacyclient/java'
+        compileClasspath += files(project(':client').minecraftClasspath) + sourceSets.legacyStubs.output
+    }
+}
+
+['compileLegacyStubsJava', 'compileLegacyClientJava'].each { name ->
+    tasks.named(name) {
+        javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(25) }
+        options.release = 25
     }
 }
 
@@ -174,6 +199,10 @@ jar {
 
     into('octo/provided') {
         from(sourceSets.provided.output.classesDirs) {
+            include '**/*.class'
+            rename '(.*)\\.class$', '$1.bin'
+        }
+        from(sourceSets.legacyClient.output.classesDirs) {
             include '**/*.class'
             rename '(.*)\\.class$', '$1.bin'
         }

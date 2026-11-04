@@ -62,8 +62,11 @@ class LauncherTest {
         assertEquals("dev", Launcher.build());
         assertFalse(Updates.isNewer(new Updates.Release("build-abc", "x", "u", "l", "n", Map.of())));
         assertFalse(Updates.isNewer(new Updates.Release("v9.9.9", "x", "u", "l", "n", Map.of())));
-        assertEquals(studios.milkdromeda.octo.installer.Installer.VERSION, Launcher.version(),
-                "not a release: the project's version");
+        // The release's number where the build was given one (a release build
+        // on CI sets OCTO_VERSION), the project's own version otherwise.
+        String number = System.getenv("OCTO_VERSION");
+        assertEquals(number != null && !number.isBlank() ? number
+                : studios.milkdromeda.octo.installer.Installer.VERSION, Launcher.version());
     }
 
     @Test
