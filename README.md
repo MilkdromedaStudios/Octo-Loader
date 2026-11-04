@@ -177,7 +177,7 @@ Signing in needs a Microsoft (Azure) app registration that Mojang has approved f
 
 </details>
 
-**Updates.** When it opens, Octo Launcher checks the latest release. A newer loader is downloaded and installed into every Octo installation. A newer launcher shows **Update** in the title bar, which downloads it and restarts into it, whether it was installed with the Windows installer or run as a jar. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
+**Updates.** Every change to Octo is released with a version number, one higher each time (`1.0.72`, `1.0.73`, ...), with notes listing what changed. When it opens, Octo Launcher checks the latest release and only takes one with a higher number. A newer loader is downloaded and installed into every Octo installation. A newer launcher shows **Update** in the title bar, which downloads it and restarts into it, whether it was installed with the Windows installer or run as a jar. Every download is checked against the release's `checksums.txt` (SHA-256) and thrown away if it doesn't match.
 
 <details>
 <summary><b>From the terminal</b></summary>

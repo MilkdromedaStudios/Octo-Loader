@@ -475,7 +475,7 @@ public final class ClientWindow implements App {
         rail.put("Settings", settingsButton);
         column.add(settingsButton);
         column.add(Box.createVerticalStrut(8));
-        JLabel version = Widgets.text("v" + studios.milkdromeda.octo.installer.Installer.VERSION, 10.5f, Font.PLAIN,
+        JLabel version = Widgets.text("v" + Launcher.version(), 10.5f, Font.PLAIN,
                 Style.FAINT);
         version.setAlignmentX(Component.CENTER_ALIGNMENT);
         version.setToolTipText(Launcher.build());
@@ -755,8 +755,7 @@ public final class ClientWindow implements App {
     private void checkForUpdates() {
         run(Updates::latest, release -> {
             boolean appNewer = Updates.isNewer(release) && release.launcherUrl() != null;
-            boolean loaderNewer = release.loaderUrl() != null && !release.tag().equals(Updates.loaderTagNow())
-                    && !Launcher.build().equals(release.tag());
+            boolean loaderNewer = release.loaderUrl() != null && Updates.loaderIsNewer(release);
 
             if (loaderNewer && settings.updateLoaderAutomatically) {
                 run(() -> {
@@ -798,7 +797,7 @@ public final class ClientWindow implements App {
     }
 
     private static String launcherUserAgent() {
-        return "MilkdromedaStudios/Octo-Loader/" + studios.milkdromeda.octo.installer.Installer.VERSION
+        return "MilkdromedaStudios/Octo-Loader/" + Launcher.version()
                 + " (Octo Launcher; https://github.com/MilkdromedaStudios/Octo-Loader)";
     }
 }

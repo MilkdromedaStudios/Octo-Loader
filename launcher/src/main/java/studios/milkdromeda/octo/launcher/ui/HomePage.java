@@ -743,7 +743,7 @@ final class HomePage implements App.Page {
         octoBody.add(status(Icons.Glyph.BACKUP, "Backups", backups + " across " + list.size() + " world"
                 + (list.size() == 1 ? "" : "s")));
         octoBody.add(status(Icons.Glyph.UPDATE, "Launcher", Launcher.build().equals("dev") ? "Development build"
-                : News.title(Launcher.build())));
+                : "Version " + Launcher.version()));
         octoBody.revalidate();
         octoBody.repaint();
     }

@@ -14,7 +14,6 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 
-import studios.milkdromeda.octo.installer.Installer;
 import studios.milkdromeda.octo.launcher.Launcher;
 import studios.milkdromeda.octo.launcher.LauncherSettings;
 import studios.milkdromeda.octo.launcher.OfficialLauncher;
@@ -382,7 +381,8 @@ final class SettingsPage implements App.Page {
 
     private JComponent about() {
         JPanel row = Widgets.clear(new BorderLayout(16, 0));
-        row.add(labels("Octo Launcher " + Installer.VERSION, "Build " + Launcher.build()
+        row.add(labels("Octo Launcher " + Launcher.version(), (Launcher.build().equals("v" + Launcher.version())
+                ? "Release " + Launcher.build() : "Build " + Launcher.build())
                 + ". Sign-in goes through Microsoft's own page; the game, its libraries and its Java come from "
                 + "Mojang, each file checked against Mojang's checksums."),
                 BorderLayout.CENTER);

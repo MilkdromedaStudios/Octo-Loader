@@ -141,7 +141,7 @@ public final class Launcher {
                               backups <world>           list a world's backups
                               restore <backup> <world>  put a backup back (the world now is backed up first)
                               update                    download the newest loader and install it everywhere
-                            """.formatted(Installer.VERSION, build()));
+                            """.formatted(version(), build()));
                     return command.equals("help") ? 0 : 2;
                 }
             }
@@ -181,7 +181,7 @@ public final class Launcher {
                 : settings.gameDir().resolve("saves").resolve(named);
     }
 
-    /** {@code build-<commit>} for a released build, {@code dev} otherwise. */
+    /** The release this is ({@code v1.0.72}; {@code build-<commit>} before releases were numbered), or {@code dev}. */
     public static String build() {
         String known = build;
 
@@ -192,6 +192,15 @@ public final class Launcher {
         }
 
         return known;
+    }
+
+    /**
+     * This launcher's version number: the release's ({@code 1.0.72}) for a
+     * released build, the project's for any other.
+     */
+    public static String version() {
+        String value = manifest("Octo-Version");
+        return value != null && !value.isBlank() ? value : Installer.VERSION;
     }
 
     /** A value from this jar's manifest, or {@code null}. */
@@ -208,7 +217,7 @@ public final class Launcher {
     }
 
     static String userAgent() {
-        return "OctoLauncher/" + Installer.VERSION + " (" + build() + "; +https://github.com/" + Updates.REPOSITORY
+        return "OctoLauncher/" + version() + " (" + build() + "; +https://github.com/" + Updates.REPOSITORY
                 + ")";
     }
 }

@@ -14,7 +14,22 @@ import java.util.List;
  * server operator needs.
  */
 public final class Installer {
+    /** The version installed loaders are named and kept under; the same for every build of 1.0. */
     public static final String VERSION = "1.0.0";
+
+    /**
+     * This build's release number ({@code 1.0.72}), from its jar's manifest, for
+     * showing; {@link #VERSION} for a build that is not a release.
+     */
+    public static String release() {
+        try (java.io.InputStream in = Installer.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
+            String value = in == null ? null
+                    : new java.util.jar.Manifest(in).getMainAttributes().getValue("Octo-Version");
+            return value != null && !value.isBlank() ? value : VERSION;
+        } catch (java.io.IOException e) {
+            return VERSION;
+        }
+    }
 
     public static void main(String[] args) {
         List<String> arguments = new ArrayList<>(List.of(args));

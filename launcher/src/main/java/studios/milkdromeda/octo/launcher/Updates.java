@@ -117,10 +117,76 @@ public final class Updates {
         return response.body();
     }
 
-    /** Whether a release is newer than this launcher: a different build, when this one is a released build. */
+    /** Whether a release is newer than this launcher; a development build is never offered one. */
     public static boolean isNewer(Release release) {
         String own = Launcher.build();
-        return release != null && !own.equals("dev") && !own.equals(release.tag());
+        return release != null && !own.equals("dev") && newer(own, release.tag());
+    }
+
+    /** Whether the release's loader is newer than the one Octo has: the one downloaded, or this launcher's own. */
+    public static boolean loaderIsNewer(Release release) {
+        String current = loaderTag();
+        return release != null && newer(current != null ? current : Launcher.build(), release.tag());
+    }
+
+    /**
+     * Whether {@code candidate} is a later release than {@code current}. Releases
+     * are numbered ({@code v1.0.72}) and compared as numbers. Builds from before
+     * the numbering ({@code build-<commit>}) are older than any numbered release;
+     * between two of those, only a different one counts, as it always did.
+     */
+    static boolean newer(String current, String candidate) {
+        if (candidate == null || candidate.isBlank()) {
+            return false;
+        }
+
+        if (current == null || current.isBlank()) {
+            return true;
+        }
+
+        int[] now = version(current);
+        int[] next = version(candidate);
+
+        if (next == null) {
+            return now == null && !current.equals(candidate);
+        }
+
+        if (now == null) {
+            return true;
+        }
+
+        for (int i = 0; i < Math.max(now.length, next.length); i++) {
+            int a = i < now.length ? now[i] : 0;
+            int b = i < next.length ? next[i] : 0;
+
+            if (a != b) {
+                return b > a;
+            }
+        }
+
+        return false;
+    }
+
+    /** {@code v1.0.72} or {@code 1.0.72} as its numbers; {@code null} for anything else. */
+    static int[] version(String tag) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("v?(\\d+(?:\\.\\d+)*)").matcher(tag.strip());
+
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        String[] parts = matcher.group(1).split("\\.");
+        int[] out = new int[parts.length];
+
+        try {
+            for (int i = 0; i < parts.length; i++) {
+                out[i] = Integer.parseInt(parts[i]);
+            }
+        } catch (NumberFormatException e) {
+            return null;
+        }
+
+        return out;
     }
 
     /** Downloads a release file and checks it; nothing is left behind if it does not match. */
