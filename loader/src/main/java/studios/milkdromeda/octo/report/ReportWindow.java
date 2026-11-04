@@ -104,14 +104,19 @@ public final class ReportWindow {
     // ---------------------------------------------------------------- entry points
 
     /**
-     * Shows the report, if there is anything to show and anywhere to show it.
+     * Shows the report, if there is something the player needs to know and
+     * anywhere to show it.
      *
      * @param logFile the persistent log, offered as a button rather than a
      *                sentence nobody reads
      * @return whether a window is on screen
      */
     public static boolean show(LoadingReport report, Path logFile) {
-        if (report.isEmpty()) {
+        if (!worthShowing(report)) {
+            if (!report.isEmpty()) {
+                LOG.debug("every mod is running; what was adjusted is in the log and mod-report.txt");
+            }
+
             return false;
         }
 
@@ -134,6 +139,16 @@ public final class ReportWindow {
             LOG.warn("could not open the mod report window: {}", e.toString());
             return false;
         }
+    }
+
+    /**
+     * Whether the report is worth a window: a mod that is not running, or the
+     * game stopping. Mods that only needed adjusting to run here are still
+     * running, and a window for them every launch was noise; they stay in the
+     * log and in {@code mod-report.txt}.
+     */
+    static boolean worthShowing(LoadingReport report) {
+        return report.hasErrors();
     }
 
     /** Whether a window is currently on screen. */

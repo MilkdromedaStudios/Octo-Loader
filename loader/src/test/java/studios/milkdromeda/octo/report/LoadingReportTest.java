@@ -24,6 +24,26 @@ class LoadingReportTest {
     }
 
     @Test
+    @DisplayName("mods that only needed adjusting stay in the log; a window is for a mod that is not running")
+    void onlyRealProblemsGetAWindow() {
+        LoadingReport adjusted = new LoadingReport();
+        adjusted.warning("create", "built for 1.21.1, translated to run here", "");
+        adjusted.warning("flywheel", "one of its mixins did not apply", "");
+        assertFalse(ReportWindow.worthShowing(adjusted), "two mods adjusted, both running: no window");
+        assertFalse(ReportWindow.show(adjusted, Path.of("octo-loader.log")));
+        assertTrue(adjusted.render().contains("create"), "still written to the log and mod-report.txt");
+
+        LoadingReport broken = new LoadingReport();
+        broken.warning("create", "built for 1.21.1, translated to run here", "");
+        broken.error("ponder", "it failed while starting up, so it is not running", "");
+        assertTrue(ReportWindow.worthShowing(broken));
+
+        LoadingReport crashed = new LoadingReport();
+        crashed.crashed("Initializing game", "java.lang.NullPointerException", null);
+        assertTrue(ReportWindow.worthShowing(crashed), "the game stopping always gets a window");
+    }
+
+    @Test
     @DisplayName("the headline counts what is broken and what merely needed adjusting")
     void theHeadlineSeparatesErrorsFromWarnings() {
         LoadingReport report = new LoadingReport();

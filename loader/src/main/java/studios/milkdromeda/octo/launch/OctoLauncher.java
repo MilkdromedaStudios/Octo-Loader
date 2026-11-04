@@ -165,7 +165,9 @@ public final class OctoLauncher {
     }
 
     /**
-     * Writes the report out and puts it on screen, once, at the end of loading.
+     * Writes the report out, and puts it on screen when a mod is not running,
+     * once, at the end of loading. Mods that only needed adjusting are in the
+     * log and the report file, with no window.
      *
      * <p>Deliberately the last thing before the game is handed control: the
      * window is not modal and does not hold the launch up, so what the player
