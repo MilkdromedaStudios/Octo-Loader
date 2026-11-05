@@ -212,14 +212,18 @@ public final class MixinTargets implements Transformer {
 
         boolean changed = false;
 
+        List<MethodNode> adapters = new ArrayList<>();
+
         for (MethodNode method : mixin.methods) {
-            changed |= adaptInjectors(className, method, targets, context);
+            changed |= adaptInjectors(mixin, adapters, className, method, targets, context);
             changed |= adaptAccessor(className, method, targets, context);
             changed |= adaptShadowMethod(className, method, targets, context);
         }
 
+        mixin.methods.addAll(adapters);
+
         for (FieldNode field : mixin.fields) {
-            changed |= adaptShadowField(className, field, targets, context);
+            changed |= adaptShadowField(mixin, className, field, targets, context);
         }
 
         if (!changed) {
@@ -353,27 +357,194 @@ public final class MixinTargets implements Transformer {
 
     // --------------------------------------------------------------- injectors
 
-    private boolean adaptInjectors(String className, MethodNode method, List<Target> targets,
+    private static final String INJECT = "Lorg/spongepowered/asm/mixin/injection/Inject;";
+    private static final String CALLBACK_INFO = "Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfo;";
+
+    /**
+     * Aims an injection into a constructor a loader's patch lengthened at the
+     * game's own, which takes the first of its arguments.
+     *
+     * <p>NeoForge gives the game's quads two more record components, and so a
+     * longer constructor, which its vanilla-shaped one hands defaults to.
+     * Sodium works out each quad's normal and facing by injecting into the
+     * longer one; on the unpatched game nothing matched, the injection was
+     * skipped, and the first chunk Sodium built read a facing that was never
+     * set. Injected into the game's constructor instead, through a handler
+     * that passes on what it is given and the patch's defaults for the rest,
+     * the mod's handler runs for every quad as it did.
+     */
+    private boolean adaptToShorterConstructor(ClassNode mixin, List<MethodNode> adapters, String className,
+            MethodNode handler, AnnotationNode annotation, String spec, List<Target> targets,
             TransformContext context) {
+        MemberRef reference = MemberRef.parse(spec);
+
+        if (!INJECT.equals(annotation.desc) || reference == null || !"<init>".equals(reference.name())
+                || reference.descriptor() == null || (handler.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0) {
+            return false;
+        }
+
+        for (Target target : targets) {
+            if (target.hasMethod("<init>", reference.descriptor())) {
+                return false;
+            }
+        }
+
+        Type[] wanted = Type.getArgumentTypes(reference.descriptor());
+        Type[] handled = Type.getArgumentTypes(handler.desc);
+
+        // Only a handler that takes exactly the constructor's arguments and its
+        // callback: one that also captures locals is aimed at code the game's
+        // constructor does not have.
+        if (handled.length != wanted.length + 1 || !handled[wanted.length].getDescriptor().equals(CALLBACK_INFO)) {
+            return false;
+        }
+
+        String shorter = null;
+        int longest = -1;
+
+        for (Target target : targets) {
+            for (Member member : target.methods()) {
+                if (!member.name().equals("<init>")) {
+                    continue;
+                }
+
+                Type[] offered = Type.getArgumentTypes(member.descriptor());
+
+                if (offered.length < wanted.length && offered.length > longest
+                        && java.util.Arrays.equals(offered, java.util.Arrays.copyOf(wanted, offered.length))) {
+                    shorter = member.descriptor();
+                    longest = offered.length;
+                }
+            }
+        }
+
+        if (shorter == null) {
+            return false;
+        }
+
+        Type[] given = Type.getArgumentTypes(shorter);
+        Type[] adapterArguments = java.util.Arrays.copyOf(given, given.length + 1);
+        adapterArguments[given.length] = Type.getType(CALLBACK_INFO);
+        MethodNode adapter = new MethodNode(org.objectweb.asm.Opcodes.ASM9,
+                org.objectweb.asm.Opcodes.ACC_PRIVATE, handler.name + "$octo$" + given.length, Type.getMethodDescriptor(Type.VOID_TYPE, adapterArguments),
+                null, null);
+
+        adapter.visitCode();
+        adapter.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0);
+        int slot = 1;
+
+        for (Type argument : given) {
+            adapter.visitVarInsn(argument.getOpcode(org.objectweb.asm.Opcodes.ILOAD), slot);
+            slot += argument.getSize();
+        }
+
+        for (int i = given.length; i < wanted.length; i++) {
+            pushDefault(adapter, wanted[i]);
+        }
+
+        adapter.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, slot);
+        boolean isPrivate = (handler.access & org.objectweb.asm.Opcodes.ACC_PRIVATE) != 0;
+        adapter.visitMethodInsn(isPrivate ? org.objectweb.asm.Opcodes.INVOKESPECIAL
+                : org.objectweb.asm.Opcodes.INVOKEVIRTUAL, mixin.name, handler.name, handler.desc, false);
+        adapter.visitInsn(org.objectweb.asm.Opcodes.RETURN);
+        adapter.visitMaxs(slot + wanted.length * 2 + 2, slot + 1);
+        adapter.visitEnd();
+
+        // The injection moves to the adapter, aimed at the game's constructor.
+        if (handler.visibleAnnotations != null && handler.visibleAnnotations.remove(annotation)) {
+            adapter.visibleAnnotations = new ArrayList<>(List.of(annotation));
+        } else if (handler.invisibleAnnotations != null && handler.invisibleAnnotations.remove(annotation)) {
+            adapter.invisibleAnnotations = new ArrayList<>(List.of(annotation));
+        } else {
+            return false;
+        }
+
+        put(annotation, "method", List.of("<init>" + shorter));
+        adapters.add(adapter);
+        note(context, className, handler.name + ": " + spec + " is not in this version, so it injects into <init>"
+                + shorter + " with the rest of its arguments at their defaults");
+        return true;
+    }
+
+    /** The value a missing argument takes: its type's own default constant, or zero, false or null. */
+    private void pushDefault(MethodNode method, Type type) {
+        switch (type.getSort()) {
+            case Type.LONG -> method.visitInsn(org.objectweb.asm.Opcodes.LCONST_0);
+            case Type.FLOAT -> method.visitInsn(org.objectweb.asm.Opcodes.FCONST_0);
+            case Type.DOUBLE -> method.visitInsn(org.objectweb.asm.Opcodes.DCONST_0);
+            case Type.OBJECT -> {
+                String constant = typeDefault(type);
+
+                if (constant != null) {
+                    method.visitFieldInsn(org.objectweb.asm.Opcodes.GETSTATIC, type.getInternalName(), constant,
+                            type.getDescriptor());
+                } else {
+                    method.visitInsn(org.objectweb.asm.Opcodes.ACONST_NULL);
+                }
+            }
+            case Type.ARRAY -> method.visitInsn(org.objectweb.asm.Opcodes.ACONST_NULL);
+            default -> method.visitInsn(org.objectweb.asm.Opcodes.ICONST_0);
+        }
+    }
+
+    /** The name of the constant a type gives for "nothing particular", or {@code null} when it has none. */
+    private String typeDefault(Type type) {
+        String internalName = type.getInternalName();
+
+        if (internalName.startsWith("java/")) {
+            return null;
+        }
+
+        ClassNode node = read(internalName);
+
+        if (node == null) {
+            return null;
+        }
+
+        int constant = org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC
+                | org.objectweb.asm.Opcodes.ACC_FINAL;
+
+        for (String name : TYPE_DEFAULTS) {
+            for (FieldNode candidate : node.fields) {
+                if (candidate.name.equals(name) && candidate.desc.equals(type.getDescriptor())
+                        && (candidate.access & constant) == constant) {
+                    return name;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private boolean adaptInjectors(ClassNode mixin, List<MethodNode> adapters, String className, MethodNode method,
+            List<Target> targets, TransformContext context) {
         boolean changed = false;
 
         for (AnnotationNode annotation : allAnnotations(method)) {
             if (INJECTORS.contains(annotation.desc)) {
-                changed |= adaptInjector(className, method, annotation, targets, context);
+                changed |= adaptInjector(mixin, adapters, className, method, annotation, targets, context);
             }
         }
 
         return changed;
     }
 
-    private boolean adaptInjector(String className, MethodNode method, AnnotationNode annotation,
-            List<Target> targets, TransformContext context) {
+    private boolean adaptInjector(ClassNode mixin, List<MethodNode> adapters, String className, MethodNode method,
+            AnnotationNode annotation, List<Target> targets, TransformContext context) {
         List<String> specs = strings(value(annotation, "method"));
 
         if (specs.isEmpty()) {
             // Either a @Desc-based target, which mixin resolves structurally and
             // does not need help with, or a form this cannot read. Left alone.
             return false;
+        }
+
+        // A constructor a loader's patch lengthened: aimed at the game's shorter
+        // one before anything else, as dropping the descriptor would leave a
+        // handler taking arguments that constructor does not have.
+        if (specs.size() == 1 && adaptToShorterConstructor(mixin, adapters, className, method, annotation,
+                specs.get(0), targets, context)) {
+            return true;
         }
 
         List<String> rewritten = new ArrayList<>(specs);
@@ -750,7 +921,7 @@ public final class MixinTargets implements Transformer {
 
     // ----------------------------------------------------------------- shadows
 
-    private boolean adaptShadowField(String className, FieldNode field, List<Target> targets,
+    private boolean adaptShadowField(ClassNode mixin, String className, FieldNode field, List<Target> targets,
             TransformContext context) {
         AnnotationNode shadow = annotation(allAnnotations(field), SHADOW);
 
@@ -778,7 +949,7 @@ public final class MixinTargets implements Transformer {
         }
 
         if (candidates.isEmpty()) {
-            return addField(className, field, wanted, context);
+            return addField(mixin, className, field, wanted, context);
         }
 
         return addAliases(shadow, candidates, context, className,
@@ -796,7 +967,8 @@ public final class MixinTargets implements Transformer {
      * writes them. Added to the target as an ordinary field, it is a field that
      * code can use, and the rest of the mixin applies.
      */
-    private boolean addField(String className, FieldNode field, String wanted, TransformContext context) {
+    private boolean addField(ClassNode mixin, String className, FieldNode field, String wanted,
+            TransformContext context) {
         if (field.visibleAnnotations != null) {
             field.visibleAnnotations.removeIf(annotation -> SHADOW_COMPANIONS.contains(annotation.desc));
         }
@@ -805,8 +977,95 @@ public final class MixinTargets implements Transformer {
             field.invisibleAnnotations.removeIf(annotation -> SHADOW_COMPANIONS.contains(annotation.desc));
         }
 
-        note(context, className, "shadowed field " + wanted + " is not in this version, so the mixin adds it");
+        String initial = initialiseFromTypeDefault(mixin, field);
+        note(context, className, "shadowed field " + wanted + " is not in this version, so the mixin adds it"
+                + (initial == null ? "" : ", starting as " + initial));
         return true;
+    }
+
+    /** The constants a loader's own types give their "nothing particular" value, most telling first. */
+    private static final List<String> TYPE_DEFAULTS = List.of("DEFAULT", "UNSPECIFIED", "EMPTY", "NONE");
+
+    /**
+     * Starts a field the mixin now adds at the value its type gives for
+     * nothing particular, when the type has one.
+     *
+     * <p>Such a field was given to the game by the loader's patch, which also
+     * filled it in: NeoForge's quads carry {@code bakedColors}, which a quad
+     * built without colours of its own holds as {@code BakedColors.DEFAULT}.
+     * Added by the mixin it started as null instead, and Sodium, reading
+     * every quad's colours through it, ended the game on the first chunk.
+     * Mixin copies what a mixin's constructor sets after its super call into
+     * each of the target's constructors, so that is where the value is set.
+     *
+     * @return the constant the field starts as, or {@code null} when it starts empty
+     */
+    private String initialiseFromTypeDefault(ClassNode mixin, FieldNode field) {
+        if ((field.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0 || field.desc.charAt(0) != 'L') {
+            return null;
+        }
+
+        String type = Type.getType(field.desc).getInternalName();
+        String chosen = typeDefault(Type.getType(field.desc));
+
+        if (chosen == null) {
+            return null;
+        }
+
+        boolean set = false;
+
+        for (MethodNode constructor : mixin.methods) {
+            if (!constructor.name.equals("<init>") || constructor.instructions == null) {
+                continue;
+            }
+
+            // Mixin takes as initialisers the code after the super call that
+            // lies on lines outside the constructor's own, so the value is set
+            // on a line past its last and the line it was on resumes after.
+            int lastLine = -1;
+            int superLine = -1;
+            int line = -1;
+            org.objectweb.asm.tree.MethodInsnNode superCall = null;
+
+            for (org.objectweb.asm.tree.AbstractInsnNode instruction : constructor.instructions) {
+                if (instruction instanceof org.objectweb.asm.tree.LineNumberNode number) {
+                    line = number.line;
+                    lastLine = Math.max(lastLine, line);
+                } else if (superCall == null && instruction instanceof org.objectweb.asm.tree.MethodInsnNode call
+                        && call.getOpcode() == org.objectweb.asm.Opcodes.INVOKESPECIAL && call.name.equals("<init>")
+                        && call.owner.equals(mixin.superName)) {
+                    superCall = call;
+                    superLine = line;
+                }
+            }
+
+            if (superCall == null || superLine < 0) {
+                continue;
+            }
+
+            org.objectweb.asm.tree.InsnList start = new org.objectweb.asm.tree.InsnList();
+            org.objectweb.asm.tree.LabelNode own = new org.objectweb.asm.tree.LabelNode();
+            start.add(own);
+            start.add(new org.objectweb.asm.tree.LineNumberNode(lastLine + 1, own));
+            start.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ALOAD, 0));
+            start.add(new org.objectweb.asm.tree.FieldInsnNode(org.objectweb.asm.Opcodes.GETSTATIC, type, chosen,
+                    field.desc));
+            start.add(new org.objectweb.asm.tree.FieldInsnNode(org.objectweb.asm.Opcodes.PUTFIELD, mixin.name,
+                    field.name, field.desc));
+            org.objectweb.asm.tree.LabelNode resume = new org.objectweb.asm.tree.LabelNode();
+            start.add(resume);
+            start.add(new org.objectweb.asm.tree.LineNumberNode(superLine, resume));
+            constructor.instructions.insert(superCall, start);
+            constructor.maxStack = Math.max(constructor.maxStack, 2);
+            set = true;
+        }
+
+        if (!set) {
+            return null;
+        }
+
+        field.access &= ~org.objectweb.asm.Opcodes.ACC_FINAL;
+        return type.substring(type.lastIndexOf('/') + 1) + "." + chosen;
     }
 
     private boolean adaptShadowMethod(String className, MethodNode method, List<Target> targets,
