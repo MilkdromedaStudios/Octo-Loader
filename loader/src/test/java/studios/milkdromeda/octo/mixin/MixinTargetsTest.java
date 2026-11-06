@@ -320,6 +320,139 @@ class MixinTargetsTest {
     }
 
     @Test
+    @DisplayName("a field the mixin adds starts as its type's default, as the loader's patch filled it in")
+    void addedFieldStartsAtItsTypesDefault() {
+        Map<String, byte[]> source = SourceCompiler.compile(Map.of(
+                "game.Colors", """
+                        package game;
+
+                        public interface Colors {
+                            Colors DEFAULT = index -> -1;
+
+                            int color(int index);
+                        }
+                        """,
+                "mixinpkg.QuadMixin", """
+                        package mixinpkg;
+
+                        import org.spongepowered.asm.mixin.Final;
+                        import org.spongepowered.asm.mixin.Mixin;
+                        import org.spongepowered.asm.mixin.Shadow;
+
+                        @Mixin(targets = "game.Quad")
+                        public abstract class QuadMixin {
+                            @Shadow @Final private game.Colors colors;
+
+                            public int firstColor() {
+                                return colors.color(0);
+                            }
+                        }
+                        """));
+
+        ClassWriter quad = new ClassWriter(0);
+        quad.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "game/Quad", null, "java/lang/Object", null);
+        quad.visitEnd();
+        Map<String, byte[]> classPath = new LinkedHashMap<>();
+        classPath.put("game/Quad", quad.toByteArray());
+        classPath.put("game/Colors", source.get("game.Colors"));
+
+        ClassNode mixin = new ClassNode();
+        new ClassReader(adapt(source.get("mixinpkg.QuadMixin"), classPath)).accept(mixin, 0);
+        List<String> constructor = new java.util.ArrayList<>();
+
+        for (MethodNode method : mixin.methods) {
+            if (method.name.equals("<init>")) {
+                for (org.objectweb.asm.tree.AbstractInsnNode instruction : method.instructions) {
+                    if (instruction instanceof org.objectweb.asm.tree.FieldInsnNode field) {
+                        constructor.add(field.getOpcode() + " " + field.owner + "." + field.name);
+                    }
+                }
+            }
+        }
+
+        assertEquals(List.of(Opcodes.GETSTATIC + " game/Colors.DEFAULT", Opcodes.PUTFIELD + " mixinpkg/QuadMixin.colors"),
+                constructor);
+
+        // And mixin takes it as an initialiser, which it copies into the
+        // target's constructors: code on the constructor's own lines it leaves.
+        MethodNode init = mixin.methods.stream().filter(method -> method.name.equals("<init>")).findFirst()
+                .orElseThrow();
+        List<String> initialiser = new java.util.ArrayList<>();
+
+        for (org.objectweb.asm.tree.AbstractInsnNode instruction : org.spongepowered.asm.mixin.injection.struct
+                .Constructor.getRange(init).apply(init.instructions, false)) {
+            if (instruction instanceof org.objectweb.asm.tree.FieldInsnNode field) {
+                initialiser.add(field.owner + "." + field.name);
+            }
+        }
+
+        assertEquals(List.of("game/Colors.DEFAULT", "mixinpkg/QuadMixin.colors"), initialiser);
+    }
+
+    @Test
+    @DisplayName("an injection into a constructor a loader lengthened goes into the game's, the rest at defaults")
+    void lengthenedConstructorInjectionGoesIntoTheGames() {
+        Map<String, byte[]> source = SourceCompiler.compile(Map.of(
+                "game.Colors", """
+                        package game;
+
+                        public interface Colors {
+                            Colors DEFAULT = index -> -1;
+
+                            int color(int index);
+                        }
+                        """,
+                "mixinpkg.QuadInitMixin", """
+                        package mixinpkg;
+
+                        import org.spongepowered.asm.mixin.Mixin;
+                        import org.spongepowered.asm.mixin.injection.At;
+                        import org.spongepowered.asm.mixin.injection.Inject;
+                        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+                        @Mixin(targets = "game.Quad")
+                        public abstract class QuadInitMixin {
+                            @Inject(method = "<init>(Ljava/lang/String;JLgame/Colors;)V", at = @At("TAIL"))
+                            private void init(String name, long uv, game.Colors colors, CallbackInfo callback) {
+                            }
+                        }
+                        """));
+
+        ClassWriter quad = new ClassWriter(0);
+        quad.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "game/Quad", null, "java/lang/Object", null);
+        quad.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "(Ljava/lang/String;J)V", null, null).visitEnd();
+        quad.visitEnd();
+        Map<String, byte[]> classPath = new LinkedHashMap<>();
+        classPath.put("game/Quad", quad.toByteArray());
+        classPath.put("game/Colors", source.get("game.Colors"));
+
+        ClassNode mixin = new ClassNode();
+        new ClassReader(adapt(source.get("mixinpkg.QuadInitMixin"), classPath)).accept(mixin, 0);
+        MethodNode adapter = mixin.methods.stream()
+                .filter(method -> method.desc.equals("(Ljava/lang/String;JLorg/spongepowered/asm/mixin/injection/"
+                        + "callback/CallbackInfo;)V"))
+                .findFirst().orElseThrow();
+        AnnotationNode injector = injector(mixin, adapter.name);
+
+        assertNotNull(injector, "the injection moves to the adapter");
+        assertEquals(List.of("<init>(Ljava/lang/String;J)V"), value(injector, "method"));
+        assertTrue(mixin.methods.stream().filter(method -> method.name.equals("init"))
+                .allMatch(method -> all(method).isEmpty()), "the mod's handler is now only called");
+
+        List<String> calls = new java.util.ArrayList<>();
+
+        for (org.objectweb.asm.tree.AbstractInsnNode instruction : adapter.instructions) {
+            if (instruction instanceof org.objectweb.asm.tree.FieldInsnNode field) {
+                calls.add(field.owner + "." + field.name);
+            } else if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call) {
+                calls.add(call.owner + "." + call.name);
+            }
+        }
+
+        assertEquals(List.of("game/Colors.DEFAULT", "mixinpkg/QuadInitMixin.init"), calls);
+    }
+
+    @Test
     @DisplayName("a mixin whose target is not here is marked @Pseudo, so its config is not lost with it")
     void unknownTargetBecomesPseudo() {
         byte[] original = compiled.get("mixinpkg.ScreenMixin");

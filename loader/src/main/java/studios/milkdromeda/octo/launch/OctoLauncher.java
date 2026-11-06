@@ -362,6 +362,14 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new EntityPersistentData());
             // And the capability listeners its level keeps.
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ServerLevelCapabilities());
+
+            // And the model data store its client level keeps, which Sodium
+            // reads for every chunk section it builds.
+            if (context.side() == Side.CLIENT) {
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ClientLevelModelData());
+                // And the part collection by position its block models have.
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.DynamicModelParts());
+            }
         }
 
         // Client assets from before 1.21.4, whatever loader the mod is for: item
