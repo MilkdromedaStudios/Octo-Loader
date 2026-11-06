@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="docs/logo.svg" width="168" alt="Octo Loader logo">
+  <a href="https://milkdromedastudios.github.io/Octo-Loader/" title="Open the project page: the logo turns with your cursor there">
+    <img src="docs/logo-animated.svg" width="200" alt="Octo Loader logo">
+  </a>
 </p>
 
 <h1 align="center">Octo Loader & Launcher</h1>

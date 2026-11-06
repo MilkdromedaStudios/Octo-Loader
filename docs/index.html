@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octo Loader</title>
+  <meta name="description" content="One loader for every Minecraft mod: Fabric, Quilt, Forge and NeoForge mods together in one game.">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #0b0716;
+      --bg-2: #160b2e;
+      --text: #f3eefe;
+      --muted: #b4a6d6;
+      --violet: #9b1cff;
+      --cyan: #00b2ff;
+      --card: rgba(255, 255, 255, 0.06);
+      --line: rgba(255, 255, 255, 0.12);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f2ff;
+        --bg-2: #e9e0ff;
+        --text: #1b1030;
+        --muted: #5d4e7d;
+        --card: rgba(255, 255, 255, 0.7);
+        --line: rgba(27, 16, 48, 0.12);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      background: radial-gradient(1200px 700px at 50% 20%, var(--bg-2), var(--bg) 70%) fixed, var(--bg);
+      color: var(--text);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 48px 16px 64px;
+      text-align: center;
+    }
+
+    /* The stage the logo turns in. Its size sets how far the cursor's reach goes. */
+    .stage {
+      width: min(440px, 86vw);
+      aspect-ratio: 1;
+      margin: 0 auto;
+      perspective: 900px;
+      touch-action: pan-y;
+      position: relative;
+    }
+
+    .tilt {
+      position: absolute;
+      inset: 0;
+      transform-style: preserve-3d;
+      will-change: transform;
+    }
+
+    .layer { position: absolute; inset: 0; }
+    .layer img { width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; }
+
+    .glow {
+      background: radial-gradient(closest-side, rgba(155, 28, 255, 0.55), rgba(0, 178, 255, 0.18) 60%, transparent);
+      filter: blur(18px);
+      transform: translateZ(-80px) scale(1.05);
+    }
+
+    .logo { transform: translateZ(40px); }
+
+    /* A light that sits on the side turned toward the viewer. */
+    .sheen {
+      transform: translateZ(60px);
+      border-radius: 50%;
+      mix-blend-mode: soft-light;
+      background: radial-gradient(circle at var(--sx, 50%) var(--sy, 30%), rgba(255, 255, 255, 0.55), transparent 45%);
+      -webkit-mask: url(logo.svg) center / contain no-repeat;
+      mask: url(logo.svg) center / contain no-repeat;
+    }
+
+    .ground {
+      width: 62%;
+      height: 9%;
+      margin: -2% auto 0;
+      border-radius: 50%;
+      background: radial-gradient(closest-side, rgba(102, 16, 232, 0.55), transparent);
+      will-change: transform, opacity;
+    }
+
+    h1 { font-size: clamp(2rem, 6vw, 3.2rem); line-height: 1.1; margin: 24px 0 8px; letter-spacing: -0.02em; }
+
+    .lead { color: var(--muted); font-size: 1.1rem; max-width: 38em; margin: 0 auto 28px; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+
+    .button {
+      display: inline-block;
+      padding: 12px 22px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(135deg, var(--violet), var(--cyan));
+      box-shadow: 0 8px 28px rgba(155, 28, 255, 0.35);
+    }
+
+    .button.secondary { background: var(--card); color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 48px;
+      text-align: left;
+    }
+
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+    .card h2 { font-size: 1.05rem; margin: 0 0 6px; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="stage" id="stage" aria-hidden="true">
+      <div class="tilt" id="tilt">
+        <div class="layer glow"></div>
+        <div class="layer logo"><img src="logo.svg" alt=""></div>
+        <div class="layer sheen" id="sheen"></div>
+      </div>
+    </div>
+    <div class="ground" id="ground"></div>
+
+    <h1>Octo Loader</h1>
+    <p class="lead">One loader for every Minecraft mod. Fabric, Quilt, Forge and NeoForge mods together in one game,
+      including mods built for other Minecraft versions.</p>
+
+    <div class="actions">
+      <a class="button" href="https://github.com/MilkdromedaStudios/Octo-Loader/releases/latest">Download</a>
+      <a class="button secondary" href="https://github.com/MilkdromedaStudios/Octo-Loader#readme">Read the guide</a>
+    </div>
+
+    <section class="cards">
+      <div class="card"><h2>Every loader</h2><p>Fabric, Quilt, Forge and NeoForge mods in the same game.</p></div>
+      <div class="card"><h2>Every version</h2><p>Mods built for older Minecraft are translated to run on 26.3.</p></div>
+      <div class="card"><h2>Worlds kept safe</h2><p>Backups before every session, and a last good copy after a crash.</p></div>
+    </section>
+  </main>
+
+  <script>
+    // The logo leans away from the cursor, as if pushed by it, and springs
+    // back when the cursor leaves. A damped spring, not a CSS transition, so
+    // a moving cursor never restarts the motion and it settles naturally.
+    (function () {
+      var stage = document.getElementById('stage');
+      var tilt = document.getElementById('tilt');
+      var sheen = document.getElementById('sheen');
+      var ground = document.getElementById('ground');
+      var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      var MAX_TILT = 22;      // degrees at the stage's edge
+      var MAX_SHIFT = 18;     // pixels pushed away from the cursor
+      var REACH = 1.6;        // how far past the stage the cursor still pushes, in stage sizes
+      var STIFFNESS = 0.06;
+      var DAMPING = 0.82;
+
+      // State: rotation about x and y, and the push; each with a velocity.
+      var s = { rx: 0, ry: 0, tx: 0, ty: 0 };
+      var v = { rx: 0, ry: 0, tx: 0, ty: 0 };
+      var target = { rx: 0, ry: 0, tx: 0, ty: 0 };
+      var idle = 0;
+      var running = false;
+
+      function aim(clientX, clientY) {
+        var box = stage.getBoundingClientRect();
+        var cx = box.left + box.width / 2;
+        var cy = box.top + box.height / 2;
+        // -1..1 across the stage, softened beyond it so far-off cursors push less.
+        var nx = (clientX - cx) / (box.width / 2);
+        var ny = (clientY - cy) / (box.height / 2);
+        var distance = Math.sqrt(nx * nx + ny * ny);
+
+        if (distance > REACH * 2) {
+          release();
+          return;
+        }
+
+        var falloff = distance > 1 ? Math.max(0, 1 - (distance - 1) / (REACH * 2 - 1)) : 1;
+        var clampedX = Math.max(-1, Math.min(1, nx)) * falloff;
+        var clampedY = Math.max(-1, Math.min(1, ny)) * falloff;
+
+        // Away from the cursor: the side nearest it sinks back. In CSS a
+        // positive rotateY sends the right edge back, a positive rotateX the top.
+        target.ry = clampedX * MAX_TILT;
+        target.rx = -clampedY * MAX_TILT;
+        target.tx = -clampedX * MAX_SHIFT;
+        target.ty = -clampedY * MAX_SHIFT;
+        idle = 0;
+        start();
+      }
+
+      function release() {
+        target.rx = target.ry = target.tx = target.ty = 0;
+        start();
+      }
+
+      function start() {
+        if (!running && !reduced) {
+          running = true;
+          requestAnimationFrame(step);
+        }
+      }
+
+      function step() {
+        var moving = false;
+
+        for (var key in s) {
+          v[key] = (v[key] + (target[key] - s[key]) * STIFFNESS) * DAMPING;
+          s[key] += v[key];
+
+          if (Math.abs(v[key]) > 0.001 || Math.abs(target[key] - s[key]) > 0.01) {
+            moving = true;
+          }
+        }
+
+        tilt.style.transform = 'translate3d(' + s.tx.toFixed(2) + 'px,' + s.ty.toFixed(2) + 'px,0) rotateX('
+          + s.rx.toFixed(2) + 'deg) rotateY(' + s.ry.toFixed(2) + 'deg)';
+        // The light follows the face turned toward the viewer.
+        sheen.style.setProperty('--sx', (50 - s.ry * 1.6).toFixed(1) + '%');
+        sheen.style.setProperty('--sy', (30 + s.rx * 1.6).toFixed(1) + '%');
+        // The shadow slides opposite the lean and shrinks as the logo lifts.
+        var lean = Math.min(1, Math.sqrt(s.rx * s.rx + s.ry * s.ry) / MAX_TILT);
+        ground.style.transform = 'translateX(' + (-s.ry * 1.2).toFixed(1) + 'px) scale(' + (1 - lean * 0.15).toFixed(3) + ')';
+        ground.style.opacity = (1 - lean * 0.35).toFixed(3);
+
+        // With no cursor for a while, it drifts home on its own.
+        if (++idle > 240) {
+          target.rx = target.ry = target.tx = target.ty = 0;
+        }
+
+        if (moving) {
+          requestAnimationFrame(step);
+        } else {
+          running = false;
+        }
+      }
+
+      window.addEventListener('pointermove', function (e) { aim(e.clientX, e.clientY); }, { passive: true });
+      document.addEventListener('pointerleave', release);
+      window.addEventListener('blur', release);
+      stage.addEventListener('touchend', release, { passive: true });
+    })();
+  </script>
+</body>
+</html>
