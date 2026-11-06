@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="27 22 1200 1200" width="512" height="512" role="img" aria-label="Octo Loader">
+  <title>Octo Loader</title>
+  <style>
+    /* A slow turn in depth: the logo narrows and leans as if turning on its axis,
+       floats, and a sheen crosses it. Shown as an image, so no script: GitHub
+       keeps an SVG's own animation and drops everything else. */
+    .float { animation: float 7s ease-in-out infinite; transform-origin: 627px 640px; transform-box: view-box; }
+    .turn { animation: turn 9s ease-in-out infinite; transform-origin: 627px 640px; transform-box: view-box; }
+    .shadow { animation: shadow 7s ease-in-out infinite; transform-origin: 627px 1150px; transform-box: view-box; }
+    .sheen { animation: sheen 9s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-22px); } }
+    @keyframes turn {
+      0%, 100% { transform: scaleX(1) skewY(0deg); }
+      25% { transform: scaleX(0.9) skewY(-3deg); }
+      50% { transform: scaleX(1) skewY(0deg); }
+      75% { transform: scaleX(0.9) skewY(3deg); }
+    }
+    @keyframes shadow { 0%, 100% { transform: scale(1); opacity: 0.45; } 50% { transform: scale(0.82); opacity: 0.28; } }
+    @keyframes sheen { 0%, 15% { transform: translateX(-900px); } 55%, 100% { transform: translateX(900px); } }
+    @media (prefers-reduced-motion: reduce) { .float, .turn, .shadow, .sheen { animation: none; } }
+  </style>
+  <defs>
+    <filter id="violet-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="17" result="blur"/>
+      <feFlood flood-color="#cf8cff" flood-opacity="0.95"/>
+      <feComposite in2="blur" operator="in" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="cyan-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="17" result="blur"/>
+      <feFlood flood-color="#7fdcff" flood-opacity="0.95"/>
+      <feComposite in2="blur" operator="in" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  
+    <linearGradient id="sheen-light" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="ground" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6610e8" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#6610e8" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="logo-shape">
+      <g fill="#fff" stroke="#fff" stroke-width="36" stroke-linejoin="round">
+        <polygon points="478,627 224,773 302,864"/>
+        <polygon points="776,627 1030,773 952,864"/>
+        <polygon points="546,684 355,917 457,1032"/>
+        <polygon points="708,684 899,917 797,1032"/>
+        <circle cx="627" cy="396" r="232"/>
+        <path d="M512 572 L486 690 L562 650 L550 984 L627 1080 L704 984 L692 650 L768 690 L742 572 Z"/>
+      </g>
+    </mask>
+  </defs>
+  <ellipse class="shadow" cx="627" cy="1150" rx="300" ry="34" fill="url(#ground)"/>
+  <g class="float">
+    <g class="turn">
+  <!-- Outer arms -->
+  <g fill="#9b1cff" stroke="#9b1cff" stroke-width="36" stroke-linejoin="round" filter="url(#violet-glow)">
+    <polygon points="478,627 224,773 302,864"/>
+    <polygon points="776,627 1030,773 952,864"/>
+  </g>
+  <!-- Inner arms -->
+  <g fill="#00b2ff" stroke="#00b2ff" stroke-width="36" stroke-linejoin="round" filter="url(#cyan-glow)">
+    <polygon points="546,684 355,917 457,1032"/>
+    <polygon points="708,684 899,917 797,1032"/>
+  </g>
+  <!-- Head and body -->
+  <g fill="#6610e8" filter="url(#violet-glow)">
+    <circle cx="627" cy="396" r="232"/>
+    <path d="M512 572 L486 690 L562 650 L550 984 L627 1080 L704 984 L692 650 L768 690 L742 572 Z"
+          stroke="#6610e8" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+  <!-- Shine -->
+  <path d="M441 384 C452 304 506 250 582 224" fill="none" stroke="#ad5cff" stroke-width="30" stroke-linecap="round"/>
+      <g mask="url(#logo-shape)">
+        <g transform="skewX(-18)">
+          <rect class="sheen" x="477" y="100" width="300" height="1040" fill="url(#sheen-light)"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
