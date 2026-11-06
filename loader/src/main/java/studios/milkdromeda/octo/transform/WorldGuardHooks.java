@@ -10,6 +10,7 @@ import org.objectweb.asm.Opcodes;
 /**
  * Where the world guard ({@link studios.milkdromeda.octo.bridge.WorldGuard})
  * sits in the game: as the server opens its world, before any level is made;
+ * as it stops, once the world is saved;
  * after each chunk of blocks or entities is read from its region file; and
  * before each is written back, which a chunk holding content the game does not
  * know is not.
@@ -51,6 +52,23 @@ public final class WorldGuardHooks implements Transformer {
                             super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, GUARD, "opening", "(Ljava/lang/Object;)V",
                                     false);
+                        }
+                    };
+                }
+
+                if (className.equals(SERVER) && name.equals("stopServer") && descriptor.equals("()V")) {
+                    changed[0] = true;
+                    return new MethodVisitor(Opcodes.ASM9, delegate) {
+                        @Override
+                        public void visitInsn(int opcode) {
+                            if (opcode == Opcodes.RETURN) {
+                                // The world saved and closed: the session ended cleanly.
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, GUARD, "closed", "(Ljava/lang/Object;)V",
+                                        false);
+                            }
+
+                            super.visitInsn(opcode);
                         }
                     };
                 }

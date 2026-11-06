@@ -1,6 +1,7 @@
 package studios.milkdromeda.octo.transform;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -101,6 +102,30 @@ class ShimsTest {
         }
 
         throw new AssertionError(name);
+    }
+
+    /** Item properties as 26.x has them: armour made by the properties, given its material and type. */
+    public static final class FakeProperties {
+        public String made;
+
+        public FakeProperties humanoidArmor(String material, Integer type) {
+            made = material + "/" + type;
+            return this;
+        }
+    }
+
+    @Test
+    @DisplayName("material.humanoidProperties(properties, type) is properties.humanoidArmor(material, type)")
+    void armourPropertiesAreMadeByTheProperties() {
+        FakeProperties properties = new FakeProperties();
+
+        assertSame(properties, Shims.armorHumanoidProperties("copper", properties, 2));
+        assertEquals("copper/2", properties.made);
+
+        // A material from an older Minecraft arrives as nothing: the item is still made.
+        FakeProperties plain = new FakeProperties();
+        assertSame(plain, Shims.armorHumanoidProperties(null, plain, 2));
+        assertEquals(null, plain.made);
     }
 
     @Test

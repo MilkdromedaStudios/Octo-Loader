@@ -46,7 +46,16 @@ import studios.milkdromeda.octo.util.OctoLog;
  * the player accepts it is gone ({@link WorldContent#accept}).</li>
  * </ol>
  *
+ * <p>And a session that goes wrong can be undone. Each time a world with mods
+ * opens it is backed up first, and it carries a marker until the game closes
+ * it cleanly. A world still carrying the marker when it next opens had its last
+ * session end in a crash or a kill, perhaps half saved: the backup made before
+ * that session is kept as its last good copy, apart from the rotation, and the
+ * player is told where it is.
+ *
  * <p>Switches: {@code -Docto.worldGuard=false} turns it all off;
+ * {@code -Docto.backups.eachSession=false} keeps the backup before each
+ * session from being made;
  * {@code -Docto.backups.onModChange=false} keeps backups to missing content
  * only; {@code -Docto.backups.keep=N} keeps the newest N automatic backups of
  * each world (10).
@@ -102,6 +111,13 @@ public final class WorldGuard {
             boolean existing = Files.isDirectory(world.resolve("region"))
                     || Files.isDirectory(world.resolve("dimensions"));
 
+            Path marker = world.resolve(SESSION_MARKER);
+            boolean unclean = Files.exists(marker);
+
+            if (unclean) {
+                keepLastGood(world, marker);
+            }
+
             if (before == null) {
                 // First opened with Octo: nothing to compare with, but a world
                 // that already has chunks is worth one copy as it was.
@@ -110,6 +126,7 @@ public final class WorldGuard {
                 }
 
                 now.write(world);
+                markOpen(marker);
                 return;
             }
 
@@ -127,6 +144,9 @@ public final class WorldGuard {
                         + "backing it up first", world.getFileName(), difference.added(), difference.removed(),
                         difference.updated().keySet());
                 backup(world, WorldBackups.MODS_CHANGED, keep);
+            } else if (existing && !now.mods().isEmpty() && !"false".equalsIgnoreCase(
+                    System.getProperty("octo.backups.eachSession"))) {
+                backup(world, WorldBackups.BEFORE_SESSION, keep);
             }
 
             if (!difference.contentMissing()) {
@@ -134,10 +154,123 @@ public final class WorldGuard {
             }
 
             now.carryingOver(difference).write(world);
+            markOpen(marker);
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             LOG.warn("the world's mods could not be checked before it opened: {}", Failures.describe(e));
             OctoLog.detail(e);
+        }
+    }
+
+    /** Present in a world while a session has it open; left behind by a crash or a kill. */
+    static final String SESSION_MARKER = "octo/session-open";
+
+    private static volatile Path openWorld;
+    private static volatile Instant openedAt;
+
+    private static void markOpen(Path marker) {
+        try {
+            Files.createDirectories(marker.getParent());
+            Files.writeString(marker, Instant.now().toString(), StandardCharsets.UTF_8);
+            openWorld = marker.getParent().getParent();
+            openedAt = Instant.now();
+        } catch (Exception e) {
+            LOG.debug("could not mark the world open: {}", e.toString());
+        }
+    }
+
+    /**
+     * {@code MinecraftServer.stopServer()}, after the world is saved: the
+     * session ended cleanly, unless the game wrote a crash report meanwhile, in
+     * which case the save just made may be the crash's and the marker stays.
+     */
+    public static void closed(Object server) {
+        Path world = openWorld;
+        Instant since = openedAt;
+
+        if (!enabled() || world == null || since == null) {
+            return;
+        }
+
+        try {
+            if (crashedSince(world, since)) {
+                LOG.warn("world {} was closed after a crash; it is treated as not closed cleanly the next time it "
+                        + "opens", world.getFileName());
+                return;
+            }
+
+            Files.deleteIfExists(world.resolve(SESSION_MARKER));
+            openWorld = null;
+        } catch (Exception e) {
+            LOG.debug("could not mark the world closed: {}", e.toString());
+        }
+    }
+
+    /** Whether the game wrote a crash report since the world opened, where a client's or a server's goes. */
+    static boolean crashedSince(Path world, Instant since) {
+        for (Path game = world.getParent(); game != null && game.getNameCount() >= world.getNameCount() - 2;
+                game = game.getParent()) {
+            Path reports = game.resolve("crash-reports");
+
+            if (!Files.isDirectory(reports)) {
+                continue;
+            }
+
+            try (java.util.stream.Stream<Path> files = Files.list(reports)) {
+                if (files.anyMatch(file -> {
+                    try {
+                        return Files.getLastModifiedTime(file).toInstant().isAfter(since);
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })) {
+                    return true;
+                }
+            } catch (Exception e) {
+                // Not readable: no crash known.
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The world's last session did not end cleanly: the newest automatic backup
+     * made before it started is the world as it last was whole, and is kept
+     * apart from the rotation as its last good copy.
+     */
+    private static void keepLastGood(Path world, Path marker) {
+        try {
+            Instant started = Files.getLastModifiedTime(marker).toInstant();
+            WorldBackups.Backup good = null;
+
+            for (WorldBackups.Backup backup : WorldBackups.list(WorldBackups.folderFor(world))) {
+                // Backups are named to the second; the session began after its own.
+                if (backup.isAutomatic() && !backup.time().isAfter(started.plusSeconds(1))) {
+                    good = backup;
+                    break;
+                }
+            }
+
+            if (good == null) {
+                LOG.warn("world {} was not closed cleanly last time (the game crashed or was stopped), and there is "
+                        + "no backup from before that session", world.getFileName());
+                return;
+            }
+
+            if (!good.reason().equals(WorldBackups.LAST_GOOD)) {
+                good = WorldBackups.relabel(good, WorldBackups.LAST_GOOD);
+            }
+
+            LOG.warn("world {} was not closed cleanly last time (the game crashed or was stopped). If it is damaged, "
+                    + "restore {} from Octo Launcher's Worlds page: it is the world as it was before that session, "
+                    + "and it is kept", world.getFileName(), good.file().getFileName());
+            Files.createDirectories(world.resolve("octo"));
+            Files.writeString(world.resolve("octo/last-good.txt"), "The last session of this world did not end "
+                    + "cleanly. The world as it was before it is kept in\n" + good.file() + "\n",
+                    StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.warn("world {}: could not keep its last good copy: {}", world.getFileName(), Failures.describe(e));
         }
     }
 

@@ -363,6 +363,9 @@ public final class OctoLauncher {
             // And the capability listeners its level keeps.
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ServerLevelCapabilities());
 
+            // And the fluid types its patch gives the game's water, lava and empty fluid.
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.VanillaFluidTypes());
+
             // And the model data store its client level keeps, which Sodium
             // reads for every chunk section it builds.
             if (context.side() == Side.CLIENT) {

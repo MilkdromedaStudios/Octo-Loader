@@ -87,6 +87,33 @@ class ClientLevelModelDataTest {
         assertSame(patched, new DynamicModelParts().transform(model, patched, TransformContext.of(null, name -> true)));
     }
 
+    @Test
+    void theGamesFluidsAnswerTheFluidTypesNeoForgeRegistersForThem() {
+        for (var entry : VanillaFluidTypes.TYPES.entrySet()) {
+            byte[] patched = new VanillaFluidTypes().transform(entry.getKey(),
+                    shell(entry.getKey(), "java/lang/Object", null), TransformContext.of(null, name -> true));
+            java.util.List<String> reads = new java.util.ArrayList<>();
+            new org.objectweb.asm.ClassReader(patched).accept(new org.objectweb.asm.ClassVisitor(Opcodes.ASM9) {
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
+                        String[] exceptions) {
+                    if (!descriptor.equals(VanillaFluidTypes.DESCRIPTOR)) {
+                        return null;
+                    }
+
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        @Override
+                        public void visitFieldInsn(int opcode, String owner, String field, String fieldDescriptor) {
+                            reads.add(owner + "." + field);
+                        }
+                    };
+                }
+            }, 0);
+
+            assertEquals(java.util.List.of("net/neoforged/neoforge/common/NeoForgeMod." + entry.getValue()), reads);
+        }
+    }
+
     /** A public class with a public constructor taking nothing, or the given arguments (which it ignores). */
     private static byte[] shell(String name, String superName, String constructor) {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);

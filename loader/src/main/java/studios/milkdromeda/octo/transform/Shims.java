@@ -155,6 +155,13 @@ public final class Shims {
             // config with it, and a null there stopped the screen opening.
             Map.entry("net/minecraft/client/resources/language/LanguageManager.getJavaLocale()Ljava/util/Locale;",
                     "languageJavaLocale"),
+            // Armour's item properties, made by its material until 1.21.5 and by
+            // the properties themselves since. The ArmorItem added back from
+            // 1.21.3 builds its item so, and a null there failed every armour
+            // item Create has: diving gear, backtanks, cardboard armour.
+            Map.entry("net/minecraft/world/item/equipment/ArmorMaterial.humanoidProperties("
+                    + "Lnet/minecraft/world/item/Item$Properties;Lnet/minecraft/world/item/equipment/ArmorType;)"
+                    + "Lnet/minecraft/world/item/Item$Properties;", "armorHumanoidProperties"),
             // The render thread's tesselator, which Octo carries for 26.x.
             Map.entry("com/mojang/blaze3d/systems/RenderSystem.renderThreadTesselator()"
                     + "Lcom/mojang/blaze3d/vertex/Tesselator;", "renderThreadTesselator"),
@@ -820,6 +827,38 @@ public final class Shims {
 
         return java.util.Locale.forLanguageTag(text.replace('_', '-'));
     }
+
+    /**
+     * {@code material.humanoidProperties(properties, type)}: {@code properties.humanoidArmor(material, type)}.
+     *
+     * <p>A material from before 1.21.2 is a registry entry of another shape,
+     * which reaches here as nothing. Then the item is made from its properties
+     * alone: it exists, so worlds holding it keep it, and is not worn as armour.
+     */
+    public static Object armorHumanoidProperties(Object material, Object properties, Object type) {
+        if (properties == null) {
+            return null;
+        }
+
+        for (Method method : properties.getClass().getMethods()) {
+            if (method.getName().equals("humanoidArmor") && method.getParameterCount() == 2
+                    && method.getParameterTypes()[0].isInstance(material)
+                    && method.getParameterTypes()[1].isInstance(type)) {
+                return invoke(method, properties, material, type);
+            }
+        }
+
+        if (ARMOR_WITHOUT_MATERIAL.compareAndSet(false, true)) {
+            studios.milkdromeda.octo.util.OctoLog.of(Shims.class).warn("an armour item's material is from an older "
+                    + "Minecraft and has no counterpart here; such items are made as plain items, so worlds keep "
+                    + "them, and cannot be worn yet");
+        }
+
+        return properties;
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean ARMOR_WITHOUT_MATERIAL =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     /** {@code OitPipelineSet.builder(id, base)}: the game's builder, named after the whole identifier. */
     public static Object oitPipelineBuilder(Object id, Object base, Class<?> owner) {
