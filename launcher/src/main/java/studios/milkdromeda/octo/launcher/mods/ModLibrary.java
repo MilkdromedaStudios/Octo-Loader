@@ -53,9 +53,36 @@ public final class ModLibrary {
     }
 
     private final Path game;
+    /** For a plain game: the one loader its mods must be for, as Modrinth names it. */
+    private final String onlyLoader;
 
     public ModLibrary(Path game) {
+        this(game, null);
+    }
+
+    /**
+     * @param onlyLoader for a game that runs one loader plainly, without Octo:
+     *                   only that loader's builds of mods, for exactly the game's
+     *                   version, are installed ("vanilla" takes none); {@code null}
+     *                   for Octo, which runs any loader's and translates versions
+     */
+    public ModLibrary(Path game, String onlyLoader) {
         this.game = game;
+        this.onlyLoader = onlyLoader;
+    }
+
+    /**
+     * The build of a mod to install: with Octo the best of all, for a plain
+     * game the newest for its loader and its exact Minecraft version.
+     */
+    Modrinth.Version choose(List<Modrinth.Version> versions, String gameVersion) {
+        if (onlyLoader == null) {
+            return Modrinth.best(versions, gameVersion);
+        }
+
+        return versions.stream()
+                .filter(version -> version.loaders().contains(onlyLoader) && version.gameVersions().contains(gameVersion))
+                .max(java.util.Comparator.comparing(Modrinth.Version::published)).orElse(null);
     }
 
     public Path folder() {
@@ -335,10 +362,13 @@ public final class ModLibrary {
         }
 
         Modrinth.Version version = versionId != null ? Modrinth.version(versionId)
-                : Modrinth.best(Modrinth.versions(projectId), gameVersion);
+                : choose(Modrinth.versions(projectId), gameVersion);
 
         if (version == null) {
-            throw new IOException("no version of " + projectId + " can be installed");
+            throw new IOException("vanilla".equals(onlyLoader)
+                    ? "plain Minecraft takes no mods: choose a loader beside Play first"
+                    : onlyLoader != null ? "this mod has no " + onlyLoader + " build for Minecraft " + gameVersion
+                            : "no version of " + projectId + " can be installed");
         }
 
         present.add(version.projectId());
@@ -388,7 +418,7 @@ public final class ModLibrary {
 
         for (Map.Entry<String, Modrinth.Version> entry : current.entrySet()) {
             Modrinth.Version installed = entry.getValue();
-            Modrinth.Version best = Modrinth.best(Modrinth.versions(installed.projectId()), gameVersion);
+            Modrinth.Version best = choose(Modrinth.versions(installed.projectId()), gameVersion);
 
             if (best != null && !best.id().equals(installed.id())
                     && best.published().compareTo(installed.published()) > 0) {

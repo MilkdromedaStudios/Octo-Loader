@@ -135,6 +135,40 @@ public final class OfficialLauncher {
                 StandardCharsets.UTF_8);
     }
 
+    /** Adds or updates a custom profile that starts a version in a folder of its own. */
+    public static void addProfile(Path gameDirectory, String profileKey, String name, String versionId,
+            Path playDirectory) throws IOException {
+        Path file = gameDirectory.resolve("launcher_profiles.json");
+
+        if (!Files.isRegularFile(file)) {
+            return;
+        }
+
+        JsonElement parsed = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8));
+
+        if (!(parsed instanceof JsonObject root)) {
+            return;
+        }
+
+        JsonObject profiles = root.get("profiles") instanceof JsonObject existing ? existing : new JsonObject();
+        root.add("profiles", profiles);
+
+        JsonObject profile = profiles.get(profileKey) instanceof JsonObject known ? known : new JsonObject();
+        profile.addProperty("name", name);
+        profile.addProperty("type", "custom");
+        profile.addProperty("lastVersionId", versionId);
+        profile.addProperty("gameDir", playDirectory.toAbsolutePath().toString());
+        profile.addProperty("icon", "Grass");
+
+        if (!profile.has("created")) {
+            profile.addProperty("created", Instant.now().toString());
+        }
+
+        profiles.add(profileKey, profile);
+        Files.writeString(file, new GsonBuilder().setPrettyPrinting().create().toJson(root) + "\n",
+                StandardCharsets.UTF_8);
+    }
+
     /** Whether the official launcher has been run in this folder: it makes this file. */
     public static boolean hasRunIn(Path gameDirectory) {
         return Files.isRegularFile(gameDirectory.resolve("launcher_profiles.json"));

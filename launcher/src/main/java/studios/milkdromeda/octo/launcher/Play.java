@@ -24,8 +24,12 @@ public final class Play {
     private Play() {
     }
 
-    /** A game Octo started; {@code withOcto} is false for a version too old for Octo Loader. */
-    public record Running(Process process, String version, Path log, boolean withOcto) {
+    /**
+     * A game Octo started; {@code withOcto} is false for a version too old for
+     * Octo Loader and for a plain game, whose loader {@code loader} names.
+     */
+    public record Running(Process process, String version, Path log, boolean withOcto,
+            PlainLoaders.Loader loader) {
     }
 
     /** What is ready to start: the version to launch, and whether it is Octo's. */
@@ -111,6 +115,12 @@ public final class Play {
         String chosen = chosen(settings, version);
         progress.update("Getting Minecraft " + chosen, 0, 0);
         GameFiles.versionFiles(game, chosen, Versions::entry);
+        PlainLoaders.Loader loader = settings.loader();
+
+        if (loader.plain()) {
+            return preparePlain(settings, loader, chosen, verify, progress);
+        }
+
         boolean withOcto = VersionProfile.load(game, chosen).supportsOcto();
         String versionId = withOcto ? Updates.installer(game, message -> { }).install(chosen) : chosen;
         VersionProfile profile = VersionProfile.load(game, versionId);
@@ -126,8 +136,38 @@ public final class Play {
     }
 
     /**
+     * Minecraft as one loader ships it: the loader installed for the version,
+     * then its files and Java fetched like any version's.
+     */
+    private static Prepared preparePlain(LauncherSettings settings, PlainLoaders.Loader loader, String chosen,
+            boolean verify, GameFiles.Progress progress) throws IOException {
+        Path game = settings.gameDir();
+        Rules.Platform platform = Rules.Platform.current();
+        VersionProfile base = VersionProfile.load(game, chosen);
+        // Forge's and NeoForge's installers run on the Java the game itself wants.
+        Path java = settings.javaPath.isBlank()
+                ? JavaRuntimes.ensure(LauncherSettings.runtimes(), base.javaComponent(false), platform, verify,
+                        progress)
+                : Path.of(settings.javaPath);
+
+        progress.update("Installing " + loader.label + " for Minecraft " + chosen, 0, 0);
+        String versionId = PlainLoaders.install(game, loader, chosen, java, message -> { });
+        VersionProfile profile = VersionProfile.load(game, versionId);
+        GameFiles.fetch(game, profile, platform, verify, progress);
+
+        if (settings.javaPath.isBlank()) {
+            JavaRuntimes.ensure(LauncherSettings.runtimes(), profile.javaComponent(false), platform, verify,
+                    progress);
+        }
+
+        Files.createDirectories(PlainLoaders.instance(game, loader, chosen));
+        return new Prepared(versionId, false);
+    }
+
+    /**
      * Gets everything ready and starts Minecraft with Octo, signed in as the
-     * active account.
+     * active account; or, with a plain loader chosen, as that loader ships it,
+     * in its own folder.
      */
     public static Running launch(LauncherSettings settings, Accounts accounts, String version,
             GameFiles.Progress progress) throws IOException {
@@ -142,12 +182,17 @@ public final class Play {
                         platform, false, progress)
                 : Path.of(settings.javaPath);
 
-        backUpLastWorld(settings, message -> { });
+        PlainLoaders.Loader loader = settings.loader();
+        Path play = loader.plain() ? PlainLoaders.instance(game, loader, chosen) : game;
+        backUpLastWorld(settings, play, message -> { });
         progress.update("Starting Minecraft", 0, 0);
         Path natives = GameFiles.unpackNatives(game, profile, platform);
         List<String> extra = new ArrayList<>();
-        // Where Octo Client is: Octo Loader would otherwise look under the game's own home folder.
-        extra.add("-Docto.launcherHome=" + LauncherSettings.home().toAbsolutePath());
+
+        if (!loader.plain()) {
+            // Where Octo Client is: Octo Loader would otherwise look under the game's own home folder.
+            extra.add("-Docto.launcherHome=" + LauncherSettings.home().toAbsolutePath());
+        }
 
         for (String option : settings.jvmArguments.trim().split("\\s+")) {
             if (!option.isBlank()) {
@@ -158,25 +203,29 @@ public final class Play {
         GameLaunch.Options options = new GameLaunch.Options(java, Math.max(512, settings.memoryMb), extra, 0, 0,
                 "octo-launcher", Installer.VERSION);
         GameLaunch.Player player = new GameLaunch.Player(account.name(), account.id(), account.accessToken(), null);
-        // Octo Client in its folder, or out of it, as the setting says: Octo Loader
-        // finds it there for the version it is built for.
-        OctoClientMod.sync(settings);
-        List<String> command = GameLaunch.command(game, profile, platform, player, options, natives);
+        if (!loader.plain()) {
+            // Octo Client in its folder, or out of it, as the setting says: Octo Loader
+            // finds it there for the version it is built for.
+            OctoClientMod.sync(settings);
+        }
+
+        List<String> command = GameLaunch.command(game, play, profile, platform, player, options, natives);
 
         Path logs = LauncherSettings.home().resolve("logs");
         Path log = logs.resolve("game.log");
         Files.createDirectories(logs);
         Files.writeString(logs.resolve("last-launch.txt"), GameLaunch.printable(command, account.accessToken())
                 + "\n", StandardCharsets.UTF_8);
-        return new Running(GameLaunch.start(command, game, log), chosen, log, prepared.withOcto());
+        return new Running(GameLaunch.start(command, play, log), chosen, log, prepared.withOcto(), loader);
     }
 
-    private static void backUpLastWorld(LauncherSettings settings, ClientInstaller.Log log) throws IOException {
+    private static void backUpLastWorld(LauncherSettings settings, Path play, ClientInstaller.Log log)
+            throws IOException {
         if (!settings.backupBeforeLaunch) {
             return;
         }
 
-        Worlds.World last = Worlds.lastPlayed(settings.gameDir());
+        Worlds.World last = Worlds.lastPlayed(play);
 
         if (last != null) {
             WorldBackups.Backup made = WorldBackups.create(last.folder(), WorldBackups.BEFORE_LAUNCH);
@@ -201,16 +250,39 @@ public final class Play {
         }
 
         String chosen = chosen(settings, version);
+        PlainLoaders.Loader loader = settings.loader();
+
+        if (loader.plain()) {
+            return preparePlainAndOpen(settings, loader, chosen, log);
+        }
 
         // Always installed again: a newer loader downloaded since goes in, and
         // a profile the player deleted comes back.
         String versionId = Updates.installer(game, log).install(chosen);
         OctoClientMod.sync(settings);
-        backUpLastWorld(settings, log);
+        backUpLastWorld(settings, game, log);
         OfficialLauncher.select(game, "octo-loader-" + chosen);
         OfficialLauncher.open(OfficialLauncher.find(settings.officialLauncher), game);
         return "Opened the Minecraft Launcher with \"Octo Loader " + chosen + "\" (" + versionId
                 + ") selected: sign in there if asked, then press Play.";
+    }
+
+    /**
+     * A plain loader through the Minecraft Launcher: the loader installed, and
+     * a profile of Octo's that starts it in its own folder, selected.
+     */
+    private static String preparePlainAndOpen(LauncherSettings settings, PlainLoaders.Loader loader, String chosen,
+            ClientInstaller.Log log) throws IOException {
+        Path game = settings.gameDir();
+        Prepared prepared = prepare(settings, chosen, false, (stage, done, total) -> { });
+        Path play = PlainLoaders.instance(game, loader, chosen);
+        backUpLastWorld(settings, play, log);
+        String key = "octo-plain-" + loader.key + "-" + chosen;
+        OfficialLauncher.addProfile(game, key, loader.label + " " + chosen, prepared.versionId(), play);
+        OfficialLauncher.select(game, key);
+        OfficialLauncher.open(OfficialLauncher.find(settings.officialLauncher), game);
+        return "Opened the Minecraft Launcher with \"" + loader.label + " " + chosen + "\" selected, without Octo: "
+                + "sign in there if asked, then press Play.";
     }
 
     /** Removes one downloaded version of Minecraft (and Octo's installation for it); libraries stay. */

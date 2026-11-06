@@ -52,6 +52,15 @@ public final class Launcher {
         LauncherSettings settings = LauncherSettings.load();
         ClientInstaller.Log log = message -> System.out.println("  " + message);
 
+        int loaderOption = arguments.indexOf("--loader");
+
+        if (loaderOption >= 0 && loaderOption + 1 < arguments.size()) {
+            // For this run only: the launcher's own choice stays as it is.
+            settings.loader = PlainLoaders.Loader.of(arguments.get(loaderOption + 1)).key;
+            arguments.remove(loaderOption + 1);
+            arguments.remove(loaderOption);
+        }
+
         try {
             switch (command) {
                 case "play" -> {
@@ -60,7 +69,8 @@ public final class Launcher {
                     if (Play.launchesItself(settings)) {
                         Play.Running running = Play.launch(settings, Play.accounts(), version, terminalProgress());
                         System.out.println("\nStarted Minecraft " + running.version()
-                                + (running.withOcto() ? "" : " without Octo (it needs 1.13 or newer)")
+                                + (running.loader().plain() ? " (" + running.loader().label + ", without Octo)"
+                                        : running.withOcto() ? "" : " without Octo (it needs 1.13 or newer)")
                                 + "; its output is in " + running.log());
                     } else {
                         System.out.println(Play.prepareAndOpen(settings, version, log));
@@ -132,6 +142,8 @@ public final class Launcher {
                             Octo Launcher %s (%s)
 
                               play [version]            start Minecraft with Octo (or open the Minecraft Launcher on it)
+                                [--loader <name>]         or plainly, without Octo: vanilla, fabric, quilt, forge, neoforge
+                                                        (download takes --loader too)
                               download [version]        download Minecraft and its Java (--repair checks every file)
                               sign-in                   sign in with a Microsoft account
                               sign-out                  sign the active account out

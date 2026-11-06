@@ -30,6 +30,7 @@ import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
+import studios.milkdromeda.octo.launcher.PlainLoaders;
 import studios.milkdromeda.octo.launcher.mods.ModLibrary;
 import studios.milkdromeda.octo.launcher.mods.Modrinth;
 
@@ -134,9 +135,24 @@ final class ModsPage implements App.Page {
         return view;
     }
 
+    /** The mods of the game Play starts: Octo's, or a plain loader's own, for that loader only. */
+    static ModLibrary library(App app) {
+        PlainLoaders.Loader chosen = app.settings().loader();
+        return new ModLibrary(app.settings().playDir(), chosen.plain() ? chosen.key : null);
+    }
+
     @Override
     public void refresh() {
-        ModLibrary library = new ModLibrary(app.settings().gameDir());
+        // A plain loader shows its own mods first; with Octo, every loader's.
+        String plain = app.settings().loader().modrinth();
+
+        if (plain != null && !plain.equals(loader)) {
+            loader = plain;
+            loaderButton.setText(app.settings().loader().label);
+            newSearch();
+        }
+
+        ModLibrary library = library(app);
         app.run(library::list, list -> {
             installed = list;
             installedLoaded = true;
@@ -482,7 +498,7 @@ final class ModsPage implements App.Page {
         button.addActionListener(event -> {
             button.setEnabled(false);
             button.setText("Installing...");
-            ModLibrary library = new ModLibrary(app.settings().gameDir());
+            ModLibrary library = library(app);
             app.run(() -> library.install(project.id(), app.selectedVersion(), file -> { }), done -> {
                 INSTALLED.add(project.id());
                 button.setText("Installed");
@@ -510,7 +526,7 @@ final class ModsPage implements App.Page {
         installedCount.setBorder(BorderFactory.createEmptyBorder(9, 0, 0, 0));
         right.add(installedCount);
         Widgets.Button folder = Widgets.button("Open folder", Icons.Glyph.FOLDER, Widgets.Kind.SECONDARY);
-        folder.addActionListener(event -> open(new ModLibrary(app.settings().gameDir()).folder()));
+        folder.addActionListener(event -> open(library(app).folder()));
         right.add(folder);
         bar.add(right, BorderLayout.EAST);
         tab.add(bar, BorderLayout.NORTH);
@@ -580,7 +596,7 @@ final class ModsPage implements App.Page {
         JPanel actions = Widgets.row(10);
         Widgets.Switch toggle = new Widgets.Switch(mod.enabled());
         toggle.setToolTipText(mod.enabled() ? "Turn off" : "Turn on");
-        toggle.onChange(value -> app.run(() -> new ModLibrary(app.settings().gameDir()).setEnabled(mod, value),
+        toggle.onChange(value -> app.run(() -> library(app).setEnabled(mod, value),
                 changed -> {
                     app.toast((value ? "Turned on " : "Turned off ") + mod.name() + ".", Style.MUTED);
                     refresh();
@@ -595,7 +611,7 @@ final class ModsPage implements App.Page {
                     + " is deleted from the mods folder.", "Remove mod", JOptionPane.OK_CANCEL_OPTION)
                     == JOptionPane.OK_OPTION) {
                 app.run(() -> {
-                    new ModLibrary(app.settings().gameDir()).delete(mod);
+                    library(app).delete(mod);
                     return mod;
                 }, removed -> {
                     app.toast("Removed " + mod.name() + ".", Style.MUTED);
@@ -644,7 +660,7 @@ final class ModsPage implements App.Page {
         }
 
         updateList.revalidate();
-        ModLibrary library = new ModLibrary(app.settings().gameDir());
+        ModLibrary library = library(app);
         app.run(() -> library.updates(app.selectedVersion()), found -> {
             updates = found;
             tabLabels.get("Updates").setText(found.isEmpty() ? "Updates" : "Updates  " + found.size());
@@ -687,7 +703,7 @@ final class ModsPage implements App.Page {
             update.addActionListener(event -> {
                 update.setEnabled(false);
                 update.setText("Updating...");
-                app.run(() -> new ModLibrary(app.settings().gameDir()).update(mod, entry.getValue()), done -> {
+                app.run(() -> library(app).update(mod, entry.getValue()), done -> {
                     app.toast("Updated " + mod.name() + " to " + entry.getValue().number() + ".", Style.GREEN);
                     update.setText("Updated");
                     app.changed();
@@ -711,7 +727,7 @@ final class ModsPage implements App.Page {
 
         Map<Path, Modrinth.Version> todo = Map.copyOf(updates);
         app.run(() -> {
-            ModLibrary library = new ModLibrary(app.settings().gameDir());
+            ModLibrary library = library(app);
             int count = 0;
 
             for (ModLibrary.InstalledMod mod : library.list()) {

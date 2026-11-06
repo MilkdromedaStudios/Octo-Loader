@@ -34,9 +34,20 @@ public final class GameLaunch {
     /** The command line: Java, its options, the main class and the game's arguments. */
     public static List<String> command(Path gameDirectory, VersionProfile profile, Rules.Platform platform,
             Player player, Options options, Path natives) {
+        return command(gameDirectory, gameDirectory, profile, platform, player, options, natives);
+    }
+
+    /**
+     * The command line for a game that plays in a folder of its own: its mods,
+     * settings and worlds in {@code playDirectory}, its libraries, assets and
+     * versions shared in {@code gameDirectory}.
+     */
+    public static List<String> command(Path gameDirectory, Path playDirectory, VersionProfile profile,
+            Rules.Platform platform, Player player, Options options, Path natives) {
         Map<String, Boolean> features = new HashMap<>();
         features.put("has_custom_resolution", options.width() > 0 && options.height() > 0);
         Map<String, String> values = values(gameDirectory, profile, platform, player, options, natives);
+        values.put("game_directory", playDirectory.toAbsolutePath().toString());
         List<String> command = new ArrayList<>();
         command.add(options.java().toString());
 

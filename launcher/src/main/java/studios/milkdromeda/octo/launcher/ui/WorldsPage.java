@@ -60,7 +60,7 @@ final class WorldsPage implements App.Page {
 
     @Override
     public void refresh() {
-        app.run(() -> Worlds.list(app.settings().gameDir()), found -> {
+        app.run(() -> Worlds.list(app.settings().playDir()), found -> {
             worlds = found;
 
             if (selected != null) {

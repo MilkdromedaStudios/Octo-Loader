@@ -46,11 +46,31 @@ public final class LauncherSettings {
     public String jvmArguments = "";
     /** The look: "octo", "dark" (frosted glass) or "light". Octo Client follows it too. */
     public String theme = "octo";
+    /**
+     * How Play starts the game: "octo" (every loader's mods, through Octo), or
+     * plainly as one loader ships it: "vanilla", "fabric", "quilt", "forge" or
+     * "neoforge", in a folder of its own ({@link PlainLoaders}).
+     */
+    public String loader = "octo";
         /** The Microsoft app registration to sign in with, when this build has none of its own. */
     public String microsoftClientId = "";
 
     public Path gameDir() {
         return Path.of(gameDirectory);
+    }
+
+    public PlainLoaders.Loader loader() {
+        return PlainLoaders.Loader.of(loader);
+    }
+
+    /**
+     * The folder the game plays in, where its mods, settings and worlds are:
+     * the game folder with Octo, the loader's own instance for a plain game.
+     */
+    public Path playDir() {
+        PlainLoaders.Loader chosen = loader();
+        return chosen.plain() && !selectedVersion.isBlank()
+                ? PlainLoaders.instance(gameDir(), chosen, selectedVersion) : gameDir();
     }
 
     /** Where Octo keeps the Java it downloads for Minecraft. */
