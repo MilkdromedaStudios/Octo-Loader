@@ -41,6 +41,12 @@ public final class WorldBackups {
     public static final String MISSING_CONTENT = "missing-content";
     public static final String BEFORE_RESTORE = "before-restore";
     public static final String BEFORE_LAUNCH = "before-launch";
+    /** Made as a world opens with mods, so a session that goes wrong can be undone. */
+    public static final String BEFORE_SESSION = "before-session";
+    /** The copy from before a session that did not end cleanly: the world as it last was whole. */
+    public static final String LAST_GOOD = "last-good";
+    /** How many last good copies of a world are kept, apart from the other automatic backups. */
+    public static final int LAST_GOOD_KEPT = 3;
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.ROOT);
     private static final String INFO_ENTRY = "octo-backup.txt";
@@ -266,23 +272,39 @@ public final class WorldBackups {
         return previous;
     }
 
-    /** Removes all but the newest {@code keep} automatic backups; manual ones are the player's to remove. */
+    /**
+     * Removes all but the newest {@code keep} automatic backups; manual ones are
+     * the player's to remove. Last good copies are counted apart, and the newest
+     * {@link #LAST_GOOD_KEPT} of them stay however many sessions come after.
+     */
     public static List<Backup> prune(Path folder, int keep) throws IOException {
         List<Backup> removed = new ArrayList<>();
         int kept = 0;
+        int lastGood = 0;
 
         for (Backup backup : list(folder)) {
             if (!backup.isAutomatic()) {
                 continue;
             }
 
-            if (kept++ >= keep) {
+            boolean remove = backup.reason().equals(LAST_GOOD) ? lastGood++ >= LAST_GOOD_KEPT : kept++ >= keep;
+
+            if (remove) {
                 Files.deleteIfExists(backup.file());
                 removed.add(backup);
             }
         }
 
         return removed;
+    }
+
+    /** The same backup under another reason, as its file is named; it is not copied. */
+    public static Backup relabel(Backup backup, String reason) throws IOException {
+        String name = backup.file().getFileName().toString();
+        String base = name.substring(0, name.length() - ".zip".length());
+        Path renamed = backup.file().resolveSibling(base.substring(0, base.lastIndexOf('_') + 1) + reason + ".zip");
+        Files.move(backup.file(), renamed);
+        return new Backup(renamed, backup.world(), backup.time(), reason, backup.size());
     }
 
     private static boolean isLocked(Path lock) {

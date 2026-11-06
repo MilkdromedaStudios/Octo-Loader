@@ -254,6 +254,8 @@ final class WorldsPage implements App.Page {
             case WorldBackups.MISSING_CONTENT -> "Before opening with mods missing";
             case WorldBackups.BEFORE_RESTORE -> "The world before a restore";
             case WorldBackups.BEFORE_LAUNCH -> "Before a launch";
+            case WorldBackups.BEFORE_SESSION -> "Before playing it";
+            case WorldBackups.LAST_GOOD -> "Last good copy, before a session that crashed";
             case "first-octo-open" -> "Before its first time with Octo";
             default -> reason;
         };

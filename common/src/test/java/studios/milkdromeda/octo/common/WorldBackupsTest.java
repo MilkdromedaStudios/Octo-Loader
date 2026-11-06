@@ -68,6 +68,27 @@ class WorldBackupsTest {
     }
 
     @Test
+    void lastGoodCopiesOutliveTheSessionsAfterThem() throws Exception {
+        Path world = world("w");
+        Path folder = WorldBackups.folderFor(world);
+        WorldBackups.Backup good = WorldBackups.relabel(WorldBackups.create(world, WorldBackups.BEFORE_SESSION),
+                WorldBackups.LAST_GOOD);
+
+        assertEquals(WorldBackups.LAST_GOOD, WorldBackups.list(folder).get(0).reason());
+        assertTrue(java.nio.file.Files.exists(good.file()));
+
+        for (int i = 0; i < 4; i++) {
+            WorldBackups.create(world, WorldBackups.BEFORE_SESSION);
+        }
+
+        WorldBackups.prune(folder, 2);
+        List<WorldBackups.Backup> left = WorldBackups.list(folder);
+
+        assertEquals(3, left.size());
+        assertEquals(1, left.stream().filter(backup -> backup.reason().equals(WorldBackups.LAST_GOOD)).count());
+    }
+
+    @Test
     void aServerWorldsBackupsSitBesideIt() {
         Path world = game.resolve("server/world");
         assertEquals(game.resolve("server/backups/world").toAbsolutePath().normalize(),
