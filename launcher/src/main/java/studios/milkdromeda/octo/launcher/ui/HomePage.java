@@ -36,6 +36,7 @@ import studios.milkdromeda.octo.installer.Mark;
 import studios.milkdromeda.octo.launcher.Launcher;
 import studios.milkdromeda.octo.launcher.News;
 import studios.milkdromeda.octo.launcher.Play;
+import studios.milkdromeda.octo.launcher.PlainLoaders;
 import studios.milkdromeda.octo.launcher.Updates;
 import studios.milkdromeda.octo.launcher.Versions;
 import studios.milkdromeda.octo.launcher.Worlds;
@@ -52,6 +53,8 @@ final class HomePage implements App.Page {
     private final JLabel heroTitle = new JLabel("Minecraft");
     private final Text heroDetail = Widgets.line(" ", Style.font(Font.PLAIN, 14.5f), Style.MUTED);
     private final Widgets.Button versionButton = Widgets.dropdown("Version");
+    /** How the game starts: with Octo, or plainly as one loader ships it. */
+    private final Widgets.Button loaderButton = Widgets.dropdown("With Octo");
     private final Widgets.Button launch = new Widgets.Button("Launch game", Icons.of(Icons.Glyph.PLAY, 18,
             Color.WHITE), Widgets.Kind.PRIMARY, 14);
     private final JPanel news = Widgets.grid(240, 3, 16);
@@ -93,6 +96,9 @@ final class HomePage implements App.Page {
         versionButton.setFont(Style.strong(14f));
         versionButton.setBorder(BorderFactory.createEmptyBorder(15, 18, 15, 16));
         versionButton.addActionListener(event -> chooseVersion());
+        loaderButton.setFont(Style.strong(14f));
+        loaderButton.setBorder(BorderFactory.createEmptyBorder(15, 18, 15, 16));
+        loaderButton.addActionListener(event -> chooseLoader());
 
         for (int i = 0; i < 3; i++) {
             news.add(new Skeleton(176, false));
@@ -120,7 +126,7 @@ final class HomePage implements App.Page {
     @Override
     public void refresh() {
         app.run(() -> new Object[] { Versions.list(app.settings().gameDir(), false),
-                Worlds.list(app.settings().gameDir()), new ModLibrary(app.settings().gameDir()).list() },
+                Worlds.list(app.settings().playDir()), new ModLibrary(app.settings().playDir()).list() },
                 loaded -> {
                     @SuppressWarnings("unchecked")
                     List<Versions.Version> versionList = (List<Versions.Version>) loaded[0];
@@ -171,6 +177,7 @@ final class HomePage implements App.Page {
         JPanel actions = Widgets.flow(12, 10);
         actions.add(launch);
         actions.add(versionButton);
+        actions.add(loaderButton);
         text.add(actions);
         text.add(gap(12));
         text.add(launchHint);
@@ -321,8 +328,40 @@ final class HomePage implements App.Page {
 
     private void showVersion() {
         String version = app.settings().selectedVersion;
-        heroTitle.setText(version.isBlank() ? "Minecraft" : "Minecraft " + version);
+        PlainLoaders.Loader loader = app.settings().loader();
+        heroTitle.setText((version.isBlank() ? "Minecraft" : "Minecraft " + version)
+                + (loader.plain() && loader != PlainLoaders.Loader.VANILLA ? " · " + loader.label : ""));
         versionButton.setText(version.isBlank() ? "Choose version" : version);
+        loaderButton.setText(loader.label);
+    }
+
+    /** With Octo, or plainly: vanilla, or one loader exactly as it ships, in a folder of its own. */
+    private void chooseLoader() {
+        JPopupMenu menu = new JPopupMenu();
+        menu.setBorder(BorderFactory.createLineBorder(Style.LINE));
+
+        for (PlainLoaders.Loader loader : PlainLoaders.Loader.values()) {
+            String detail = switch (loader) {
+                case OCTO -> "Every loader's mods together, through Octo";
+                case VANILLA -> "Plain Minecraft, no mods";
+                default -> loader.label + " only, as it ships, in its own folder";
+            };
+            JMenuItem item = new JMenuItem("<html><b>" + loader.label + "</b>&nbsp;&nbsp;<span style='color:"
+                    + String.format("#%06x", Style.MUTED.getRGB() & 0xffffff) + "'>" + detail + "</span></html>");
+            item.setFont(Style.font(Font.PLAIN, 13f));
+            item.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 24));
+            item.addActionListener(event -> {
+                app.settings().loader = loader.key;
+                app.save();
+                showVersion();
+                showLaunchHint();
+                // Mods and worlds are the chosen loader's own.
+                app.changed();
+            });
+            menu.add(item);
+        }
+
+        menu.show(loaderButton, 0, loaderButton.getHeight() + 6);
     }
 
     private void chooseVersion() {
@@ -336,6 +375,8 @@ final class HomePage implements App.Page {
                 app.settings().selectedVersion = version.id();
                 app.save();
                 showVersion();
+                // A plain loader's mods and worlds are the version's own.
+                app.changed();
             });
             menu.add(item);
         });
@@ -353,13 +394,20 @@ final class HomePage implements App.Page {
             return;
         }
 
+        PlainLoaders.Loader loader = app.settings().loader();
+        String how = switch (loader) {
+            case OCTO -> "with Octo and your mods.";
+            case VANILLA -> "plainly, without mods or Octo, in its own folder.";
+            default -> "with " + loader.label + " alone, without Octo, in its own folder.";
+        };
+
         if (!Play.launchesItself(app.settings())) {
-            launchHint.setText("Opens the Minecraft Launcher with Octo selected. Sign in and play there.");
+            launchHint.setText("Opens the Minecraft Launcher with " + (loader.plain() ? loader.label : "Octo")
+                    + " selected. Sign in and play there.");
         } else if (app.accounts().active() == null) {
             launchHint.setText("Sign in with Microsoft to play. Octo downloads Minecraft and starts it for you.");
         } else {
-            launchHint.setText("Playing as " + app.accounts().active().name() + ". Minecraft starts with Octo and "
-                    + "your mods.");
+            launchHint.setText("Playing as " + app.accounts().active().name() + ". Minecraft starts " + how);
         }
     }
 
@@ -400,9 +448,12 @@ final class HomePage implements App.Page {
                     running = started;
                     progressBar.setVisible(false);
                     launch.setText("Playing");
-                    launchHint.setText(started.withOcto() ? "Minecraft " + started.version() + " is running. Have fun."
-                            : "Minecraft " + started.version() + " is running, without mods: Octo needs 1.13 or "
-                                    + "newer.");
+                    launchHint.setText(started.loader().plain()
+                            ? "Minecraft " + started.version() + " is running with " + started.loader().label
+                                    + ", without Octo. Have fun."
+                            : started.withOcto() ? "Minecraft " + started.version() + " is running. Have fun."
+                                    : "Minecraft " + started.version() + " is running, without mods: Octo needs "
+                                            + "1.13 or newer.");
                     watch(started);
                 }, failure -> {
                     preparing = false;
