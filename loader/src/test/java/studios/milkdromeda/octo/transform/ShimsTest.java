@@ -114,6 +114,39 @@ class ShimsTest {
         }
     }
 
+    /** A level, and an entity in it, as 26.x has them: the server is the level's. */
+    public static final class FakeLevel {
+        public Object getServer() {
+            return "the server";
+        }
+    }
+
+    public static final class FakeEntity {
+        public FakeLevel level() {
+            return new FakeLevel();
+        }
+    }
+
+    /** Formatting codes as the game has them: the sixteen colours first, then the formats. */
+    public enum FakeFormatting { BLACK, DARK_BLUE, DARK_GREEN, DARK_AQUA, DARK_RED, DARK_PURPLE, GOLD, GRAY, DARK_GRAY,
+        BLUE, GREEN, AQUA, RED, LIGHT_PURPLE, YELLOW, WHITE, OBFUSCATED, BOLD, STRIKETHROUGH, UNDERLINE, ITALIC, RESET }
+
+    @Test
+    @DisplayName("ChatFormatting.getById(id) counts the colours, and a negative id is reset")
+    void formattingById() {
+        assertEquals(FakeFormatting.WHITE, Shims.chatFormattingById(15, FakeFormatting.class));
+        assertEquals(FakeFormatting.BLACK, Shims.chatFormattingById(0, FakeFormatting.class));
+        assertEquals(FakeFormatting.RESET, Shims.chatFormattingById(-1, FakeFormatting.class));
+        assertEquals(null, Shims.chatFormattingById(16, FakeFormatting.class), "formats had no colour id");
+    }
+
+    @Test
+    @DisplayName("entity.getServer() is entity.level().getServer()")
+    void anEntitysServerIsItsLevels() {
+        assertEquals("the server", Shims.entityServer(new FakeEntity()));
+        assertEquals(null, Shims.entityServer(null));
+    }
+
     @Test
     @DisplayName("material.humanoidProperties(properties, type) is properties.humanoidArmor(material, type)")
     void armourPropertiesAreMadeByTheProperties() {

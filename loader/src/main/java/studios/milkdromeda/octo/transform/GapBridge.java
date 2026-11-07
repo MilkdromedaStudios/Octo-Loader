@@ -4,6 +4,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -50,6 +51,50 @@ public final class GapBridge {
         }
     }
 
+    /** Static fields to build again once the game exists: the class, and its method that builds the field. */
+    private static final java.util.List<Object[]> DEFERRED = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * As {@link #contain}, for a statement of a client class's static
+     * initialiser that {@link StaticInitGuard} copied: it is run again once the
+     * game has started, since what it needed may only have been missing
+     * because the game was not there yet.
+     */
+    public static void containLater(Throwable thrown, String site, Class<?> owner, String retry) {
+        if (Failures.isFatal(thrown) || !(thrown instanceof RuntimeException || thrown instanceof Error)) {
+            throw GapBridge.<RuntimeException>sneaky(thrown);
+        }
+
+        DEFERRED.add(new Object[] { owner, retry, site });
+        LOG.debug("{} failed before the game started ({}); it is tried again once it has", site,
+                Failures.describe(thrown));
+    }
+
+    /**
+     * Runs again each static field that failed before the game started.
+     * Called once the client is built, before the mods' client setup.
+     */
+    public static void retryDeferred() {
+        List<Object[]> pending = new java.util.ArrayList<>(DEFERRED);
+        DEFERRED.clear();
+
+        for (Object[] entry : pending) {
+            String site = (String) entry[2];
+
+            try {
+                java.lang.reflect.Method method = ((Class<?>) entry[0]).getDeclaredMethod((String) entry[1]);
+                method.setAccessible(true);
+                method.invoke(null);
+                LOG.info("{} was built once the game had started", site);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                contain(e.getCause(), site);
+            } catch (Throwable e) {
+                Failures.rethrowIfFatal(e);
+                contain(e, site);
+            }
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static <T extends Throwable> T sneaky(Throwable thrown) throws T {
         throw (T) thrown;
@@ -70,6 +115,12 @@ public final class GapBridge {
         } catch (Throwable e) {
             Failures.rethrowIfFatal(e);
             LOG.debug("{}.{} could not be read: {}", owner.getName(), name, e.toString());
+
+            if (descriptor.equals("Lnet/minecraft/world/item/ItemStack;")) {
+                // The empty stack, as a call that is not made answers (Nothing).
+                return emptyStack(owner);
+            }
+
             return switch (descriptor.charAt(0)) {
                 case 'Z' -> false;
                 case 'B' -> (byte) 0;
@@ -81,6 +132,16 @@ public final class GapBridge {
                 case 'D' -> 0d;
                 default -> null;
             };
+        }
+    }
+
+    private static Object emptyStack(Class<?> context) {
+        try {
+            return Class.forName("net.minecraft.world.item.ItemStack", true, context.getClassLoader())
+                    .getField("EMPTY").get(null);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            return null;
         }
     }
 

@@ -155,6 +155,20 @@ public final class Shims {
             // config with it, and a null there stopped the screen opening.
             Map.entry("net/minecraft/client/resources/language/LanguageManager.getJavaLocale()Ljava/util/Locale;",
                     "languageJavaLocale"),
+            // ChatFormatting kept only its legacy codes in 26.x; its colours went to
+            // TextColor. Create's railway command read white's at class load, and
+            // a null there kept every Create command from registering.
+            Map.entry("net/minecraft/ChatFormatting.getColor()Ljava/lang/Integer;", "chatFormattingColor"),
+            Map.entry("net/minecraft/ChatFormatting.getById(I)Lnet/minecraft/ChatFormatting;", "chatFormattingById"),
+            // An entity's server, gone from entities in 26.x: its level's. Create
+            // loads its train network and checks advancements through it, and a
+            // null there failed both as every player logged in.
+            Map.entry("net/minecraft/world/entity/Entity.getServer()Lnet/minecraft/server/MinecraftServer;",
+                    "entityServer"),
+            Map.entry("net/minecraft/world/entity/player/Player.getServer()Lnet/minecraft/server/MinecraftServer;",
+                    "entityServer"),
+            Map.entry("net/minecraft/server/level/ServerPlayer.getServer()Lnet/minecraft/server/MinecraftServer;",
+                    "entityServer"),
             // Armour's item properties, made by its material until 1.21.5 and by
             // the properties themselves since. The ArmorItem added back from
             // 1.21.3 builds its item so, and a null there failed every armour
@@ -826,6 +840,42 @@ public final class Shims {
         }
 
         return java.util.Locale.forLanguageTag(text.replace('_', '-'));
+    }
+
+    /** {@code formatting.getColor()}: its {@code TextColor}'s value, or null for a format that is no colour. */
+    public static Object chatFormattingColor(Object formatting) {
+        if (formatting == null) {
+            return null;
+        }
+
+        Class<?> type = formatting.getClass().isEnum() ? formatting.getClass()
+                : formatting.getClass().getSuperclass();
+        Object color = callStatic(game(type, "net.minecraft.network.chat.TextColor"), "fromLegacyFormat",
+                new Class<?>[] { type }, formatting);
+        return color == null ? null : call(color, "getValue");
+    }
+
+    /** {@code ChatFormatting.getById(id)}: the colours were 0 to 15 in their order, and a negative id was reset. */
+    public static Object chatFormattingById(int id, Class<?> owner) {
+        Object[] values = owner.getEnumConstants();
+
+        if (id < 0) {
+            for (Object value : values) {
+                if (((Enum<?>) value).name().equals("RESET")) {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        return id < Math.min(16, values.length) ? values[id] : null;
+    }
+
+    /** {@code entity.getServer()}: {@code entity.level().getServer()}, null on the client as it was. */
+    public static Object entityServer(Object entity) {
+        Object level = entity == null ? null : call(entity, "level");
+        return level == null ? null : call(level, "getServer");
     }
 
     /**

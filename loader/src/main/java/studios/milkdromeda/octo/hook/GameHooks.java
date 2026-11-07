@@ -135,6 +135,10 @@ public final class GameHooks {
         Runnable action = pending;
         pending = null;
 
+        // The mods' static fields that could not be built before the game
+        // existed are built now, before their client setup reads them.
+        studios.milkdromeda.octo.transform.GapBridge.retryDeferred();
+
         try {
             if (action != null) {
                 LOG.debug("dispatching the deferred client phases: {}", reason);
