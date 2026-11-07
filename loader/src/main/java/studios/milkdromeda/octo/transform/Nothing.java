@@ -80,6 +80,12 @@ final class Nothing {
             // 1.8 to 1.12's MinecraftForge.EVENT_BUS, which Forge 66 has no
             // field for: a bus that takes registrations, so the mod goes on.
             case "net/minecraftforge/fml/common/eventhandler/EventBus" -> construct(visitor, type.getInternalName());
+            // An item stack that cannot be had is the empty one, which every mod
+            // checks for, not null, which none does: Create's extendo grip read
+            // the off-hand stack through a renderer 26.x replaced, and the null
+            // failed its client tick every frame.
+            case "net/minecraft/world/item/ItemStack" -> visitor.visitFieldInsn(Opcodes.GETSTATIC,
+                    "net/minecraft/world/item/ItemStack", "EMPTY", "Lnet/minecraft/world/item/ItemStack;");
             // A Fabric API callback that is gone, HudRenderCallback.EVENT on 26.x.
             case "net/fabricmc/fabric/api/event/Event" -> {
                 visitor.visitLdcInsn(Type.getObjectType(owner));
