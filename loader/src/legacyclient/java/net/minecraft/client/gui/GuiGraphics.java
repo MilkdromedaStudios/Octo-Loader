@@ -106,6 +106,102 @@ public class GuiGraphics {
         }
     }
 
+    /**
+     * An item drawn 16 pixels square where an old pose stack puts it, into
+     * the frame being drawn: what mods drew through the item renderer's 3D
+     * pipeline into a screen or the HUD (catnip's {@code GuiGameElement}, the
+     * icon on Create's goggles overlay and in its screens).
+     */
+    /**
+     * A tooltip line's text, as {@code renderText(font, x, y, matrix, buffers)}
+     * drew it before 26.x, drawn into the frame being collected where the
+     * matrix puts it: catnip's and Create's own tooltips.
+     */
+    public static void octo$tooltipText(
+            net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent component, Font font, int x,
+            int y, Matrix4f matrix) {
+        GuiGraphicsExtractor out = current;
+
+        if (out == null || component == null) {
+            return;
+        }
+
+        out.pose().pushMatrix();
+
+        if (matrix != null) {
+            out.pose().mul(new Matrix3x2f(matrix.m00(), matrix.m01(), matrix.m10(), matrix.m11(), matrix.m30(),
+                    matrix.m31()));
+        }
+
+        component.extractText(out, font != null ? font : Minecraft.getInstance().font, x, y);
+        out.pose().popMatrix();
+    }
+
+    public static void octo$item(PoseStack pose, ItemStack stack) {
+        GuiGraphicsExtractor out = current;
+
+        if (out == null || pose == null || stack == null || stack.isEmpty()) {
+            return;
+        }
+
+        Matrix4f m = pose.last().pose();
+        Matrix3x2f at = new Matrix3x2f(m.m00(), m.m01(), m.m10(), m.m11(), m.m30(), m.m31());
+
+        // A pose set up for 3D models has its y turned up (catnip's scale(1, -1, 1));
+        // the flat item the game draws reads down, as the model came out on screen.
+        if (m.m11() < 0) {
+            at.scale(1.0F, -1.0F);
+        }
+
+        ItemStack drawn = stack.copy();
+
+        // Raised above a tooltip, as Create's goggles icon is: 26.x layers by
+        // order, not depth, so it is drawn once what comes after it is.
+        if (m.m32() >= RAISED_Z) {
+            DEFERRED.add(new Deferred(out, at, drawn));
+            return;
+        }
+
+        drawItem(out, at, drawn);
+    }
+
+    /** Depth at and above which an old drawing meant to be over tooltips (drawn at 400). */
+    private static final float RAISED_Z = 400.0F;
+    private static final List<Deferred> DEFERRED = new java.util.ArrayList<>();
+
+    private record Deferred(GuiGraphicsExtractor out, Matrix3x2f at, ItemStack stack) {
+    }
+
+    private static void drawItem(GuiGraphicsExtractor out, Matrix3x2f at, ItemStack stack) {
+        out.pose().pushMatrix();
+        out.pose().mul(at);
+        out.item(stack, 0, 0);
+        out.pose().popMatrix();
+    }
+
+    /** Draws what was raised above the rest, over everything drawn so far into the same frame. */
+    public static void octo$flushRaised() {
+        if (DEFERRED.isEmpty()) {
+            return;
+        }
+
+        GuiGraphicsExtractor out = current;
+        boolean raised = false;
+
+        for (Deferred deferred : DEFERRED) {
+            if (deferred.out() == out) {
+                if (!raised) {
+                    out.nextStratum();
+                    raised = true;
+                }
+
+                drawItem(out, deferred.at(), deferred.stack());
+            }
+        }
+
+        DEFERRED.clear();
+    }
+
     /** Whether this frame's screen background is still to be drawn: the first asking draws it. */
     public boolean octo$firstBackground() {
         if (out == null || backgroundDrawnBy.get() == out) {

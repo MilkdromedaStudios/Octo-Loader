@@ -53,7 +53,8 @@ sourceSets {
 
     legacyClient {
         java.srcDir 'src/legacyclient/java'
-        compileClasspath += files(project(':client').minecraftClasspath) + sourceSets.legacyStubs.output
+        // And the event bus, for the loader events 26.x dropped that mods still fire.
+        compileClasspath += files(project(':client').minecraftClasspath) + sourceSets.legacyStubs.output + sourceSets.main.output
     }
 }
 

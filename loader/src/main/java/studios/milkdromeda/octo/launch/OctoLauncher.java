@@ -394,6 +394,8 @@ public final class OctoLauncher {
             // and what they draw over screens.
             if (context.side() == Side.CLIENT) {
                 classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ScreenEventHooks());
+                // And their HUD layers, drawn after the game's own HUD.
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModHudLayersHook());
             }
 
             // And the models they ask for by name, which their loaders'
@@ -834,12 +836,59 @@ public final class OctoLauncher {
      * version are touched; a current mod calling something absent has a real
      * problem that should be seen.
      */
+    /** The namespaces these mods have item textures under ({@code assets/<namespace>/textures/item/}). */
+    static Set<String> assetNamespaces(List<LoadedMod> mods) {
+        Set<String> out = new LinkedHashSet<>();
+
+        for (LoadedMod mod : mods) {
+            for (Path jar : mod.rootJars()) {
+                if (jar == null || !Files.isRegularFile(jar)) {
+                    continue;
+                }
+
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+                    zip.stream().map(java.util.zip.ZipEntry::getName).forEach(name -> {
+                        int textures = name.indexOf("/textures/item/");
+
+                        if (name.startsWith("assets/") && textures > "assets/".length()
+                                && name.indexOf('/', "assets/".length()) == textures) {
+                            out.add(name.substring("assets/".length(), textures));
+                        }
+                    });
+                } catch (java.io.IOException e) {
+                    LOG.debug("could not list {}'s assets: {}", mod.id(), e.toString());
+                }
+            }
+        }
+
+        return out;
+    }
+
     private void installGameGapBypass(List<LoadedMod> mods, OctoClassLoader classLoader) {
         boolean translated = mods.stream().anyMatch(LoadedMod::isFromAnotherVersion);
 
         // Whatever the mods, and with none: the world guard is what keeps a
         // world whole when the mod set it was saved with is not all there.
         classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.WorldGuardHooks());
+        // The call a block got as an entity's fall stopped on it, gone in 26.x:
+        // Create's millstone and basin take dropped items there. Only a mod
+        // from an older Minecraft overrides it.
+        if (translated) {
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityLandingHook());
+            // Items that say where they are worn, as Equipable and ArmorItem did:
+            // Create's goggles and diving gear. 26.x asks only a component.
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ItemEquipmentHook());
+
+            // Their item textures, which their block models use (Create's
+            // goggles and packages): with the blocks, as before 26.x.
+            if (context.side() == Side.CLIENT) {
+                studios.milkdromeda.octo.bridge.client.ModelAtlases.legacyNamespaces(assetNamespaces(
+                        mods.stream().filter(LoadedMod::isFromAnotherVersion).toList()));
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModelAtlasesHook());
+                // And the items catnip draws into screens and the HUD.
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.LegacyGuiItemsHook());
+            }
+        }
 
         if (!translated && apiLibraries.isEmpty() || !context.compat().stubMissingApi()) {
             return;

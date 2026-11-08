@@ -249,6 +249,10 @@ These sets are part of Octo's own test runs on a 26.3 server. Every mod listed s
 
 On the 26.3 client, Create's world renders with its moving parts drawn by their own renderers.
 
+<p align="center"><img src="docs/screenshots/create-machines.gif" alt="Create's machines running on Minecraft 26.3 through Octo: a large cogwheel driving a press, a millstone, a mixer over a basin and an encased fan" width="100%"></p>
+
+Create's machines work as they do on their own version: the press makes sheets, the millstone grinds, the mixer mixes in its basin, fans wash and smoke items, and drills, saws and pistons run. This was tested with Sodium and Iris on NeoForge.
+
 "Runs" means the mod loads and its content is in the game. A rebuilt mod can still have features that do nothing on a version it was never written for. The [mod report](#the-game-always-starts) lists exactly what was adapted or skipped.
 
 ## Running a server

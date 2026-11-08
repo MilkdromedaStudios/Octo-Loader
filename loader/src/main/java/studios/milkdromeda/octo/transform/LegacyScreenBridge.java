@@ -485,6 +485,8 @@ public final class LegacyScreenBridge implements Transformer {
             }
 
             method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, className, old.oldName(), old.oldDescriptor(), false);
+            // What it raised over the rest (items over its tooltips), drawn last.
+            method.visitMethodInsn(Opcodes.INVOKESTATIC, GG, "octo$flushRaised", "()V", false);
             method.visitInsn(Opcodes.RETURN);
             method.visitMaxs(0, 0);
             method.visitEnd();

@@ -108,6 +108,11 @@ public final class MissingMemberTransformer implements Transformer {
             return null;
         }
 
+        /** The interfaces a class declares, or none when it cannot be seen. */
+        default List<String> interfaces(String owner) {
+            return List.of();
+        }
+
         /** @return whether the method exists, or {@code null} when that cannot be told */
         Boolean hasMethod(String owner, String name, String descriptor);
 
@@ -461,6 +466,51 @@ public final class MissingMemberTransformer implements Transformer {
             }
 
             return Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor)) ? ancestor : null;
+        }
+
+        /**
+         * The game interface a mod's class had a method from, as a default,
+         * when this version's interface dropped it and a shim answers it in
+         * its place. Create's {@code BasinRecipe} calls its own
+         * {@code getRemainingItems(input)}, which it had from {@code Recipe}
+         * until 26.x: the call failed and no basin recipe ever matched.
+         *
+         * @return that interface, or {@code null}
+         */
+        private String interfaceGap(String owner, String name, String descriptor) {
+            if (isGameSide(owner) || owner.startsWith("java/") || owner.charAt(0) == '['
+                    || owner.equals(className) && declared.contains(name + descriptor)
+                    || !Boolean.FALSE.equals(lookup.hasMethod(owner, name, descriptor))) {
+                return null;
+            }
+
+            java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>(List.of(owner));
+            Set<String> seen = new java.util.HashSet<>();
+
+            while (!pending.isEmpty() && seen.size() < 64) {
+                String type = pending.poll();
+
+                if (!seen.add(type)) {
+                    continue;
+                }
+
+                for (String iface : lookup.interfaces(type)) {
+                    if (isGameSide(iface) && (Shims.preferredShimFor(iface, name, descriptor) != null
+                            || Shims.shimFor(iface, name, descriptor) != null)) {
+                        return iface;
+                    }
+
+                    pending.add(iface);
+                }
+
+                String parent = lookup.superName(type);
+
+                if (parent != null && !parent.startsWith("java/")) {
+                    pending.add(parent);
+                }
+            }
+
+            return null;
         }
 
         @Override
@@ -825,6 +875,10 @@ public final class MissingMemberTransformer implements Transformer {
 
                     if (opcode != Opcodes.INVOKESPECIAL && name.charAt(0) != '<') {
                         String inherited = inheritedGap(owner, name, descriptor);
+
+                        if (inherited == null) {
+                            inherited = interfaceGap(owner, name, descriptor);
+                        }
 
                         if (inherited != null) {
                             owner = inherited;
@@ -2309,7 +2363,25 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
+                    // A type with an empty value of its own answers with that,
+                    // not null: ItemStack.EMPTY, FluidStack.EMPTY, the brewing
+                    // table 26.x took away (PotionBrewing.EMPTY). Create's mixer
+                    // read the brewing table to build its potion recipes, and a
+                    // null there stopped every mixer finding any recipe.
+                    if (type.getSort() == Type.OBJECT && !Nothing.isSpecial(type)
+                            && isEmptyConstant(type.getInternalName(), type.getDescriptor())) {
+                        delegate.visitFieldInsn(Opcodes.GETSTATIC, type.getInternalName(), "EMPTY",
+                                type.getDescriptor());
+                        return;
+                    }
+
                     pushDefault(type, owner);
+                }
+
+                private boolean isEmptyConstant(String owner, String descriptor) {
+                    Integer access = lookup.fieldAccess(owner, "EMPTY", descriptor);
+                    int wanted = Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL;
+                    return access != null && (access & wanted) == wanted;
                 }
             };
         }
@@ -2870,6 +2942,12 @@ public final class MissingMemberTransformer implements Transformer {
         public String superName(String owner) {
             MemberIndex.Shape shape = index.shape(owner);
             return shape == null ? null : shape.superName();
+        }
+
+        @Override
+        public List<String> interfaces(String owner) {
+            MemberIndex.Shape shape = index.shape(owner);
+            return shape == null || shape.interfaces() == null ? List.of() : shape.interfaces();
         }
 
         /**
