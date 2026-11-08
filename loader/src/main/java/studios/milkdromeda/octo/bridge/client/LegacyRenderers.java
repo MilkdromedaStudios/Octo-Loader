@@ -67,6 +67,9 @@ public final class LegacyRenderers {
 
         Game game = game(renderer);
         Recording recording = new Recording(game);
+        int depth = depth(poseStack);
+        Object previous = COLLECTOR.get();
+        COLLECTOR.set(collector);
 
         try {
             legacy.octo$render(captured.blockEntity(), captured.partialTick(), poseStack, recording.buffers(),
@@ -79,9 +82,65 @@ public final class LegacyRenderers {
                         renderer.getClass().getName(), Failures.describe(Failures.unwrap(e)));
                 OctoLog.detail(Failures.unwrap(e));
             }
+        } finally {
+            balance(poseStack, depth);
+            COLLECTOR.set(previous);
         }
 
         recording.submit(collector);
+    }
+
+    /** The frame's collector while an old renderer draws: the item renderer Octo carries submits into it. */
+    private static final ThreadLocal<Object> COLLECTOR = new ThreadLocal<>();
+
+    public static Object collector() {
+        return COLLECTOR.get();
+    }
+
+    private static volatile java.lang.reflect.Field lastIndex;
+
+    /** How deep the pose stack is: the index of its last pose, or -1 when that cannot be read. */
+    private static int depth(Object poseStack) {
+        try {
+            java.lang.reflect.Field field = lastIndex;
+
+            if (field == null) {
+                field = poseStack.getClass().getDeclaredField("lastIndex");
+                field.setAccessible(true);
+                lastIndex = field;
+            }
+
+            return field.getInt(poseStack);
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+            return -1;
+        }
+    }
+
+    /**
+     * Pops what an old renderer pushed and left behind. One that failed part
+     * way — Create's basin, reading an item renderer 26.x has not got — left
+     * its pushes on the game's stack, and the frame ended the game with
+     * "Pose stack not empty".
+     */
+    private static void balance(Object poseStack, int depth) {
+        if (depth < 0) {
+            return;
+        }
+
+        try {
+            java.lang.reflect.Method pop = null;
+
+            for (int guard = 0; depth(poseStack) > depth && guard < 64; guard++) {
+                if (pop == null) {
+                    pop = poseStack.getClass().getMethod("popPose");
+                }
+
+                pop.invoke(poseStack);
+            }
+        } catch (Throwable e) {
+            Failures.rethrowIfFatal(e);
+        }
     }
 
     /** An entity renderer's {@code createRenderState()}: the game's plain entity state. */
@@ -113,6 +172,9 @@ public final class LegacyRenderers {
 
         Game game = game(renderer);
         Recording recording = new Recording(game);
+        int depth = depth(poseStack);
+        Object previous = COLLECTOR.get();
+        COLLECTOR.set(collector);
 
         try {
             legacy.octo$renderEntity(captured.blockEntity(), yaw(captured.blockEntity(), captured.partialTick()),
@@ -125,6 +187,9 @@ public final class LegacyRenderers {
                         renderer.getClass().getName(), Failures.describe(Failures.unwrap(e)));
                 OctoLog.detail(Failures.unwrap(e));
             }
+        } finally {
+            balance(poseStack, depth);
+            COLLECTOR.set(previous);
         }
 
         recording.submit(collector);

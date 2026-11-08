@@ -155,6 +155,14 @@ public final class Shims {
             // config with it, and a null there stopped the screen opening.
             Map.entry("net/minecraft/client/resources/language/LanguageManager.getJavaLocale()Ljava/util/Locale;",
                     "languageJavaLocale"),
+            // NeoForge's patch gives the game's fluid model a fluid tint source;
+            // the game's own model has a block tint source. Sodium tints every
+            // fluid with the patched one, and a null drew all water black.
+            Map.entry("net/minecraft/client/renderer/block/FluidModel.fluidTintSource()"
+                    + "Lnet/neoforged/neoforge/client/fluid/FluidTintSource;", "fluidModelTintSource"),
+            // The item renderer, gone in 26.x: Octo carries one that draws the new way.
+            Map.entry("net/minecraft/client/Minecraft.getItemRenderer()"
+                    + "Lnet/minecraft/client/renderer/entity/ItemRenderer;", "minecraftItemRenderer"),
             // ChatFormatting kept only its legacy codes in 26.x; its colours went to
             // TextColor. Create's railway command read white's at class load, and
             // a null there kept every Create command from registering.
@@ -378,7 +386,12 @@ public final class Shims {
             Map.entry(CRAFTING + "CampfireCookingRecipe.<init>" + COOKING_OLD,
                     new String[] { "cookingArguments", COOKING_NEW }),
             Map.entry(CRAFTING + "StonecutterRecipe.<init>(Ljava/lang/String;" + INGREDIENT_D + STACK_D + ")V",
-                    new String[] { "singleItemArguments", "(" + COMMON_D + INGREDIENT_D + TEMPLATE_D + ")V" }));
+                    new String[] { "singleItemArguments", "(" + COMMON_D + INGREDIENT_D + TEMPLATE_D + ")V" }),
+            // An item's particles were made from a stack until 26.x, from an item
+            // or a template now: Create's millstone made them from a null.
+            Map.entry("net/minecraft/core/particles/ItemParticleOption.<init>(Lnet/minecraft/core/particles/ParticleType;"
+                    + STACK_D + ")V", new String[] { "itemParticleArguments",
+                            "(Lnet/minecraft/core/particles/ParticleType;Lnet/minecraft/world/item/Item;)V" }));
 
     /**
      * What every recipe answered until 1.21.2, asked of the game's recipe
@@ -391,6 +404,18 @@ public final class Shims {
     private static Map<String, String> recipeShims() {
         Map<String, String> out = new java.util.HashMap<>();
         String provider = "Lnet/minecraft/core/HolderLookup$Provider;";
+
+        // A level's recipe manager: the server's, as before; on a client, which
+        // keeps no recipes since 1.21.2, the integrated server's or an empty
+        // one, never the client's container cast to what it is not. Create's
+        // millstone looks its recipe up on the client every tick.
+        for (String level : List.of("net/minecraft/world/level/Level", "net/minecraft/server/level/ServerLevel",
+                "net/minecraft/client/multiplayer/ClientLevel")) {
+            for (String name : List.of("getRecipeManager", "recipeAccess")) {
+                out.put(level + "." + name + "()Lnet/minecraft/world/item/crafting/RecipeManager;",
+                        "levelRecipeManager");
+            }
+        }
 
         for (String owner : List.of("Recipe", "CraftingRecipe", "SmithingRecipe", "NormalCraftingRecipe",
                 "ShapedRecipe", "ShapelessRecipe", "CustomRecipe", "SingleItemRecipe", "AbstractCookingRecipe",
@@ -621,6 +646,17 @@ public final class Shims {
                         : staticField(categoryType, "MISC"), group == null ? "" : group);
         return new Object[] { commonInfo(owner, true), book, ingredient, template(owner, result), experience,
                 cookingTime };
+    }
+
+    /** {@code new ItemParticleOption(type, stack)}: the stack's item; stone for an empty one, which has none. */
+    public static Object[] itemParticleArguments(Object type, Object stack, Class<?> owner) {
+        Object item = stack == null || Boolean.TRUE.equals(call(stack, "isEmpty")) ? null : call(stack, "getItem");
+
+        if (item == null) {
+            item = staticField(game(owner, "net.minecraft.world.item.Items"), "STONE");
+        }
+
+        return new Object[] { type, item };
     }
 
     public static Object[] singleItemArguments(Object group, Object ingredient, Object result, Class<?> owner) {
@@ -869,6 +905,25 @@ public final class Shims {
         }
 
         return java.util.Locale.forLanguageTag(text.replace('_', '-'));
+    }
+
+    /** {@code model.fluidTintSource()}: the model's own tint as NeoForge's fluid tint, or none (white). */
+    public static Object fluidModelTintSource(Object model) {
+        Class<?> sources = game(model.getClass(), "net.neoforged.neoforge.client.fluid.FluidTintSources");
+        Object tint = call(model, "tintSource");
+
+        if (tint == null) {
+            return callStatic(sources, "constant", new Class<?>[] { int.class }, -1);
+        }
+
+        return callStatic(sources, "of", new Class<?>[] {
+                game(model.getClass(), "net.minecraft.client.color.block.BlockTintSource") }, tint);
+    }
+
+    /** {@code minecraft.getItemRenderer()}: the item renderer Octo carries for 26.x. */
+    public static Object minecraftItemRenderer(Object minecraft) {
+        return callStatic(game(minecraft.getClass(), "net.minecraft.client.renderer.entity.ItemRenderer"),
+                "octo$instance", new Class<?>[0]);
     }
 
     /** {@code formatting.getColor()}: its {@code TextColor}'s value, or null for a format that is no colour. */
@@ -2081,21 +2136,43 @@ public final class Shims {
     /**
      * {@code level.getRecipeManager()}: the server's recipe manager, which
      * a server level's {@code recipeAccess()} is. A client level has only the
-     * recipes the server sent it, and no manager; that answers null.
+     * recipes the server sent it, and no manager: in a single-player game it
+     * gets the integrated server's, so a mod looking a recipe up on the
+     * client (Create's millstone, every tick) finds it; otherwise none.
      */
     public static Object levelRecipeManager(Object level) {
         Object access = call(level, "recipeAccess");
+        Class<?> managerType = game(level.getClass(), "net.minecraft.world.item.crafting.RecipeManager");
 
-        if (access != null && access.getClass().getName().equals("net.minecraft.world.item.crafting.RecipeManager")) {
+        if (managerType.isInstance(access)) {
             return access;
         }
 
         try {
             Object server = call(level, "getServer");
-            return server == null ? null : call(server, "getRecipeManager");
+
+            if (server != null) {
+                return call(server, "getRecipeManager");
+            }
         } catch (IllegalStateException e) {
-            return null;
+            // A client level has no server of its own.
         }
+
+        try {
+            Object minecraft = callStatic(game(level.getClass(), "net.minecraft.client.Minecraft"), "getInstance",
+                    new Class<?>[0]);
+            Object server = minecraft == null ? null : call(minecraft, "getSingleplayerServer");
+
+            if (server != null) {
+                return call(server, "getRecipeManager");
+            }
+        } catch (RuntimeException e) {
+            // No integrated server to ask.
+        }
+
+        // A client connected to another server keeps no recipe registry to
+        // build even an empty manager on; it has none, as before.
+        return null;
     }
 
     /**
