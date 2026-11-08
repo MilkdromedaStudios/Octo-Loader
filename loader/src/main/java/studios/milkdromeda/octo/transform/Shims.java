@@ -61,6 +61,11 @@ public final class Shims {
     private static final String BUFFER_BUILDER = "com/mojang/blaze3d/vertex/BufferBuilder";
     private static final String RENDER_TYPE_NAME = "net/minecraft/client/renderer/rendertype/RenderType";
     private static final String SPRITE = "net/minecraft/client/renderer/texture/TextureAtlasSprite";
+    private static final String GUI_LAYERS_EVENT = "net/neoforged/neoforge/client/event/RegisterGuiLayersEvent";
+    private static final String TOOLTIP_COMPONENT =
+            "net/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipComponent";
+    private static final String ID = "Lnet/minecraft/resources/Identifier;";
+    private static final String LAYERED_DRAW = "Lnet/minecraft/client/gui/LayeredDraw$Layer;";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
             Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
@@ -99,6 +104,18 @@ public final class Shims {
             Map.entry("net/minecraft/world/item/ItemStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
             Map.entry("net/minecraft/world/item/ItemStack.parse(L" + PROVIDER + ";L" + NBT + "Tag;)Ljava/util/Optional;", "stackParse"),
             Map.entry("net/minecraft/world/item/ItemStack.parseOptional(L" + PROVIDER + ";L" + COMPOUND + ";)Lnet/minecraft/world/item/ItemStack;", "stackParseOptional"),
+            // A tooltip line as mods drew one before 26.x: its height with no
+            // font, and its text through a matrix and a buffer source; now each
+            // takes the font, and text is drawn into the frame being collected.
+            Map.entry(TOOLTIP_COMPONENT + ".getHeight()I", "tooltipHeight"),
+            Map.entry(TOOLTIP_COMPONENT + ".renderText(Lnet/minecraft/client/gui/Font;IILorg/joml/Matrix4f;"
+                    + "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;)V", "tooltipRenderText"),
+            // HUD layers as NeoForge took them before 26.x, drawing on a
+            // GuiGraphics: made layers of this version (Create's goggles overlay).
+            Map.entry(GUI_LAYERS_EVENT + ".registerAbove(" + ID + ID + LAYERED_DRAW + ")V", "guiLayerRegisterAbove"),
+            Map.entry(GUI_LAYERS_EVENT + ".registerBelow(" + ID + ID + LAYERED_DRAW + ")V", "guiLayerRegisterBelow"),
+            Map.entry(GUI_LAYERS_EVENT + ".registerAboveAll(" + ID + LAYERED_DRAW + ")V", "guiLayerRegisterAboveAll"),
+            Map.entry(GUI_LAYERS_EVENT + ".registerBelowAll(" + ID + LAYERED_DRAW + ")V", "guiLayerRegisterBelowAll"),
             Map.entry("net/neoforged/neoforge/fluids/FluidStack.saveOptional(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSaveOptional"),
             Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";)L" + NBT + "Tag;", "stackSave"),
             Map.entry("net/neoforged/neoforge/fluids/FluidStack.save(L" + PROVIDER + ";L" + NBT + "Tag;)L" + NBT + "Tag;", "stackSaveInto"),
@@ -391,7 +408,15 @@ public final class Shims {
             // or a template now: Create's millstone made them from a null.
             Map.entry("net/minecraft/core/particles/ItemParticleOption.<init>(Lnet/minecraft/core/particles/ParticleType;"
                     + STACK_D + ")V", new String[] { "itemParticleArguments",
-                            "(Lnet/minecraft/core/particles/ParticleType;Lnet/minecraft/world/item/Item;)V" }));
+                            "(Lnet/minecraft/core/particles/ParticleType;Lnet/minecraft/world/item/Item;)V" }),
+            // Armour as 1.21.1 made it, from a material in a registry that is
+            // gone and an armour type that was ArmorItem's own: the material if
+            // it is one this version knows, and the same type by name, so the
+            // item knows where it is worn.
+            Map.entry("net/minecraft/world/item/ArmorItem.<init>(Lnet/minecraft/core/Holder;"
+                    + "Lnet/minecraft/world/item/ArmorItem$Type;Lnet/minecraft/world/item/Item$Properties;)V",
+                    new String[] { "armorItemArguments", "(Lnet/minecraft/world/item/equipment/ArmorMaterial;"
+                            + "Lnet/minecraft/world/item/equipment/ArmorType;Lnet/minecraft/world/item/Item$Properties;)V" }));
 
     /**
      * What every recipe answered until 1.21.2, asked of the game's recipe
@@ -657,6 +682,98 @@ public final class Shims {
         }
 
         return new Object[] { type, item };
+    }
+
+    /** {@code component.getHeight()}: its height in the game's font. */
+    public static int tooltipHeight(Object component) {
+        Object font = minecraftFont(component.getClass());
+        return (int) callWith(component, "getHeight",
+                new Class<?>[] { game(component.getClass(), "net.minecraft.client.gui.Font") }, font);
+    }
+
+    /** {@code component.renderText(font, x, y, matrix, buffers)}: drawn into the frame being collected. */
+    public static void tooltipRenderText(Object component, Object font, int x, int y, Object matrix, Object buffers) {
+        Class<?> graphics = game(component.getClass(), "net.minecraft.client.gui.GuiGraphics");
+        Class<?> componentType = game(component.getClass(),
+                "net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent");
+        callStatic(graphics, "octo$tooltipText", new Class<?>[] { componentType,
+                game(component.getClass(), "net.minecraft.client.gui.Font"), int.class, int.class,
+                game(component.getClass(), "org.joml.Matrix4f") }, component, font, x, y, matrix);
+    }
+
+    private static Object minecraftFont(Class<?> context) {
+        Object minecraft = callStatic(game(context, "net.minecraft.client.Minecraft"), "getInstance", new Class<?>[0]);
+
+        try {
+            return minecraft.getClass().getField("font").get(minecraft);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the game has no font", e);
+        }
+    }
+
+    public static void guiLayerRegisterAbove(Object event, Object other, Object id, Object layer) {
+        registerGuiLayer(event, "registerAbove", other, id, layer);
+    }
+
+    public static void guiLayerRegisterBelow(Object event, Object other, Object id, Object layer) {
+        registerGuiLayer(event, "registerBelow", other, id, layer);
+    }
+
+    public static void guiLayerRegisterAboveAll(Object event, Object id, Object layer) {
+        registerGuiLayer(event, "registerAboveAll", null, id, layer);
+    }
+
+    public static void guiLayerRegisterBelowAll(Object event, Object id, Object layer) {
+        registerGuiLayer(event, "registerBelowAll", null, id, layer);
+    }
+
+    /**
+     * {@code event.registerAbove(other, id, layer)} and its kin, for a layer of
+     * before 26.x. A game layer that has since been renamed reaches here as
+     * nothing, or one this version lacks; then the layer goes above or below
+     * all the others, which is near where it was.
+     */
+    private static void registerGuiLayer(Object event, String how, Object other, Object id, Object layer) {
+        Class<?> layerType = game(event.getClass(), "net.neoforged.neoforge.client.gui.GuiLayer");
+        Class<?> identifier = game(event.getClass(), "net.minecraft.resources.Identifier");
+        Object adapted = studios.milkdromeda.octo.bridge.client.ModHudLayers.legacy(layer, layerType);
+        String all = how.startsWith("registerBelow") ? "registerBelowAll" : "registerAboveAll";
+
+        if (other != null && !how.endsWith("All")) {
+            try {
+                callWith(event, how, new Class<?>[] { identifier, identifier, layerType }, other, id, adapted);
+                return;
+            } catch (IllegalArgumentException e) {
+                // Ordered against a layer this version does not have.
+            }
+        }
+
+        callWith(event, all, new Class<?>[] { identifier, layerType }, id, adapted);
+    }
+
+    /** {@code new ArmorItem(materialHolder, type, properties)}: the material, if it is one, and the type by name. */
+    public static Object[] armorItemArguments(Object holder, Object type, Object properties, Class<?> owner) {
+        Class<?> materialType = game(owner, "net.minecraft.world.item.equipment.ArmorMaterial");
+        Object material = null;
+
+        try {
+            Object value = holder == null ? null : call(holder, "value");
+            material = materialType.isInstance(value) ? value : null;
+        } catch (RuntimeException e) {
+            // Its registry is gone, and the holder was never bound.
+        }
+
+        Object armorType = null;
+
+        if (type instanceof Enum<?> old) {
+            for (Object constant : game(owner, "net.minecraft.world.item.equipment.ArmorType").getEnumConstants()) {
+                if (((Enum<?>) constant).name().equals(old.name())) {
+                    armorType = constant;
+                }
+            }
+        }
+
+        return new Object[] { material, armorType, properties };
     }
 
     public static Object[] singleItemArguments(Object group, Object ingredient, Object result, Class<?> owner) {
@@ -967,7 +1084,7 @@ public final class Shims {
      *
      * <p>A material from before 1.21.2 is a registry entry of another shape,
      * which reaches here as nothing. Then the item is made from its properties
-     * alone: it exists, so worlds holding it keep it, and is not worn as armour.
+     * and is worn in its type's slot, without the material's protection.
      */
     public static Object armorHumanoidProperties(Object material, Object properties, Object type) {
         if (properties == null) {
@@ -984,11 +1101,20 @@ public final class Shims {
 
         if (ARMOR_WITHOUT_MATERIAL.compareAndSet(false, true)) {
             studios.milkdromeda.octo.util.OctoLog.of(Shims.class).warn("an armour item's material is from an older "
-                    + "Minecraft and has no counterpart here; such items are made as plain items, so worlds keep "
-                    + "them, and cannot be worn yet");
+                    + "Minecraft and has no counterpart here; such items are worn, but give no protection");
         }
 
-        return properties;
+        Object slot = null;
+
+        try {
+            slot = type == null ? null : call(type, "getSlot");
+        } catch (RuntimeException e) {
+            // Not a type that says where it is worn.
+        }
+
+        return slot instanceof Enum<?> worn
+                ? callWith(properties, "equippable", new Class<?>[] { worn.getDeclaringClass() }, worn)
+                : properties;
     }
 
     private static final java.util.concurrent.atomic.AtomicBoolean ARMOR_WITHOUT_MATERIAL =
@@ -1703,10 +1829,52 @@ public final class Shims {
         return callWith(builder, "of", new Class<?>[] { getter, itemLikes }, itemRegistry(builder), items);
     }
 
+    /**
+     * {@code ItemPredicate.Builder.of(tag)}: the items of the tag. Mods built
+     * advancements as they loaded, before any tag is; until 1.21.2 the
+     * registry handed out the tag to be filled in later, and 26.x throws. The
+     * tag is then taken the way the registry takes one for registration, so it
+     * is filled in with the others when tags load.
+     */
     public static Object itemPredicateOfTag(Object builder, Object tag) {
         Class<?> getter = game(builder.getClass(), "net.minecraft.core.HolderGetter");
         Class<?> tagKey = game(builder.getClass(), "net.minecraft.tags.TagKey");
-        return callWith(builder, "of", new Class<?>[] { getter, tagKey }, itemRegistry(builder), tag);
+
+        try {
+            return callWith(builder, "of", new Class<?>[] { getter, tagKey }, itemRegistry(builder), tag);
+        } catch (IllegalStateException e) {
+            Object named = tagForRegistration(itemRegistry(builder), tag);
+
+            if (named == null) {
+                throw e;
+            }
+
+            try {
+                java.lang.reflect.Field items = builder.getClass().getDeclaredField("items");
+                items.setAccessible(true);
+                items.set(builder, Optional.of(named));
+                return builder;
+            } catch (ReflectiveOperationException | RuntimeException unreachable) {
+                throw e;
+            }
+        }
+    }
+
+    /** The registry's own unbound named set for a tag, bound when tags load; {@code null} if it has none. */
+    private static Object tagForRegistration(Object registry, Object tag) {
+        for (Class<?> type = registry.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Method method = type.getDeclaredMethod("getOrCreateTagForRegistration", tag.getClass());
+                method.setAccessible(true);
+                return method.invoke(registry, tag);
+            } catch (NoSuchMethodException e) {
+                // Further up.
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private static Object itemRegistry(Object context) {
@@ -2170,9 +2338,52 @@ public final class Shims {
             // No integrated server to ask.
         }
 
-        // A client connected to another server keeps no recipe registry to
-        // build even an empty manager on; it has none, as before.
-        return null;
+        // A client connected to another server has no recipes at all: an
+        // empty manager, so a lookup finds nothing rather than failing.
+        return EMPTY_RECIPE_MANAGERS.computeIfAbsent(managerType, ignored -> emptyRecipeManager(managerType));
+    }
+
+    private static final Map<Class<?>, Object> EMPTY_RECIPE_MANAGERS =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /** A recipe manager with no recipes, built over a recipe registry with nothing in it. */
+    static Object emptyRecipeManager(Class<?> managerType) {
+        ClassLoader loader = managerType.getClassLoader();
+        Class<?> provider = game(managerType, "net.minecraft.core.HolderLookup$Provider");
+        Class<?> registryLookup = game(managerType, "net.minecraft.core.HolderLookup$RegistryLookup");
+        Object recipeKey;
+
+        try {
+            recipeKey = game(managerType, "net.minecraft.core.registries.Registries").getField("RECIPE").get(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the game has no recipe registry key", e);
+        }
+
+        Object empty = java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[] { registryLookup },
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "listElements", "listTags", "listElementIds", "listTagIds" -> java.util.stream.Stream.empty();
+                    case "get" -> Optional.empty();
+                    case "key" -> recipeKey;
+                    case "registryLifecycle" -> callStatic(
+                            game(managerType, "com.mojang.serialization.Lifecycle"), "stable", new Class<?>[0]);
+                    case "toString" -> "Octo's empty recipe registry";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == arguments[0];
+                    default -> method.isDefault()
+                            ? java.lang.reflect.InvocationHandler.invokeDefault(proxy, method, arguments) : null;
+                });
+        Object registries = java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[] { provider },
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "lookupOrThrow" -> empty;
+                    case "lookup" -> Optional.of(empty);
+                    case "listRegistryKeys" -> java.util.stream.Stream.of(recipeKey);
+                    case "toString" -> "Octo's empty recipe registries";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == arguments[0];
+                    default -> method.isDefault()
+                            ? java.lang.reflect.InvocationHandler.invokeDefault(proxy, method, arguments) : null;
+                });
+        return construct(managerType, new Class<?>[] { provider }, registries);
     }
 
     /**

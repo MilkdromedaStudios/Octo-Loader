@@ -92,6 +92,15 @@ public final class NeoRegistration {
                         .getConstructor(java.util.Map.class).newInstance(map));
                 LOG.info("{} menu screen(s) registered", ((java.util.Map<?, ?>) map).size());
             });
+
+            // And what they draw over the game: Create's goggles overlay among
+            // them. NeoForge's patched HUD asks for these; the game's does not.
+            step("register the mods' HUD layers", () -> {
+                int added = studios.milkdromeda.octo.bridge.client.ModHudLayers.register(loader,
+                        event -> net.neoforged.fml.ModLoader.postEventWrapContainerInModOrder(
+                                (net.neoforged.bus.api.Event) event));
+                LOG.info("{} HUD layer(s) registered", added);
+            });
         }
 
         LOG.info("NeoForge registration ran: {}", summary(loader));
