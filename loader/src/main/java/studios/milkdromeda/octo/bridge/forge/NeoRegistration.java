@@ -51,6 +51,7 @@ public final class NeoRegistration {
         // first, which this game's freeze refuses.
         if (unfrozen) {
             step("freeze the registries", () -> freezeAll(loader));
+            step("bake the registries", () -> bakeAll(loader));
         }
 
         StateIds.assign(loader);
@@ -193,6 +194,49 @@ public final class NeoRegistration {
         if (failed > 0) {
             LOG.warn("{} registr(ies) stayed unfrozen", failed);
         }
+    }
+
+    /**
+     * Runs each registry's bake callbacks, as NeoForge's patched freeze does.
+     * Mods build their look-up tables from a finished registry there: Create
+     * sorts its fan processing types when its registry is baked, and with
+     * nothing baked no fan washed, smelted, smoked or haunted anything.
+     * The game's own registries are left as they were.
+     */
+    private static void bakeAll(ClassLoader loader) throws Exception {
+        Class<?> base = find(loader, REGISTRIES + "BaseMappedRegistry");
+        Class<?> callback = find(loader, REGISTRIES + "callback.BakeCallback");
+
+        if (base == null || callback == null) {
+            return;
+        }
+
+        java.lang.reflect.Field callbacks = base.getDeclaredField("bakeCallbacks");
+        callbacks.setAccessible(true);
+        java.lang.reflect.Method onBake = callback.getMethod("onBake", find(loader, "net.minecraft.core.Registry"));
+        Object root = find(loader, "net.minecraft.core.registries.BuiltInRegistries").getField("REGISTRY").get(null);
+        int baked = 0;
+
+        for (Object registry : (Iterable<?>) root) {
+            // The game's own registries were never baked here, and Octo gives
+            // block states their ids itself: only the mods' registries are.
+            if (!base.isInstance(registry) || String.valueOf(registry.getClass().getMethod("key").invoke(registry))
+                    .contains("minecraft:root / minecraft:")) {
+                continue;
+            }
+
+            for (Object each : new java.util.ArrayList<>((java.util.List<?>) callbacks.get(registry))) {
+                try {
+                    onBake.invoke(each, registry);
+                    baked++;
+                } catch (Throwable e) {
+                    Failures.rethrowIfFatal(e);
+                    LOG.warn("baking {} failed: {}", registry, Failures.describe(Failures.unwrap(e)));
+                }
+            }
+        }
+
+        LOG.debug("{} registry bake callback(s) run", baked);
     }
 
     private interface Step {

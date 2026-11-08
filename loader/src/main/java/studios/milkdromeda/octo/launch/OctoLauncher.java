@@ -840,6 +840,12 @@ public final class OctoLauncher {
         // Whatever the mods, and with none: the world guard is what keeps a
         // world whole when the mod set it was saved with is not all there.
         classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.WorldGuardHooks());
+        // The call a block got as an entity's fall stopped on it, gone in 26.x:
+        // Create's millstone and basin take dropped items there. Only a mod
+        // from an older Minecraft overrides it.
+        if (translated) {
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityLandingHook());
+        }
 
         if (!translated && apiLibraries.isEmpty() || !context.compat().stubMissingApi()) {
             return;

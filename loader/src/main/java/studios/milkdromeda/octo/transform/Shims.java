@@ -508,8 +508,37 @@ public final class Shims {
         return invoke(oneArgument(recipe.getClass(), "assemble", input), recipe, input);
     }
 
+    /**
+     * {@code recipe.getRemainingItems(input)}: the recipe's own, where it has
+     * one; else what {@code Recipe}'s default answered until 26.x took it
+     * away, each item's crafting remainder in its slot (a bucket for a milk
+     * bucket), and nothing in the others.
+     */
     public static Object recipeRemaining(Object recipe, Object input) {
-        return invoke(oneArgument(recipe.getClass(), "getRemainingItems", input), recipe, input);
+        try {
+            return invoke(oneArgument(recipe.getClass(), "getRemainingItems", input), recipe, input);
+        } catch (IllegalStateException e) {
+            return defaultRemaining(input);
+        }
+    }
+
+    private static Object defaultRemaining(Object input) {
+        int size = (int) call(input, "size");
+        Class<?> stackType = game(input.getClass(), "net.minecraft.world.item.ItemStack");
+        Object empty = staticField(stackType, "EMPTY");
+        Object list = callStatic(game(input.getClass(), "net.minecraft.core.NonNullList"), "withSize",
+                new Class<?>[] { int.class, Object.class }, size, empty);
+
+        for (int i = 0; i < size; i++) {
+            Object stack = callWith(input, "getItem", new Class<?>[] { int.class }, i);
+            Object template = stack == null ? null : call(call(stack, "getItem"), "getCraftingRemainder");
+
+            if (template != null) {
+                callWith(list, "set", new Class<?>[] { int.class, Object.class }, i, call(template, "create"));
+            }
+        }
+
+        return list;
     }
 
     /**
