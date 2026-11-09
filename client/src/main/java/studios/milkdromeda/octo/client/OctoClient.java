@@ -79,6 +79,8 @@ public final class OctoClient implements ClientModInitializer {
 
         waypointKeyWasDown = waypointKeyDown;
         Stats.tick(minecraft);
+        studios.milkdromeda.octo.client.feature.Freelook.tick(minecraft);
+        studios.milkdromeda.octo.client.feature.Gameplay.tick(minecraft);
         Terrain.tick(minecraft);
         Minimap.tick(minecraft);
         Waypoints.tick(minecraft);

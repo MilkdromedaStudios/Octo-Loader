@@ -17,6 +17,12 @@ import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -80,7 +86,11 @@ public final class OctoHud {
 
         if (config.hud) {
             Set<HudModule> modules = Loadout.of(config).modules(config);
-            textPanel(g, minecraft, font, modules, config.hudPanels);
+            int panelBottom = textPanel(g, minecraft, font, modules, config.hudPanels);
+
+            if (modules.contains(HudModule.EFFECTS)) {
+                effects(g, font, player, panelBottom + 4, config.hudPanels);
+            }
 
             if (modules.contains(HudModule.ARMOR)) {
                 int below = armor(g, minecraft, font, player, right, y, config.hudPanels) + 6;
@@ -122,7 +132,8 @@ public final class OctoHud {
 
     // ------------------------------------------------------------ text
 
-    private static void textPanel(GuiGraphicsExtractor g, Minecraft minecraft, Font font, Set<HudModule> modules,
+    /** @return the y below what it drew */
+    private static int textPanel(GuiGraphicsExtractor g, Minecraft minecraft, Font font, Set<HudModule> modules,
             boolean panels) {
         List<String[]> lines = new ArrayList<>();
 
@@ -137,7 +148,7 @@ public final class OctoHud {
         }
 
         if (lines.isEmpty()) {
-            return;
+            return 2;
         }
 
         int labelWidth = 0;
@@ -163,6 +174,55 @@ public final class OctoHud {
             g.text(font, lines.get(i)[0], x + 9, ly, Theme.MUTED, !panels);
             g.text(font, lines.get(i)[1], x + 13 + labelWidth, ly, Theme.TEXT, !panels);
         }
+
+        return y + h;
+    }
+
+    // ---------------------------------------------------------- effects
+
+    /** The player's effects, each with its level and the time it has left; good ones green, bad ones red. */
+    private static void effects(GuiGraphicsExtractor g, Font font, LocalPlayer player, int top, boolean panels) {
+        List<MobEffectInstance> active = new ArrayList<>(player.getActiveEffects());
+
+        if (active.isEmpty()) {
+            return;
+        }
+
+        active.sort((a, b) -> Integer.compare(b.getDuration(), a.getDuration()));
+        List<String[]> lines = new ArrayList<>();
+        int nameWidth = 0;
+        int timeWidth = 0;
+
+        for (MobEffectInstance effect : active) {
+            String name = effect.getEffect().value().getDisplayName().getString()
+                    + (effect.getAmplifier() > 0 ? " " + roman(effect.getAmplifier() + 1) : "");
+            String time = effect.isInfiniteDuration() ? "∞" : duration(effect.getDuration() * 50L);
+            lines.add(new String[] { name, time, effect.getEffect().value().isBeneficial() ? "+" : "-" });
+            nameWidth = Math.max(nameWidth, font.width(name));
+            timeWidth = Math.max(timeWidth, font.width(time));
+        }
+
+        int x = 6;
+        int w = nameWidth + timeWidth + 26;
+        int h = lines.size() * 11 + 9;
+
+        if (panels) {
+            Draw.round(g, x, top, w, h, 6, Theme.alpha(Theme.WINDOW, 170));
+        }
+
+        for (int i = 0; i < lines.size(); i++) {
+            String[] line = lines.get(i);
+            int ly = top + 6 + i * 11;
+            int colour = line[2].equals("+") ? Theme.GREEN : Theme.RED;
+            Draw.round(g, x + 6, ly + 2, 3, 3, 1, colour);
+            g.text(font, line[0], x + 13, ly, Theme.TEXT, !panels);
+            g.text(font, line[1], x + 17 + nameWidth, ly, Theme.MUTED, !panels);
+        }
+    }
+
+    private static String roman(int level) {
+        String[] numerals = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" };
+        return level >= 1 && level <= numerals.length ? numerals[level - 1] : level + "";
     }
 
     /** A module's value now, or {@code null} when it has none here (ping in single player). */
@@ -189,8 +249,64 @@ public final class OctoHud {
                 long used = (runtime.totalMemory() - runtime.freeMemory()) >> 20;
                 yield used + " / " + (runtime.maxMemory() >> 20) + " MB";
             }
+            case LIGHT -> "Block " + player.level().getBrightness(LightLayer.BLOCK, pos) + "  ·  Sky "
+                    + player.level().getBrightness(LightLayer.SKY, pos);
+            case TARGET -> target(minecraft);
+            case CHUNK -> (pos.getX() >> 4) + ", " + (pos.getZ() >> 4) + "  (" + (pos.getX() & 15) + ", "
+                    + (pos.getZ() & 15) + ")";
+            case DAY -> day(player.level().getDefaultClockTime());
+            case SESSION -> duration(Stats.sessionMillis());
+            case FOOD -> player.getFoodData().getFoodLevel() + " / 20  ·  "
+                    + String.format(Locale.ROOT, "%.1f", player.getFoodData().getSaturationLevel()) + " saturation";
+            case ARROWS -> {
+                int arrows = 0;
+
+                for (ItemStack stack : player.getInventory()) {
+                    if (stack.is(ItemTags.ARROWS)) {
+                        arrows += stack.getCount();
+                    }
+                }
+
+                yield arrows + "";
+            }
+            case PLAYERS -> minecraft.getConnection() == null ? null
+                    : minecraft.getConnection().getOnlinePlayers().size() + "";
             default -> null;
         };
+    }
+
+    /** What the crosshair is on: a block's or a creature's name; nothing when it is on neither. */
+    static String target(Minecraft minecraft) {
+        HitResult hit = minecraft.hitResult;
+
+        if (hit instanceof BlockHitResult block && hit.getType() == HitResult.Type.BLOCK) {
+            return minecraft.level.getBlockState(block.getBlockPos()).getBlock().getName().getString();
+        }
+
+        if (hit instanceof EntityHitResult entity) {
+            return entity.getEntity().getName().getString();
+        }
+
+        return null;
+    }
+
+    /** A world's clock ticks as its day, from day 1, and the time of day on a 24-hour clock. */
+    static String day(long ticks) {
+        long day = Math.floorDiv(ticks, 24000L) + 1;
+        // Tick 0 is six in the morning.
+        long ofDay = Math.floorMod(ticks + 6000L, 24000L);
+        long hours = ofDay / 1000L;
+        long minutes = (ofDay % 1000L) * 60L / 1000L;
+        return String.format(Locale.ROOT, "%d  ·  %02d:%02d", day, hours, minutes);
+    }
+
+    /** {@code 1h 05m} or {@code 12m 30s}. */
+    static String duration(long millis) {
+        long seconds = Math.max(0, millis / 1000L);
+        long hours = seconds / 3600L;
+        long minutes = seconds / 60L % 60L;
+        return hours > 0 ? String.format(Locale.ROOT, "%dh %02dm", hours, minutes)
+                : String.format(Locale.ROOT, "%dm %02ds", minutes, seconds % 60L);
     }
 
     static String compass(float yaw) {

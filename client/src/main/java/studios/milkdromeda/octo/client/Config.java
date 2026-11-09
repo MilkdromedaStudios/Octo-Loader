@@ -83,6 +83,24 @@ public final class Config {
     /** The card's size, in percent. */
     public int nowPlayingScale = 100;
 
+    // -------------------------------------------------------- gameplay
+    /** Sprint whenever moving forward, without holding the sprint key. */
+    public boolean toggleSprint = false;
+    /** Everything lit as if by night vision, without the effect. */
+    public boolean fullbright = false;
+    /** Hold a key to look around your character in third person without turning. */
+    public boolean freelook = true;
+    /** Left Alt. */
+    public int freelookKey = 226;
+    /** The view does not jolt when you are hurt. */
+    public boolean noHurtShake = false;
+    /** The flames on screen while burning are lower, out of the way. */
+    public boolean lowFire = false;
+    /** Each chat message with the time it came. */
+    public boolean chatTimestamps = false;
+    /** Where you died, in chat, when you die. */
+    public boolean deathCoordinates = true;
+
     // ----------------------------------------------------- performance
     /** A lower frame rate while the game is not the window in front. */
     public boolean dynamicFps = true;

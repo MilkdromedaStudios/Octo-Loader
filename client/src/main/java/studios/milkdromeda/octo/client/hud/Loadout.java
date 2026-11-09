@@ -12,12 +12,18 @@ public enum Loadout {
     MINIMAL("Minimal", "Just your frame rate.", EnumSet.of(HudModule.FPS)),
     ESSENTIALS("Essentials", "Frame rate, where you are, which way you face, and the time.",
             EnumSet.of(HudModule.FPS, HudModule.COORDINATES, HudModule.DIRECTION, HudModule.CLOCK)),
-    PVP("PvP", "Clicks per second, ping, your armour and the keys you press.",
-            EnumSet.of(HudModule.FPS, HudModule.CPS, HudModule.PING, HudModule.ARMOR, HudModule.KEYSTROKES)),
+    PVP("PvP", "Clicks per second, ping, your armour, effects and the keys you press.",
+            EnumSet.of(HudModule.FPS, HudModule.CPS, HudModule.PING, HudModule.ARMOR, HudModule.KEYSTROKES,
+                    HudModule.EFFECTS)),
     BUILDER("Builder", "Coordinates, facing, biome and the time.",
             EnumSet.of(HudModule.COORDINATES, HudModule.DIRECTION, HudModule.BIOME, HudModule.CLOCK)),
     EXPLORER("Explorer", "Coordinates, facing, biome and how fast you travel.",
             EnumSet.of(HudModule.COORDINATES, HudModule.DIRECTION, HudModule.BIOME, HudModule.SPEED)),
+    SURVIVAL("Survival", "The day, the light where you stand, your food, what you look at, and your effects.",
+            EnumSet.of(HudModule.COORDINATES, HudModule.DAY, HudModule.LIGHT, HudModule.FOOD, HudModule.TARGET,
+                    HudModule.EFFECTS)),
+    SERVER("Server", "Ping, who is online, how long you have played, and the time.",
+            EnumSet.of(HudModule.FPS, HudModule.PING, HudModule.PLAYERS, HudModule.SESSION, HudModule.CLOCK)),
     CUSTOM("Custom", "The modules you choose below.", EnumSet.noneOf(HudModule.class));
 
     public final String title;

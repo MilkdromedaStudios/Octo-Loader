@@ -12,7 +12,16 @@ public enum HudModule {
     CPS("CPS", "Clicks per second, left and right."),
     MEMORY("Memory", "How much memory the game is using."),
     ARMOR("Armour", "Your armour and held item, with how worn they are."),
-    KEYSTROKES("Keystrokes", "The movement keys and mouse buttons you press.");
+    KEYSTROKES("Keystrokes", "The movement keys and mouse buttons you press."),
+    LIGHT("Light", "The light where you stand: from blocks, and from the sky."),
+    TARGET("Looking at", "The block or creature under your crosshair."),
+    CHUNK("Chunk", "The chunk you are in, and where in it."),
+    DAY("Day", "The day in this world, and the time of day there."),
+    SESSION("Session", "How long you have been playing in this world."),
+    FOOD("Food", "Your hunger and saturation, as numbers."),
+    ARROWS("Arrows", "How many arrows you carry."),
+    PLAYERS("Players", "How many players are online."),
+    EFFECTS("Effects", "Your potion effects, with the time each has left.");
 
     public final String title;
     public final String description;
@@ -24,6 +33,6 @@ public enum HudModule {
 
     /** Shown as a line of text in the HUD's panel. */
     public boolean isText() {
-        return this != ARMOR && this != KEYSTROKES;
+        return this != ARMOR && this != KEYSTROKES && this != EFFECTS;
     }
 }
