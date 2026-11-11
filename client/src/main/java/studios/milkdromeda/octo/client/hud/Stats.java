@@ -20,12 +20,24 @@ public final class Stats {
     private Stats() {
     }
 
+    /** When play in the world now open began; 0 out of a world. */
+    private static long sessionStart;
+    private static Object sessionLevel;
+
     public static void tick(Minecraft minecraft) {
         LocalPlayer player = minecraft.player;
 
-        if (player == null) {
+        if (player == null || minecraft.getConnection() == null) {
             hasLast = false;
+            sessionStart = 0;
+            sessionLevel = null;
             return;
+        }
+
+        // A new session with each world or server joined, not with each dimension.
+        if (sessionStart == 0 || sessionLevel != minecraft.getConnection()) {
+            sessionStart = System.currentTimeMillis();
+            sessionLevel = minecraft.getConnection();
         }
 
         if (hasLast) {
@@ -38,6 +50,11 @@ public final class Stats {
         lastX = player.getX();
         lastZ = player.getZ();
         hasLast = true;
+    }
+
+    /** How long the world now open has been played. */
+    public static long sessionMillis() {
+        return sessionStart == 0 ? 0 : System.currentTimeMillis() - sessionStart;
     }
 
     /** Every frame: counts presses of the mouse buttons as they happen. */

@@ -31,13 +31,15 @@ import studios.milkdromeda.octo.client.music.MusicPlayer;
  * a board of panels to drag about.
  */
 public final class OctoMenuScreen extends Screen {
-    private static final String[] CATEGORIES = { "Look", "HUD", "Zoom", "Minimap", "Music", "Performance" };
+    private static final String[] CATEGORIES = { "Look", "HUD", "Zoom", "Minimap", "Music", "Gameplay",
+            "Performance" };
     private static final String[] SUBTITLES = {
             "How the game's menus look and sound.",
             "What the heads-up display shows while you play.",
             "Hold a key to look closer.",
             "A map of what is around you, in the corner.",
             "Your own music in place of Minecraft's.",
+            "Small helps while you play. Each works on any server, single player too.",
             "Frame-rate savers. Each one is safe to switch on or off any time."
     };
     private static final int SIDEBAR = 128;
@@ -221,6 +223,24 @@ public final class OctoMenuScreen extends Screen {
                 }, "Next", music::next));
                 rows.add(new Action("Music folder", () -> MusicPlayer.folder(minecraft).toString(), "Open",
                         () -> MusicPlayer.openFolder(minecraft)));
+            }
+            case 5 -> {
+                rows.add(new Toggle("Toggle sprint", "Sprint whenever you walk forward, without holding the sprint "
+                        + "key.", () -> c.toggleSprint, v -> c.toggleSprint = v));
+                rows.add(new Toggle("Fullbright", "Everything lit as if by night vision: caves and nights as "
+                        + "bright as day.", () -> c.fullbright, v -> c.fullbright = v));
+                rows.add(new Toggle("Freelook", "Hold the freelook key to look around your character without "
+                        + "turning.", () -> c.freelook, v -> c.freelook = v));
+                rows.add(new KeyRow("Freelook key", "The key you hold to look around.", () -> c.freelookKey,
+                        v -> c.freelookKey = v));
+                rows.add(new Toggle("No hurt shake", "The view stays still when you are hurt.",
+                        () -> c.noHurtShake, v -> c.noHurtShake = v));
+                rows.add(new Toggle("Low fire", "The flames on screen while you burn sit lower, out of the way.",
+                        () -> c.lowFire, v -> c.lowFire = v));
+                rows.add(new Toggle("Chat timestamps", "The time each chat message came, before it.",
+                        () -> c.chatTimestamps, v -> c.chatTimestamps = v));
+                rows.add(new Toggle("Death coordinates", "Where you died, said in chat when you die.",
+                        () -> c.deathCoordinates, v -> c.deathCoordinates = v));
             }
             default -> {
                 rows.add(new Toggle("Save power in the background", "A lower frame rate while the game is not "
