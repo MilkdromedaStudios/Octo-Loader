@@ -34,6 +34,11 @@ public final class FinalFieldWrites implements Transformer {
     }
 
     @Override
+    public boolean readsMemberIndex() {
+        return true;
+    }
+
+    @Override
     public String name() {
         return "final-field-writes";
     }

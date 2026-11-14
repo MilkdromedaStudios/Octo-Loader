@@ -424,6 +424,13 @@ public final class OctoLauncher {
         installAccessRules(mods, classLoader);
         installExitCover(classLoader);
 
+        // Anything read about a class while the transformers were still being
+        // installed was read through only some of them: before the access
+        // rules, a widened member still looked as narrow as the game ships it.
+        if (memberIndex != null) {
+            memberIndex.forgetAll();
+        }
+
         // Planned before mixin starts: mixin reads its targets through the class
         // loader, and a mixin config plugin is the first thing in a launch to
         // touch a class that may not be there.
@@ -914,6 +921,7 @@ public final class OctoLauncher {
         }
 
         MemberIndex index = new MemberIndex(classLoader::rawClassBytes);
+        memberIndex = index;
         MixinInterfaces.collect(mods, index);
         gameGaps = MissingMemberTransformer.forTranslatedMods(index,
                 apiLibraries.isEmpty() ? List.of() : LoaderApiLibraries.PACKAGES).withEquivalents(equivalents);
@@ -1003,6 +1011,9 @@ public final class OctoLauncher {
             }
         }
     }
+
+    /** What the game's and the mods' classes declare, as the transformers leave them. */
+    private MemberIndex memberIndex;
 
     /** Which classes translated mods named that moved, collected over the launch. */
     private ClassRelinker relinker;

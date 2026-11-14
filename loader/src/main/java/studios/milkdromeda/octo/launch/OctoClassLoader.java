@@ -2,6 +2,7 @@ package studios.milkdromeda.octo.launch;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.ref.SoftReference;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLClassLoader;
@@ -9,6 +10,9 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.security.cert.Certificate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +26,7 @@ import studios.milkdromeda.octo.mod.ModSource;
 import studios.milkdromeda.octo.rebuild.ClassRestorer;
 import studios.milkdromeda.octo.report.LoadingReport;
 import studios.milkdromeda.octo.runtime.LoadedMod;
+import studios.milkdromeda.octo.transform.MemberIndex;
 import studios.milkdromeda.octo.transform.PhantomClasses;
 import studios.milkdromeda.octo.transform.Probes;
 import studios.milkdromeda.octo.transform.TransformContext;
@@ -73,8 +78,26 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
     /** Loaded from the parent even though they sit under a parent-first prefix. */
     private static final Set<String> PARENT_LAST_EXCEPTIONS = Set.of();
 
-    private final Map<String, TransformPipeline> pipelinesByJar = new HashMap<>();
-    private final Map<String, LoadedMod> modsByJar = new HashMap<>();
+    private final Map<String, TransformPipeline> pipelinesByJar = new ConcurrentHashMap<>();
+    private final Map<String, LoadedMod> modsByJar = Collections.synchronizedMap(new LinkedHashMap<>());
+    /** Which class path entry has which file, so a lookup is not a search of every jar. */
+    private final ClassPathIndex index = new ClassPathIndex();
+    /** The mod and the pipeline of each entry that has one, by the entry itself. */
+    private final Map<ClassPathIndex.Source, LoadedMod> modsBySource = new ConcurrentHashMap<>();
+    private final Map<ClassPathIndex.Source, TransformPipeline> pipelinesBySource = new ConcurrentHashMap<>();
+    /**
+     * Whether a class is on the path, for the names already asked about. The
+     * question is put for every class every translated class mentions, and the
+     * path does not change between two askings; when it does, this is emptied.
+     */
+    private final Map<String, Boolean> existence = new ConcurrentHashMap<>();
+    /**
+     * Classes already through the transformers, waiting to be defined. Mixin
+     * reads a class before the JVM asks for it, and both must be given the same
+     * bytes; kept, the second asking costs nothing and cannot differ from the
+     * first. Softly held, since a class mixin only ever reads is never claimed.
+     */
+    private final Map<String, SoftReference<byte[]>> prepared = new ConcurrentHashMap<>();
     private final Map<String, byte[]> phantomCache = new ConcurrentHashMap<>();
     private final PhantomClasses phantoms;
     private final TransformPipeline gamePipeline;
@@ -96,7 +119,72 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         this.phantoms = phantoms;
         this.compat = compat;
         this.report = report;
+
+        for (URL url : urls) {
+            try {
+                index.add(Path.of(url.toURI()), url);
+            } catch (Exception e) {
+                LOG.debug("{} is searched rather than indexed: {}", url, e.toString());
+                unindexed = true;
+            }
+        }
+
         phantoms.useRealClasses(this::rawClassBytes);
+    }
+
+    /** Set when something on the path could not be indexed, so the path itself is searched for what the index lacks. */
+    private volatile boolean unindexed;
+
+    /** Puts a jar or directory on the class path and in the index. */
+    private void attach(Path path) throws IOException {
+        URL url = path.toUri().toURL();
+        addURL(url);
+        index.add(path, url);
+        pathChanged();
+    }
+
+    /** What was worked out about the path as it stood is no longer known. */
+    private void pathChanged() {
+        existence.clear();
+        prepared.clear();
+    }
+
+    private boolean searchesPath() {
+        return unindexed || index.isIncomplete();
+    }
+
+    @Override
+    public URL findResource(String name) {
+        ClassPathIndex.Source source = index.find(name);
+
+        if (source != null) {
+            URL url = source.resource(name);
+
+            if (url != null) {
+                return url;
+            }
+        }
+
+        return source != null || searchesPath() ? super.findResource(name) : null;
+    }
+
+    @Override
+    public Enumeration<URL> findResources(String name) throws IOException {
+        if (searchesPath()) {
+            return super.findResources(name);
+        }
+
+        List<URL> urls = new ArrayList<>();
+
+        for (ClassPathIndex.Source source : index.findAll(name)) {
+            URL url = source.resource(name);
+
+            if (url != null) {
+                urls.add(url);
+            }
+        }
+
+        return Collections.enumeration(urls);
     }
 
     /** Attaches a mod's jar and the pipeline its classes must pass through. */
@@ -104,17 +192,33 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         Path path = mod.effectivePath().toAbsolutePath().normalize();
 
         try {
-            addURL(path.toUri().toURL());
+            attach(path);
         } catch (IOException e) {
             LOG.error("could not add {} to the class path: {}", path, e.toString());
             return;
         }
 
+        own(path, mod, pipeline);
+    }
+
+    private void own(Path path, LoadedMod mod, TransformPipeline pipeline) {
         String key = key(path);
-        modsByJar.put(key, mod);
+        ClassPathIndex.Source source = index.sourceOf(path);
+
+        if (mod != null) {
+            modsByJar.put(key, mod);
+
+            if (source != null) {
+                modsBySource.put(source, mod);
+            }
+        }
 
         if (!pipeline.isEmpty()) {
             pipelinesByJar.put(key, pipeline);
+
+            if (source != null) {
+                pipelinesBySource.put(source, pipeline);
+            }
         }
     }
 
@@ -140,20 +244,14 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
         Path path = jar.toAbsolutePath().normalize();
 
         try {
-            addURL(path.toUri().toURL());
+            attach(path);
             LOG.debug("added the bundled library {} to the class path", path.getFileName());
         } catch (IOException e) {
             LOG.error("could not add the library {} to the class path: {}", path, e.toString());
             return;
         }
 
-        if (owner != null) {
-            modsByJar.put(key(path), owner);
-        }
-
-        if (!pipeline.isEmpty()) {
-            pipelinesByJar.put(key(path), pipeline);
-        }
+        own(path, owner, pipeline);
     }
 
     /**
@@ -167,6 +265,7 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
      */
     public void addGlobalTransformer(Transformer transformer) {
         globalPipeline = globalPipeline.with(transformer);
+        prepared.clear();
     }
 
     /**
@@ -194,6 +293,7 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
     public void installRestorer(ClassRestorer restorer, Transformer repair) {
         this.restoredRepair = repair;
         this.restorer = restorer;
+        prepared.clear();
     }
 
     @Override
@@ -313,9 +413,8 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
         String path = name.replace('.', '/') + ".class";
-        URL resource = findResource(path);
 
-        if (resource == null) {
+        if (!isOnPath(path)) {
             // A name nothing on the path has can still be a class that really
             // exists: mixin invents one for every inner class it moves into a
             // target, and the only copy of it is inside mixin. Asked for first,
@@ -353,29 +452,31 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
             throw new ClassNotFoundException(name);
         }
 
-        byte[] bytes;
-        URL jar;
+        String internalName = name.replace('.', '/');
+        byte[] ready = claimPrepared(internalName);
+        Located located;
 
         try {
-            URLConnection connection = resource.openConnection();
-
-            try (InputStream in = connection.getInputStream()) {
-                bytes = ModSource.readFully(in);
-            }
-
-            jar = originOf(resource);
+            // Already through the transformers for mixin's benefit: only whose
+            // it is still has to be known, not its bytes again.
+            located = ready != null ? owner(path) : locate(path);
         } catch (IOException e) {
             throw new ClassNotFoundException(name, e);
         }
 
-        String key = jar == null ? null : key(jar);
-        LoadedMod mod = key == null ? null : modsByJar.get(key);
-        TransformPipeline pipeline = key == null ? gamePipeline : pipelinesByJar.getOrDefault(key, gamePipeline);
+        if (located == null) {
+            throw new ClassNotFoundException(name);
+        }
 
-        String internalName = name.replace('.', '/');
-        TransformContext context = TransformContext.of(mod, this::classExists);
-        byte[] transformed = weave(globalPipeline.apply(internalName,
-                pipeline.apply(internalName, bytes, context), context), internalName, context);
+        URL jar = located.origin();
+        TransformContext context = TransformContext.of(located.mod(), this::classExists);
+
+        if (ready == null) {
+            ready = globalPipeline.apply(internalName,
+                    located.pipeline().apply(internalName, located.bytes(), context), context);
+        }
+
+        byte[] transformed = weave(ready, internalName, context);
         planSuperclass(transformed);
 
         definePackageFor(name, jar);
@@ -613,44 +714,120 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
      * @return the class file, or {@code null} when nothing on the path has it
      */
     public byte[] rawClassBytes(String internalName) {
-        String path = internalName + ".class";
-        URL resource = findResource(path);
+        // A class read for its shape alone is read without the transformers
+        // that would ask for shapes in turn, so it is not what gets defined.
+        boolean shapeOnly = MemberIndex.isReading();
 
-        if (resource == null) {
-            ClassLoader parent = getParent();
-            resource = parent == null ? null : parent.getResource(path);
-        }
+        if (!shapeOnly) {
+            SoftReference<byte[]> kept = prepared.get(internalName);
+            byte[] ready = kept == null ? null : kept.get();
 
-        if (resource == null) {
-            byte[] provided = providedBytes(internalName);
-
-            if (provided != null) {
-                return provided;
+            if (ready != null) {
+                return ready;
             }
-
-            byte[] restored = restoredBytes(internalName);
-            return restored != null ? restored : standInBytes(internalName);
         }
 
-        byte[] bytes;
-        URL jar;
+        String path = internalName + ".class";
+        Located located;
 
         try {
-            try (InputStream in = resource.openConnection().getInputStream()) {
-                bytes = ModSource.readFully(in);
-            }
+            located = locate(path);
 
-            jar = originOf(resource);
+            if (located == null) {
+                ClassLoader parent = getParent();
+                URL resource = parent == null ? null : parent.getResource(path);
+
+                if (resource == null) {
+                    byte[] provided = providedBytes(internalName);
+
+                    if (provided != null) {
+                        return provided;
+                    }
+
+                    byte[] restored = restoredBytes(internalName);
+                    return restored != null ? restored : standInBytes(internalName);
+                }
+
+                try (InputStream in = resource.openConnection().getInputStream()) {
+                    located = new Located(ModSource.readFully(in), null, null, gamePipeline);
+                }
+            }
         } catch (IOException e) {
             return null;
         }
 
-        String key = jar == null ? null : key(jar);
-        LoadedMod mod = key == null ? null : modsByJar.get(key);
-        TransformPipeline pipeline = key == null ? gamePipeline : pipelinesByJar.getOrDefault(key, gamePipeline);
+        TransformContext context = TransformContext.of(located.mod(), this::classExists);
+        byte[] transformed = globalPipeline.apply(internalName,
+                located.pipeline().apply(internalName, located.bytes(), context), context);
 
-        TransformContext context = TransformContext.of(mod, this::classExists);
-        return globalPipeline.apply(internalName, pipeline.apply(internalName, bytes, context), context);
+        if (!shapeOnly) {
+            prepared.put(internalName, new SoftReference<>(transformed));
+        }
+
+        return transformed;
+    }
+
+    /** A class file found on this loader's own path, with what it takes to turn it into a class. */
+    private record Located(byte[] bytes, URL origin, LoadedMod mod, TransformPipeline pipeline) {
+    }
+
+    /** Whether this loader's own path has a file, without reading it. */
+    private boolean isOnPath(String path) {
+        return index.find(path) != null || searchesPath() && super.findResource(path) != null;
+    }
+
+    /**
+     * Reads a file from this loader's own path.
+     *
+     * @return the file and whose it is, or {@code null} when nothing on the path has it
+     */
+    private Located locate(String path) throws IOException {
+        ClassPathIndex.Source source = index.find(path);
+
+        if (source != null) {
+            byte[] bytes = source.read(path);
+
+            if (bytes != null) {
+                return new Located(bytes, source.url(), modsBySource.get(source),
+                        pipelinesBySource.getOrDefault(source, gamePipeline));
+            }
+        }
+
+        if (source == null && !searchesPath()) {
+            return null;
+        }
+
+        // Something the index could not list: found the slow way, as before.
+        URL resource = super.findResource(path);
+
+        if (resource == null) {
+            return null;
+        }
+
+        byte[] bytes;
+        URLConnection connection = resource.openConnection();
+
+        try (InputStream in = connection.getInputStream()) {
+            bytes = ModSource.readFully(in);
+        }
+
+        URL jar = originOf(resource);
+        String key = jar == null ? null : key(jar);
+        return new Located(bytes, jar, key == null ? null : modsByJar.get(key),
+                key == null ? gamePipeline : pipelinesByJar.getOrDefault(key, gamePipeline));
+    }
+
+    /** Whose a file on the path is, without reading it where the index knows. */
+    private Located owner(String path) throws IOException {
+        ClassPathIndex.Source source = index.find(path);
+        return source == null ? locate(path) : new Located(null, source.url(), modsBySource.get(source),
+                pipelinesBySource.getOrDefault(source, gamePipeline));
+    }
+
+    /** Takes a class the transformers have already been through, if one is waiting. */
+    private byte[] claimPrepared(String internalName) {
+        SoftReference<byte[]> kept = prepared.remove(internalName);
+        return kept == null ? null : kept.get();
     }
 
     /**
@@ -792,23 +969,35 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
 
     /** Whether a real class of this name can be resolved, without initialising it; a stand-in is not one. */
     public boolean classExists(String internalName) {
-        String binaryName = internalName.replace('/', '.');
+        Boolean known = existence.get(internalName);
+
+        // A class on the path is real and stays there.
+        if (Boolean.TRUE.equals(known)) {
+            return true;
+        }
 
         // A stand-in Octo has defined is not the class: asked again later, the
         // answer has to be the same as before it was made, or a class that
         // moved is relinked to its new name only until the first stand-in for
         // the old one, and a removed field is answered only until then too.
-        if (findLoadedClass(binaryName) != null) {
+        if (findLoadedClass(internalName.replace('/', '.')) != null) {
             return !phantomCache.containsKey(internalName);
         }
 
-        if (findResource(internalName + ".class") != null) {
-            return true;
+        if (known != null) {
+            return false;
         }
 
-        ClassLoader parent = getParent();
-        return parent != null && (parent.getResource(internalName + ".class") != null
-                || parent.getResource(PROVIDED + internalName + ".bin") != null);
+        boolean exists = isOnPath(internalName + ".class");
+
+        if (!exists) {
+            ClassLoader parent = getParent();
+            exists = parent != null && (parent.getResource(internalName + ".class") != null
+                    || parent.getResource(PROVIDED + internalName + ".bin") != null);
+        }
+
+        existence.put(internalName, exists);
+        return exists;
     }
 
     /** Where Octo's jar carries the loader API it provides, as resources so only this loader defines them. */
@@ -864,6 +1053,8 @@ public final class OctoClassLoader extends URLClassLoader implements Probes.Stan
 
     /** The mods attached to this loader, in the order they were added. */
     public Map<String, LoadedMod> mods() {
-        return new LinkedHashMap<>(modsByJar);
+        synchronized (modsByJar) {
+            return new LinkedHashMap<>(modsByJar);
+        }
     }
 }

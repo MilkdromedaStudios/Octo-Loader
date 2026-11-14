@@ -84,8 +84,13 @@ public final class SupertypeFit implements Transformer {
             changed = true;
         }
 
-        for (MethodNode method : node.methods) {
-            changed |= fitCalls(method, formerSuper);
+        // Read only for its shape, the class's supertypes are all that is
+        // wanted of it; its calls are fitted when it is on its way to being
+        // defined, and fitting them asks about every class it calls.
+        if (!MemberIndex.isReading()) {
+            for (MethodNode method : node.methods) {
+                changed |= fitCalls(method, formerSuper);
+            }
         }
 
         if (!changed) {
