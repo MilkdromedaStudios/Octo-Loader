@@ -75,7 +75,7 @@ final class HomePage implements App.Page {
         view.setBorder(BorderFactory.createEmptyBorder(22, 24, 0, 24));
 
         JPanel main = Widgets.stack(0);
-        main.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 4));
+        main.setBorder(BorderFactory.createEmptyBorder(0, 4, 24, 0));
         main.add(hero());
         main.add(gap(30));
         main.add(header("Latest news", "All releases", () -> browse("https://github.com/MilkdromedaStudios/"
@@ -88,7 +88,7 @@ final class HomePage implements App.Page {
 
         JComponent side = Widgets.page(side());
         side.setPreferredSize(new Dimension(300, 10));
-        view.add(side, BorderLayout.EAST);
+        view.add(side, BorderLayout.WEST);
 
         launch.setFont(Style.strong(16f));
         launch.setBorder(BorderFactory.createEmptyBorder(15, 30, 15, 34));
@@ -739,7 +739,7 @@ final class HomePage implements App.Page {
 
     private JComponent side() {
         JPanel side = Widgets.stack(16);
-        side.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 2));
+        side.setBorder(BorderFactory.createEmptyBorder(0, 2, 24, 0));
 
         Widgets.Card worldCard = Widgets.card();
         worldCard.setLayout(new BorderLayout(0, 10));

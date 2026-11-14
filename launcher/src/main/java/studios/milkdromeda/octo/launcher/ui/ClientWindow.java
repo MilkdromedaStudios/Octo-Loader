@@ -129,7 +129,6 @@ public final class ClientWindow implements App {
         root.add(titleBar(), BorderLayout.NORTH);
 
         JPanel body = Widgets.clear(new BorderLayout());
-        body.add(rail(), BorderLayout.WEST);
         pages.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         body.add(pages, BorderLayout.CENTER);
         root.add(body, BorderLayout.CENTER);
@@ -199,18 +198,22 @@ public final class ClientWindow implements App {
                 g.dispose();
             }
         };
-        bar.setPreferredSize(new Dimension(10, 44));
+        bar.setPreferredSize(new Dimension(10, 56));
 
         JPanel brand = Widgets.row(8);
-        brand.setBorder(BorderFactory.createEmptyBorder(9, 18, 0, 0));
+        brand.setBorder(BorderFactory.createEmptyBorder(15, 18, 0, 24));
+        brand.setToolTipText("Octo Launcher " + Launcher.version());
         brand.add(new Mark(24));
         JLabel name = Widgets.text("<html><b>Octo</b> <span style='color:" + Style.hex(Style.FAINT)
                 + "'>Launcher</span></html>", 14f, Font.PLAIN, Style.TEXT);
         brand.add(name);
-        bar.add(brand, BorderLayout.WEST);
+        JPanel left = Widgets.row(0);
+        left.add(brand);
+        left.add(tabs());
+        bar.add(left, BorderLayout.WEST);
 
         JPanel right = Widgets.row(2);
-        right.setBorder(BorderFactory.createEmptyBorder(5, 0, 0, 6));
+        right.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 6));
         updateChip.setVisible(false);
         updateChip.setFont(Style.font(Font.BOLD, 12f));
         updateChip.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
@@ -218,6 +221,10 @@ public final class ClientWindow implements App {
         right.add(updateChip);
         right.add(Box.createHorizontalStrut(10));
         right.add(accountHolder);
+        right.add(Box.createHorizontalStrut(6));
+        RailButton settingsButton = new RailButton("Settings", Icons.Glyph.SETTINGS, true);
+        rail.put("Settings", settingsButton);
+        right.add(settingsButton);
         right.add(Box.createHorizontalStrut(8));
         right.add(windowButton(Icons.Glyph.MINIMIZE, () -> frame.setState(Frame.ICONIFIED), false));
         right.add(windowButton(Icons.Glyph.MAXIMIZE, this::toggleMaximized, false));
@@ -449,58 +456,39 @@ public final class ClientWindow implements App {
 
     // --------------------------------------------------------------- rail
 
-    private JComponent rail() {
-        JPanel column = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics graphics) {
-                Graphics2D g = Style.smooth(graphics);
-                g.setColor(Style.RAIL);
-                g.fillRect(0, 0, getWidth(), getHeight());
-                g.setColor(Style.LINE);
-                g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight());
-                g.dispose();
-            }
-        };
-        column.setLayout(new javax.swing.BoxLayout(column, javax.swing.BoxLayout.Y_AXIS));
-        column.setPreferredSize(new Dimension(84, 10));
-        column.setBorder(BorderFactory.createEmptyBorder(14, 0, 14, 0));
-
+    /** The pages, as tabs along the title bar: icon and name side by side, the open one underlined. */
+    private JComponent tabs() {
+        JPanel row = Widgets.row(2);
+        row.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
         Object[][] items = { { "Home", Icons.Glyph.HOME }, { "Mods", Icons.Glyph.MODS },
                 { "Worlds", Icons.Glyph.WORLDS }, { "Skins", Icons.Glyph.SKIN }, { "Versions", Icons.Glyph.VERSIONS } };
 
         for (Object[] item : items) {
-            RailButton button = new RailButton((String) item[0], (Icons.Glyph) item[1]);
+            RailButton button = new RailButton((String) item[0], (Icons.Glyph) item[1], false);
             rail.put((String) item[0], button);
-            column.add(button);
-            column.add(Box.createVerticalStrut(6));
+            row.add(button);
         }
 
-        column.add(Box.createVerticalGlue());
-        RailButton settingsButton = new RailButton("Settings", Icons.Glyph.SETTINGS);
-        rail.put("Settings", settingsButton);
-        column.add(settingsButton);
-        column.add(Box.createVerticalStrut(8));
-        JLabel version = Widgets.text("v" + Launcher.version(), 10.5f, Font.PLAIN,
-                Style.FAINT);
-        version.setAlignmentX(Component.CENTER_ALIGNMENT);
-        version.setToolTipText(Launcher.build());
-        column.add(version);
-        return column;
+        return row;
     }
 
-    /** An icon and its name, lit when its page is showing. */
+    /** A tab: its icon and name in a row, lit and underlined when its page is showing; or a lone icon. */
     private final class RailButton extends JComponent {
         private final String name;
         private final Icons.Glyph glyph;
+        private final boolean iconOnly;
         private boolean hover;
         private boolean selected;
 
-        RailButton(String name, Icons.Glyph glyph) {
+        RailButton(String name, Icons.Glyph glyph, boolean iconOnly) {
             this.name = name;
             this.glyph = glyph;
-            setPreferredSize(new Dimension(84, 62));
-            setMaximumSize(new Dimension(84, 62));
-            setAlignmentX(Component.CENTER_ALIGNMENT);
+            this.iconOnly = iconOnly;
+            int width = iconOnly ? 36 : 30 + getFontMetrics(Style.font(Font.BOLD, 13f)).stringWidth(name) + 18;
+            Dimension size = new Dimension(width, iconOnly ? 36 : 48);
+            setPreferredSize(size);
+            setMaximumSize(size);
+            setToolTipText(iconOnly ? name : null);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             addMouseListener(new MouseAdapter() {
                 @Override
@@ -530,25 +518,35 @@ public final class ClientWindow implements App {
         @Override
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = Style.smooth(graphics);
-            int boxX = 14;
-            int boxW = getWidth() - 28;
+            Color colour = selected || hover ? Style.TEXT : Style.MUTED;
 
-            if (selected) {
-                g.setColor(Style.alpha(Style.VIOLET, 40));
-                g.fillRoundRect(boxX, 2, boxW, 58, 14, 14);
-                g.setPaint(new GradientPaint(0, 12, Style.VIOLET, 0, 50, Style.CYAN));
-                g.fillRoundRect(0, 14, 4, 34, 4, 4);
-            } else if (hover) {
-                g.setColor(Style.HOVER);
-                g.fillRoundRect(boxX, 2, boxW, 58, 14, 14);
+            if (iconOnly) {
+                if (selected || hover) {
+                    g.setColor(selected ? Style.alpha(Style.VIOLET, 50) : Style.HOVER);
+                    g.fillOval(0, 0, getWidth(), getHeight());
+                }
+
+                Icons.of(glyph, 18, colour).paintIcon(this, g, (getWidth() - 18) / 2, (getHeight() - 18) / 2);
+                g.dispose();
+                return;
             }
 
-            Color colour = selected ? Style.TEXT : hover ? Style.TEXT : Style.MUTED;
-            Icons.of(glyph, 22, colour).paintIcon(this, g, (getWidth() - 22) / 2, 10);
-            g.setFont(Style.font(Font.BOLD, 10.5f));
+            if (hover && !selected) {
+                g.setColor(Style.HOVER);
+                g.fillRoundRect(2, 4, getWidth() - 4, 32, 10, 10);
+            }
+
+            Icons.of(glyph, 16, colour).paintIcon(this, g, 12, 12);
+            g.setFont(Style.font(Font.BOLD, 13f));
             g.setColor(colour);
-            int width = g.getFontMetrics().stringWidth(name);
-            g.drawString(name, (getWidth() - width) / 2, 50);
+            g.drawString(name, 34, 25);
+
+            if (selected) {
+                // The open tab sits on a gradient bar on the title bar's lower edge.
+                g.setPaint(new GradientPaint(8, 0, Style.VIOLET, getWidth() - 8, 0, Style.CYAN));
+                g.fillRoundRect(8, getHeight() - 3, getWidth() - 16, 3, 3, 3);
+            }
+
             g.dispose();
         }
     }
