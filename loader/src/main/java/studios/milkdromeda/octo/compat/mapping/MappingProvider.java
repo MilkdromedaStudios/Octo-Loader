@@ -95,7 +95,7 @@ public final class MappingProvider {
      */
     public Optional<MappingSet> toCurrent(MappingNamespace namespace, String version) {
         String release = version == null || version.isBlank() ? LATEST_INTERMEDIARY : version;
-        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY + "-v2";
+        String key = namespace + "-" + release + "-to-mojang-" + LATEST_INTERMEDIARY + "-v3";
         return composed.computeIfAbsent(key, ignored -> compose(namespace, release, key));
     }
 
@@ -451,23 +451,53 @@ public final class MappingProvider {
             }
         });
 
+        // What intermediary carries to the newest release is named as that
+        // release names it. What it lost on the way is named as the mod's own
+        // release named it, which is where the comparison of the jars picks
+        // it up: Entity.level() was given a new number in 1.21.9, and left
+        // under its SRG name, every call to it from a 1.20.1 mod was a call
+        // to nothing.
+        Map<String, String> methodsCarried = new HashMap<>();
+        Map<String, String> methodsLeft = new HashMap<>();
+
         srg.get().methods.forEach((key, srgName) -> {
+            if (!MappingSet.isUniqueMemberName(srgName)) {
+                return;
+            }
+
             String id = ids.methods.get(key);
             String now = id == null ? null : methodIds.get(id);
 
-            if (now != null && MappingSet.isUniqueMemberName(srgName)) {
-                builder.mapMethodGlobally(srgName, now);
+            if (now != null) {
+                methodsCarried.put(srgName, now);
+            } else if (official.get().methods.get(key) != null) {
+                methodsLeft.putIfAbsent(srgName, official.get().methods.get(key));
             }
         });
 
+        methodsLeft.forEach(methodsCarried::putIfAbsent);
+        methodsCarried.forEach(builder::mapMethodGlobally);
+
+        Map<String, String> fieldsCarried = new HashMap<>();
+        Map<String, String> fieldsLeft = new HashMap<>();
+
         srg.get().fields.forEach((key, srgName) -> {
+            if (!MappingSet.isUniqueMemberName(srgName)) {
+                return;
+            }
+
             String id = ids.fields.get(key);
             String now = id == null ? null : fieldIds.get(id);
 
-            if (now != null && MappingSet.isUniqueMemberName(srgName)) {
-                builder.mapFieldGlobally(srgName, now);
+            if (now != null) {
+                fieldsCarried.put(srgName, now);
+            } else if (official.get().fields.get(key) != null) {
+                fieldsLeft.putIfAbsent(srgName, official.get().fields.get(key));
             }
         });
+
+        fieldsLeft.forEach(fieldsCarried::putIfAbsent);
+        fieldsCarried.forEach(builder::mapFieldGlobally);
 
         return Optional.of(builder.build());
     }
