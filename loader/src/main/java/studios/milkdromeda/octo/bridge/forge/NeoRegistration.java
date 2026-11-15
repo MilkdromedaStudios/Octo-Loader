@@ -44,6 +44,8 @@ public final class NeoRegistration {
                 "postNewRegistryEvent"));
         boolean unfrozen = step("unfreeze the registries", () -> call(gameData, "unfreezeData"));
         step("register the mods' content", () -> call(gameData, "postRegisterEvents"));
+        // Forge mods' content too, while the registries are open.
+        step("register Forge mods' content", () -> ForgeRegistration.fill(loader));
         studios.milkdromeda.octo.bridge.RegistrationContext.clear();
 
         // Frozen the way the game's bootstrap freezes them, not the way

@@ -165,6 +165,43 @@ public final class ClassRestorer {
         return null;
     }
 
+    /**
+     * The superclass a class would have if it were added back, without adding
+     * it back: asked ahead of time, so that a superclass the game has since
+     * made final can be opened before the game loads it.
+     *
+     * @return its internal name, or {@code null} when no release has the class
+     */
+    public String superclassOf(String internalName) {
+        if (!isGameClass(internalName) || (server && isClientClass(internalName)) || absent.contains(internalName)) {
+            return null;
+        }
+
+        for (String release : releases) {
+            try {
+                Path cached = cachedCopy(release, internalName);
+                byte[] bytes = Files.isRegularFile(cached) ? Files.readAllBytes(cached) : null;
+
+                if (bytes == null) {
+                    Source source = sources.computeIfAbsent(release, this::open).orElse(null);
+                    bytes = source == null ? null : source.restore(internalName);
+
+                    if (bytes != null) {
+                        write(cached, bytes);
+                    }
+                }
+
+                if (bytes != null) {
+                    return new ClassReader(bytes).getSuperName();
+                }
+            } catch (IOException | RuntimeException e) {
+                LOG.debug("could not read ahead for {}: {}", internalName, e.toString());
+            }
+        }
+
+        return null;
+    }
+
     private void found(String internalName, String release, boolean fromCache, byte[] bytes) {
         if (restored.add(internalName.replace('/', '.') + " (from " + release + ")")) {
             LOG.info("added back {} from Minecraft {}{}", internalName.replace('/', '.'), release,

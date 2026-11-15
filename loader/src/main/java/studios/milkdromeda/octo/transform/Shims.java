@@ -68,6 +68,18 @@ public final class Shims {
     private static final String LAYERED_DRAW = "Lnet/minecraft/client/gui/LayeredDraw$Layer;";
 
     private static final Map<String, String> SHIMS = Map.ofEntries(
+            // A Forge mod handing a DeferredRegister its bus: Forge 66 takes a
+            // bus group instead, and Octo fills the register itself.
+            Map.entry("net/minecraftforge/registries/DeferredRegister.register(Lnet/minecraftforge/eventbus/api/"
+                    + "IEventBus;)V", "forgeDeferredRegister"),
+            // An entity's synced data, defined on the data itself until 1.20.5.
+            Map.entry("net/minecraft/network/syncher/SynchedEntityData.define(Lnet/minecraft/network/syncher/"
+                    + "EntityDataAccessor;Ljava/lang/Object;)V", "entityDataDefine"),
+            // An effect's attribute modifier, named by a UUID's text and given
+            // the attribute itself until 1.20.5; by an id, and its holder, since.
+            Map.entry("net/minecraft/world/effect/MobEffect.addAttributeModifier(Lnet/minecraft/world/entity/ai/"
+                    + "attributes/Attribute;Ljava/lang/String;DLnet/minecraft/world/entity/ai/attributes/"
+                    + "AttributeModifier$Operation;)Lnet/minecraft/world/effect/MobEffect;", "effectAttributeModifier"),
             Map.entry("com/mojang/serialization/DataResult.get()Lcom/mojang/datafixers/util/Either;", "dataResultGet"),
             Map.entry("com/mojang/serialization/DataResult.getOrThrow(ZLjava/util/function/Consumer;)Ljava/lang/Object;",
                     "dataResultGetOrThrow"),
@@ -370,6 +382,10 @@ public final class Shims {
     }
 
     /** @return the shim's name for this member, or {@code null} when there is none */
+    private static final String ITEM = "net/minecraft/world/item/";
+    private static final String TIER_D = "L" + ITEM + "Tier;";
+    private static final String ITEM_PROPERTIES_D = "L" + ITEM + "Item$Properties;";
+    private static final String TOOL_NEW = "(L" + ITEM + "ToolMaterial;FF" + ITEM_PROPERTIES_D + ")V";
     private static final String STACK_D = "Lnet/minecraft/world/item/ItemStack;";
     private static final String INGREDIENT_D = "L" + CRAFTING + "Ingredient;";
     private static final String COMMON_D = "L" + CRAFTING + "Recipe$CommonInfo;";
@@ -388,6 +404,22 @@ public final class Shims {
      * Each entry is the converter, then the constructor it feeds.
      */
     private static final Map<String, String[]> CONVERSIONS = Map.ofEntries(
+            // Tools as mods built them from a tier until 1.21.2: 26.x's take a
+            // material, which the tier is made into.
+            Map.entry(ITEM + "AxeItem.<init>(" + TIER_D + "FF" + ITEM_PROPERTIES_D + ")V",
+                    new String[] { "toolArguments", TOOL_NEW }),
+            Map.entry(ITEM + "AxeItem.<init>(" + TIER_D + "IF" + ITEM_PROPERTIES_D + ")V",
+                    new String[] { "toolArgumentsWhole", TOOL_NEW }),
+            Map.entry(ITEM + "ShovelItem.<init>(" + TIER_D + "FF" + ITEM_PROPERTIES_D + ")V",
+                    new String[] { "toolArguments", TOOL_NEW }),
+            Map.entry(ITEM + "HoeItem.<init>(" + TIER_D + "IF" + ITEM_PROPERTIES_D + ")V",
+                    new String[] { "toolArgumentsWhole", TOOL_NEW }),
+            // Forge's stairs took the block they are cut from as a supplier of
+            // its state; the game's take the state.
+            Map.entry("net/minecraft/world/level/block/StairBlock.<init>(Ljava/util/function/Supplier;"
+                    + "Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)V",
+                    new String[] { "stairArguments", "(Lnet/minecraft/world/level/block/state/BlockState;"
+                            + "Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)V" }),
             Map.entry(CRAFTING + "ShapedRecipe.<init>(Ljava/lang/String;L" + CRAFTING + "CraftingBookCategory;L"
                     + CRAFTING + "ShapedRecipePattern;" + STACK_D + "Z)V", new String[] { "shapedArguments",
                             "(" + COMMON_D + CRAFTING_BOOK_D + "L" + CRAFTING + "ShapedRecipePattern;" + TEMPLATE_D + ")V" }),
@@ -459,6 +491,228 @@ public final class Shims {
         }
 
         return Map.copyOf(out);
+    }
+
+    /** {@code entityData.define(key, value)}, from an entity's old {@code defineSynchedData()}. */
+    public static void entityDataDefine(Object entityData, Object key, Object value) {
+        studios.milkdromeda.octo.bridge.EntityData.define(entityData, key, value);
+    }
+
+    /** {@code deferredRegister.register(modEventBus)}: kept, and filled when registration runs. */
+    public static void forgeDeferredRegister(Object register, Object bus) {
+        studios.milkdromeda.octo.bridge.forge.ForgeRegistration.attach(register, bus);
+    }
+
+    public static Object forgeRegistryFeatures(Class<?> owner) {
+        return forgeRegistryView(owner, "FEATURE");
+    }
+
+    public static Object forgeRegistryCarvers(Class<?> owner) {
+        return forgeRegistryView(owner, "CARVER");
+    }
+
+    public static Object forgeRegistrySchedules(Class<?> owner) {
+        return forgeRegistryView(owner, "SCHEDULE");
+    }
+
+    /**
+     * One of the game's registries, seen as Forge's {@code IForgeRegistry}:
+     * which registry it is, and what is in it, read from the game's own.
+     */
+    private static Object forgeRegistryView(Class<?> owner, String name) {
+        try {
+            ClassLoader loader = owner.getClassLoader();
+            Class<?> view = Class.forName("net.minecraftforge.registries.IForgeRegistry", true, loader);
+            Class<?> registryType = Class.forName("net.minecraft.core.Registry", true, loader);
+            Object foundKey;
+            Object foundRegistry;
+
+            try {
+                foundKey = Class.forName("net.minecraft.core.registries.Registries", true, loader).getField(name)
+                        .get(null);
+                foundRegistry = Class.forName("net.minecraft.core.registries.BuiltInRegistries", true, loader)
+                        .getField(name).get(null);
+            } catch (NoSuchFieldException e) {
+                // The game no longer keeps such a registry: features are
+                // registered as codecs since 1.21.9, not as themselves. The
+                // view names a registry of its own that nothing fills, so
+                // what the mod registers is still made and handed back to it.
+                Class<?> identifier = Class.forName("net.minecraft.resources.Identifier", true, loader);
+                foundKey = Class.forName("net.minecraft.resources.ResourceKey", true, loader)
+                        .getMethod("createRegistryKey", identifier).invoke(null,
+                                identifier.getMethod("fromNamespaceAndPath", String.class, String.class).invoke(null,
+                                        "forge", "legacy_" + name.toLowerCase(java.util.Locale.ROOT)));
+                foundRegistry = List.of();
+            }
+
+            Object key = foundKey;
+            Object registry = foundRegistry;
+
+            return java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[] { view }, (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "getRegistryKey":
+                        return key;
+                    case "getRegistryName":
+                        return key.getClass().getMethod("identifier").invoke(key);
+                    case "iterator":
+                        return ((Iterable<?>) registry).iterator();
+                    case "getValues":
+                        java.util.List<Object> values = new ArrayList<>();
+                        ((Iterable<?>) registry).forEach(values::add);
+                        return values;
+                    case "getKeys":
+                        return registryType.isInstance(registry) ? registryType.getMethod("keySet").invoke(registry)
+                                : java.util.Set.of();
+                    case "hashCode":
+                        return System.identityHashCode(proxy);
+                    case "equals":
+                        return proxy == args[0];
+                    case "toString":
+                        return "Forge's view of " + key;
+                    default:
+                        break;
+                }
+
+                // Anything else the game's registry answers under the same name.
+                for (Method candidate : registryType.isInstance(registry) ? registryType.getMethods() : new Method[0]) {
+                    if (candidate.getName().equals(method.getName())
+                            && candidate.getParameterCount() == method.getParameterCount()) {
+                        try {
+                            return candidate.invoke(registry, args);
+                        } catch (IllegalArgumentException e) {
+                            // Another overload's turn.
+                        }
+                    }
+                }
+
+                if (method.isDefault()) {
+                    return java.lang.reflect.InvocationHandler.invokeDefault(proxy, method, args);
+                }
+
+                throw new UnsupportedOperationException("Forge's " + method.getName() + " on " + key
+                        + " is not available under Octo");
+            });
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalStateException("the game's " + name + " registry could not be shown as Forge's", e);
+        }
+    }
+
+    private static final Map<Object, Object> TOOL_MATERIALS = java.util.Collections.synchronizedMap(
+            new java.util.IdentityHashMap<>());
+
+    /**
+     * A tool tier as mods declared one until 1.21.2, made into the material
+     * 26.x's tools are built from: its durability, speed, damage bonus and
+     * enchantability carried over, what it cannot mine taken from its level.
+     * What repaired it was an ingredient and is a tag now, which a mod from
+     * then has none for, so nothing repairs it.
+     */
+    public static Object toolMaterial(Object tier) {
+        if (tier == null) {
+            return null;
+        }
+
+        Object made = TOOL_MATERIALS.get(tier);
+
+        if (made != null) {
+            return made;
+        }
+
+        try {
+            ClassLoader loader = tier.getClass().getClassLoader();
+            Class<?> material = Class.forName("net.minecraft.world.item.ToolMaterial", true, loader);
+
+            if (material.isInstance(tier)) {
+                return tier;
+            }
+
+            int level = 2;
+
+            try {
+                Method getLevel = tier.getClass().getMethod("getLevel");
+                getLevel.setAccessible(true);
+                level = ((Number) getLevel.invoke(tier)).intValue();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // A tier from 1.20.5 on has no level; iron's is the middle.
+            }
+
+            String[] incorrect = { "INCORRECT_FOR_WOODEN_TOOL", "INCORRECT_FOR_STONE_TOOL", "INCORRECT_FOR_IRON_TOOL",
+                    "INCORRECT_FOR_DIAMOND_TOOL", "INCORRECT_FOR_NETHERITE_TOOL" };
+            Object blocks = staticField(Class.forName("net.minecraft.tags.BlockTags", true, loader),
+                    incorrect[Math.max(0, Math.min(level, incorrect.length - 1))]);
+            Class<?> tagKey = Class.forName("net.minecraft.tags.TagKey", true, loader);
+            Class<?> resourceKey = Class.forName("net.minecraft.resources.ResourceKey", true, loader);
+            Class<?> identifier = Class.forName("net.minecraft.resources.Identifier", true, loader);
+            Object itemRegistry = staticField(Class.forName("net.minecraft.core.registries.Registries", true, loader),
+                    "ITEM");
+            Object nothing = tagKey.getMethod("create", resourceKey, identifier).invoke(null, itemRegistry,
+                    identifier.getMethod("fromNamespaceAndPath", String.class, String.class)
+                            .invoke(null, "octoloader", "repairs_nothing"));
+            made = material.getConstructor(tagKey, int.class, float.class, float.class, int.class, tagKey)
+                    .newInstance(blocks, tierNumber(tier, "getUses").intValue(),
+                            tierNumber(tier, "getSpeed").floatValue(),
+                            tierNumber(tier, "getAttackDamageBonus").floatValue(),
+                            tierNumber(tier, "getEnchantmentValue").intValue(), nothing);
+            TOOL_MATERIALS.put(tier, made);
+            return made;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalStateException("the tool tier " + tier + " could not be made a tool material", e);
+        }
+    }
+
+    private static Number tierNumber(Object tier, String name) throws ReflectiveOperationException {
+        Method method = tier.getClass().getMethod(name);
+        method.setAccessible(true);
+        return (Number) method.invoke(tier);
+    }
+
+    public static Object[] toolArguments(Object tier, float attackDamage, float attackSpeed, Object properties,
+            Class<?> owner) {
+        return new Object[] { toolMaterial(tier), attackDamage, attackSpeed, properties };
+    }
+
+    public static Object[] toolArgumentsWhole(Object tier, int attackDamage, float attackSpeed, Object properties,
+            Class<?> owner) {
+        return new Object[] { toolMaterial(tier), (float) attackDamage, attackSpeed, properties };
+    }
+
+    public static Object[] stairArguments(Object state, Object properties, Class<?> owner) {
+        return new Object[] { ((Supplier<?>) state).get(), properties };
+    }
+
+    /** {@code effect.addAttributeModifier(attribute, uuidText, amount, operation)}, as until 1.20.5. */
+    public static Object effectAttributeModifier(Object effect, Object attribute, Object uuid, double amount,
+            Object operation) {
+        try {
+            ClassLoader loader = effect.getClass().getClassLoader();
+            Class<?> holder = Class.forName("net.minecraft.core.Holder", true, loader);
+            Class<?> identifier = Class.forName("net.minecraft.resources.Identifier", true, loader);
+            Object held = attribute;
+
+            if (!holder.isInstance(attribute)) {
+                Object registry = staticField(Class.forName("net.minecraft.core.registries.BuiltInRegistries", true,
+                        loader), "ATTRIBUTE");
+                held = Class.forName("net.minecraft.core.Registry", true, loader)
+                        .getMethod("wrapAsHolder", Object.class).invoke(registry, attribute);
+            }
+
+            String path = String.valueOf(uuid).toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9/._-]", "_");
+            Object id = identifier.getMethod("fromNamespaceAndPath", String.class, String.class)
+                    .invoke(null, "octoloader", path);
+
+            for (Method method : Class.forName("net.minecraft.world.effect.MobEffect", true, loader).getMethods()) {
+                if (method.getName().equals("addAttributeModifier") && method.getParameterCount() == 4
+                        && method.getParameterTypes()[0] == holder) {
+                    return method.invoke(effect, held, id, amount, operation);
+                }
+            }
+
+            return effect;
+        } catch (InvocationTargetException e) {
+            throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the effect's attribute modifier could not be added", e);
+        }
     }
 
     static String preferredShimFor(String owner, String name, String descriptor) {
@@ -885,7 +1139,16 @@ public final class Shims {
     private static final String SERIALIZERS = "net/minecraft/network/syncher/EntityDataSerializers";
     private static final String SERIALIZER = "net/minecraft/network/syncher/EntityDataSerializer";
 
+    private static final String FORGE_REGISTRIES = "net/minecraftforge/registries/ForgeRegistries";
+    private static final String FORGE_REGISTRY_D = ":Lnet/minecraftforge/registries/IForgeRegistry;";
+
     private static final Map<String, String> FIELD_SHIMS = Map.ofEntries(
+            // Forge's views of the game's registries that Forge 66 no longer
+            // keeps; a DeferredRegister made from one only asks it which
+            // registry it is.
+            Map.entry(FORGE_REGISTRIES + ".FEATURES" + FORGE_REGISTRY_D, "forgeRegistryFeatures"),
+            Map.entry(FORGE_REGISTRIES + ".WORLD_CARVERS" + FORGE_REGISTRY_D, "forgeRegistryCarvers"),
+            Map.entry(FORGE_REGISTRIES + ".SCHEDULES" + FORGE_REGISTRY_D, "forgeRegistrySchedules"),
             // NeoForge 26 kept only FluidIngredient.CODEC; Create builds every
             // processing recipe's codec on the map codec, and without it not
             // one of its machine recipes could be read.

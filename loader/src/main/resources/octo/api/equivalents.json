@@ -175,6 +175,9 @@
   ],
 
   "fields": [
+    { "owner": "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "name": "ADDITION", "alternatives": ["ADD_VALUE"], "note": "1.20.5 renamed the three operations; read as nulls, an effect's or an item's modifier could not be sent to a client, and the first one sent disconnected it" },
+    { "owner": "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "name": "MULTIPLY_BASE", "alternatives": ["ADD_MULTIPLIED_BASE"] },
+    { "owner": "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "name": "MULTIPLY_TOTAL", "alternatives": ["ADD_MULTIPLIED_TOTAL"] },
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "NORMAL", "alternatives": ["PUSH_PULL"], "note": "26.x renamed every push reaction; read as nulls, Create took every block for unmovable and no bearing, piston or gantry assembled" },
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "DESTROY", "alternatives": ["POPPED"] },
     { "owner": "net/minecraft/world/level/material/PushReaction", "name": "BLOCK", "alternatives": ["IMMOVEABLE"] },

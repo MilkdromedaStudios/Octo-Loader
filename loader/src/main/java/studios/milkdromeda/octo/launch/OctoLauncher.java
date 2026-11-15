@@ -402,6 +402,8 @@ public final class OctoLauncher {
             // patched client loads with the game's.
             if (context.side() == Side.CLIENT) {
                 classLoader.addGlobalTransformer(new ExtraModelHooks());
+                // And the model layers their mobs' models are built from.
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModLayersHook());
             }
         }
 
@@ -469,6 +471,12 @@ public final class OctoLauncher {
             // up; that is when every DeferredRegister puts its content in.
             if (!apiLibraries.isEmpty() && mods.stream().anyMatch(mod -> mod.format() == ModFormat.NEOFORGE)) {
                 NeoRegistration.run(classLoader);
+            }
+
+            // And Forge's, where NeoForge's did not already fill its mods'
+            // registers on the way: a Forge mod's content is in the game.
+            if (studios.milkdromeda.octo.bridge.forge.ForgeRegistration.hasWork()) {
+                studios.milkdromeda.octo.bridge.forge.ForgeRegistration.run(classLoader);
             }
 
             for (Lifecycle phase : Lifecycle.values()) {
@@ -881,6 +889,9 @@ public final class OctoLauncher {
         // Create's millstone and basin take dropped items there. Only a mod
         // from an older Minecraft overrides it.
         if (translated) {
+            // What the game refuses that they do in good faith: a block
+            // property added twice over, a registry entry added in set-up.
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.LegacyRegistryHooks());
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityLandingHook());
             // Items that say where they are worn, as Equipable and ArmorItem did:
             // Create's goggles and diving gear. 26.x asks only a component.
@@ -939,6 +950,7 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new RegistrateSupport());
             classLoader.addGlobalTransformer(new UnboundComponents());
             classLoader.addGlobalTransformer(new ValueIoBridge(index));
+            classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.SynchedDataBridge(index));
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.InteractionBridge(index));
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.FinalFieldWrites(index));
 
@@ -960,7 +972,8 @@ public final class OctoLauncher {
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModAttributesHook());
             classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.EntityRendererGuard());
             classLoader.addGlobalTransformer(new FinalOverrides(index));
-            classLoader.addGlobalTransformer(new OpenTypes(extendedByMods(mods)));
+            openTypes = new OpenTypes(extendedByMods(mods));
+            classLoader.addGlobalTransformer(openTypes);
             classLoader.addGlobalTransformer(new SupertypeFit(index, false));
             classLoader.addGlobalTransformer(new VerifierFit(index, false));
 
@@ -1011,6 +1024,9 @@ public final class OctoLauncher {
             }
         }
     }
+
+    /** The final and sealed game classes opened for the mods that extend them. */
+    private OpenTypes openTypes;
 
     /** What the game's and the mods' classes declare, as the transformers leave them. */
     private MemberIndex memberIndex;
@@ -1117,8 +1133,19 @@ public final class OctoLauncher {
     }
 
     private void installAccessRules(List<LoadedMod> mods, OctoClassLoader classLoader) {
-        AccessRules rules = AccessRules.builder().merge(AccessRuleLoader.collect(mods))
-                .merge(apiPatches.accessRules()).build();
+        AccessRules.Builder builder = AccessRules.builder().merge(AccessRuleLoader.collect(mods))
+                .merge(apiPatches.accessRules());
+
+        // An id built from its two halves, which every mod did until 1.21 and
+        // the game now keeps to itself. Most such calls are sent to the
+        // factory that replaced it; the ones in code too tangled to follow
+        // were left calling a private constructor, and failed where they stood.
+        if (mods.stream().anyMatch(LoadedMod::isFromAnotherVersion)) {
+            builder.widenMethod("net/minecraft/resources/Identifier", "<init>",
+                    "(Ljava/lang/String;Ljava/lang/String;)V", studios.milkdromeda.octo.access.Access.PUBLIC);
+        }
+
+        AccessRules rules = builder.build();
 
         if (!rules.isEmpty()) {
             classLoader.addGlobalTransformer(new AccessRuleTransformer(rules));
@@ -1281,6 +1308,15 @@ public final class OctoLauncher {
                     Failures.rethrowIfFatal(e);
                     LOG.debug("could not scan {} for missing references: {}", jar.getFileName(), e.toString());
                 }
+            }
+        }
+
+        // A class that will be added back from an older release extends what
+        // it extended then, which this game may have made final: known now,
+        // while that superclass can still be opened.
+        if (restorer != null && openTypes != null) {
+            for (String missing : List.copyOf(phantoms.specs().keySet())) {
+                openTypes.open(restorer.superclassOf(missing));
             }
         }
 
