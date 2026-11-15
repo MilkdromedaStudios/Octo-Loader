@@ -385,6 +385,30 @@ public final class MemberIndex {
         shapes.values().removeIf(shape -> shape == ABSENT);
     }
 
+    /**
+     * The classes each thread is in the middle of reading. A thread's own, so
+     * that what one thread is told never depends on what another happens to be
+     * doing: two threads reading the same class each read it, and both get the
+     * same answer.
+     */
+    private static final ThreadLocal<Set<String>> READING = ThreadLocal.withInitial(HashSet::new);
+
+    /**
+     * Whether this thread is reading a class's shape right now.
+     *
+     * <p>A shape is read from the class as the loader's transformers leave it,
+     * since they add members, widen access and change supertypes. The
+     * transformers that themselves ask this index ({@link Transformer#readsMemberIndex})
+     * only rewrite what a class does with other classes' members, never what
+     * it declares that anything else links against, so they are left out of
+     * such a read. That is what keeps a read from setting off the reads of
+     * everything the class mentions, and what makes a shape the same whichever
+     * class happened to ask for it first.
+     */
+    public static boolean isReading() {
+        return !READING.get().isEmpty();
+    }
+
     /** @return the class's shape, or {@code null} when nothing has it */
     public Shape shape(String internalName) {
         if (internalName == null || internalName.isEmpty() || internalName.charAt(0) == '[') {
@@ -394,27 +418,39 @@ public final class MemberIndex {
         Shape shape = shapes.get(internalName);
 
         if (shape == null) {
-            // Reading a class runs it through the loader's transformers, and one
-            // of those asks this index about other classes — which may ask about
-            // this one. Whoever arrives while it is being read is told nothing is
-            // known, rather than going round again.
-            if (shapes.putIfAbsent(internalName, READING) != null) {
-                Shape other = shapes.get(internalName);
-                return other == READING || other == ABSENT ? null : other;
+            Set<String> reading = READING.get();
+
+            // Only something handed a class on its way to being read can ask
+            // about that same class; it is told nothing is known rather than
+            // going round again.
+            if (!reading.add(internalName)) {
+                return null;
             }
 
             try {
                 shape = read(internalName);
             } finally {
-                shapes.put(internalName, shape == null ? ABSENT : shape);
+                reading.remove(internalName);
+            }
+
+            Shape raced = shapes.putIfAbsent(internalName, shape);
+
+            if (raced != null) {
+                shape = raced;
             }
         }
 
-        return shape == ABSENT || shape == READING ? null : shape;
+        return shape == ABSENT ? null : shape;
     }
 
-    private static final Shape READING = new Shape("", null, List.of(), false, Set.of(), Set.of(), Set.of(),
-            Map.of(), 0);
+    /**
+     * Forgets every shape read so far. For when the transformers a shape is
+     * read through have changed: a class read before access rules were
+     * installed would otherwise keep the access it had without them.
+     */
+    public void forgetAll() {
+        shapes.clear();
+    }
 
     private Shape read(String internalName) {
         byte[] bytes;

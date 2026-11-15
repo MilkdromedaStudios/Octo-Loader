@@ -70,6 +70,16 @@ public final class AccessRuleTransformer implements Transformer {
                 String[] interfaces) {
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
             int updated = rules.forClass(className).applyTo(access);
+
+            // A class file's own flags know only public and not public; a
+            // nested class made protected is written public there, as javac
+            // writes one, and keeps "protected" in its InnerClasses entry.
+            // Left as protected here it stayed package-private to the JVM:
+            // Forge widens MappedRegistry$TagSet this way, and its registry
+            // wrapper could not load.
+            if ((updated & Opcodes.ACC_PROTECTED) != 0) {
+                updated = updated & ~(Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC;
+            }
             Set<InjectedInterface> injected = rules.interfacesFor(className);
 
             if (injected.isEmpty()) {

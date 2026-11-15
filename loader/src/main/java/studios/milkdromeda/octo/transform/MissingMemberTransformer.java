@@ -232,6 +232,16 @@ public final class MissingMemberTransformer implements Transformer {
         return new LinkedHashSet<>(reported);
     }
 
+    /**
+     * Only the one that looks the game's members up in the index: what it
+     * rewrites is the calls a class makes, and what it adds is its own
+     * synthetic helpers, which nothing else links against.
+     */
+    @Override
+    public boolean readsMemberIndex() {
+        return lookup instanceof IndexLookup;
+    }
+
     @Override
     public String name() {
         return name;

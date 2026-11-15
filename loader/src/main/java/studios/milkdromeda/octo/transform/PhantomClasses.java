@@ -264,13 +264,30 @@ public final class PhantomClasses {
         }
     }
 
+    private static boolean isThrowableName(String internalName) {
+        return internalName.endsWith("Exception") || internalName.endsWith("Error")
+                || internalName.endsWith("Throwable");
+    }
+
     private void observeShape(byte[] bytes, Predicate<String> missing) {
         new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
             public void visit(int version, int access, String name, String signature, String superName,
                     String[] interfaces) {
                 if (superName != null && missing.test(superName)) {
-                    specFor(superName).extended = true;
+                    Spec parent = specFor(superName);
+                    parent.extended = true;
+
+                    // Extended, and named as an exception is: its subclasses
+                    // are thrown, which only a Throwable can be. Forge's
+                    // GameData throws an anonymous EnhancedRuntimeException,
+                    // and with that stood in for as a plain class the whole
+                    // of GameData failed verification, ForgeRegistries with
+                    // it, and no Forge mod registered anything.
+                    if (isThrowableName(superName)) {
+                        parent.throwable = true;
+                        parent.realSupertypes.add("java/lang/RuntimeException");
+                    }
                 }
 
                 if (interfaces != null) {

@@ -15,4 +15,15 @@ public interface Transformer {
     default boolean handles(String className, TransformContext context) {
         return true;
     }
+
+    /**
+     * Whether this rewrite asks the {@link MemberIndex} what other classes
+     * declare. One that does is left out when a class is read only for its own
+     * shape (see {@link MemberIndex#isReading}), so it must not be the one to
+     * give a class a member, a supertype or an access level that other classes
+     * link against.
+     */
+    default boolean readsMemberIndex() {
+        return false;
+    }
 }

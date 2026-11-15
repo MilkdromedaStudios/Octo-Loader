@@ -40,9 +40,10 @@ public final class TransformPipeline {
 
     public byte[] apply(String className, byte[] bytes, TransformContext context) {
         byte[] current = bytes;
+        boolean shapeOnly = MemberIndex.isReading();
 
         for (Transformer transformer : transformers) {
-            if (!transformer.handles(className, context)) {
+            if (shapeOnly && transformer.readsMemberIndex() || !transformer.handles(className, context)) {
                 continue;
             }
 
