@@ -401,6 +401,20 @@ public final class PhantomClasses {
                             }
                         }
                     }
+
+                    /**
+                     * A class named as a constant: {@code FlyingMob.class},
+                     * handed to a predicate. It is as much a reference as a
+                     * cast is, and with nothing planned for it the class
+                     * naming it could not be initialised at all.
+                     */
+                    @Override
+                    public void visitLdcInsn(Object value) {
+                        if (value instanceof Type type && type.getSort() == Type.OBJECT
+                                && missing.test(type.getInternalName())) {
+                            specFor(type.getInternalName());
+                        }
+                    }
                 };
             }
         }, ClassReader.SKIP_FRAMES);

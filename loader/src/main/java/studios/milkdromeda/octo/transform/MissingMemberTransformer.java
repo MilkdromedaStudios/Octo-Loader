@@ -365,6 +365,15 @@ public final class MissingMemberTransformer implements Transformer {
         }).contains(owner);
     }
 
+    private static final String HOLDER = "net/minecraft/core/Holder";
+    private static final String HOLDER_D = "L" + HOLDER + ";";
+
+    /** Whether a type is one the game could have started handing out holders of: a class of its own or a mod's. */
+    private static boolean isHeldValue(Type type) {
+        return type.getSort() == Type.OBJECT && !type.getDescriptor().equals(HOLDER_D)
+                && !type.getInternalName().startsWith("java/") && !type.getInternalName().startsWith(HOLDER);
+    }
+
     private final class Rewriter extends ClassVisitor {
         private final TransformContext context;
         private final String className;
@@ -442,7 +451,11 @@ public final class MissingMemberTransformer implements Transformer {
         }
 
         private String inheritedGap(String owner, String name, String descriptor) {
-            if (!owner.equals(className) || declared.contains(name + descriptor) || superName == null) {
+            if (!owner.equals(className)) {
+                return inheritedGapOf(owner, name, descriptor);
+            }
+
+            if (declared.contains(name + descriptor) || superName == null) {
                 return null;
             }
 
@@ -476,6 +489,31 @@ public final class MissingMemberTransformer implements Transformer {
             }
 
             return Boolean.FALSE.equals(lookup.hasMethod(ancestor, name, descriptor)) ? ancestor : null;
+        }
+
+        /**
+         * The same for a call on another of the mod's classes: Wither
+         * Storm's effects are built as {@code new WitherSicknessEffect()
+         * .addAttributeModifier(...)}, a method that class had from
+         * {@code MobEffect} with parameters the game has since changed. Named
+         * on the mod's class the call was never repaired, and the effect
+         * could not be made.
+         */
+        private String inheritedGapOf(String owner, String name, String descriptor) {
+            if (isGameSide(owner) || owner.startsWith("java/") || owner.charAt(0) == '['
+                    || !isOwnClass(context, owner)
+                    || !Boolean.FALSE.equals(lookup.hasMethod(owner, name, descriptor))) {
+                return null;
+            }
+
+            String ancestor = lookup.superName(owner);
+
+            for (int depth = 0; ancestor != null && depth < 16 && !isGameSide(ancestor)
+                    && !ancestor.startsWith("java/"); depth++) {
+                ancestor = lookup.superName(ancestor);
+            }
+
+            return ancestor != null && isGameSide(ancestor) && lookup.guards(ancestor) ? ancestor : null;
         }
 
         /**
@@ -1005,6 +1043,20 @@ public final class MissingMemberTransformer implements Transformer {
                         }
                     }
 
+                    // The same method taking holders where it took the things
+                    // themselves, as since 1.20.5: hasEffect(MobEffect).
+                    for (String candidateName : names) {
+                        String held = holderOverload(owner, candidateName, descriptor);
+
+                        if (held != null) {
+                            callThroughHolders(opcode, owner, candidateName, descriptor, held, isInterface);
+                            changed = true;
+                            record(context, owner, name + descriptor, className,
+                                    "it is " + candidateName + held + " now, taking holders");
+                            return;
+                        }
+                    }
+
                     // A static factory moved to the class's plural holder, as
                     // 26.x moved RenderType.entitySolid(...) to RenderTypes and
                     // IntProvider.codec(...) to IntProviders.
@@ -1133,6 +1185,16 @@ public final class MissingMemberTransformer implements Transformer {
                         return;
                     }
 
+                    String heldConstructor = blocked ? null : holderOverload(owner, "<init>", descriptor);
+
+                    if (heldConstructor != null) {
+                        callThroughHolders(Opcodes.INVOKESPECIAL, owner, "<init>", descriptor, heldConstructor, false);
+                        changed = true;
+                        record(context, owner, "<init>" + descriptor, className,
+                                "it takes " + heldConstructor + " now, with holders");
+                        return;
+                    }
+
                     // A constructor whose old arguments are a few lines of the new
                     // API: the old BakedQuad's vertex data, made into 26.x's record.
                     String constructorShim = blocked || classVersion < Opcodes.V1_5 ? null
@@ -1235,6 +1297,107 @@ public final class MissingMemberTransformer implements Transformer {
                     changed = true;
                     record(context, owner, name + descriptor, className,
                             "it is rebuilt from what this version's API has");
+                }
+
+                /**
+                 * The overload of a method that differs only in taking, or
+                 * answering, holders where the call has the things themselves.
+                 *
+                 * @return its descriptor, or {@code null} when there is none or more than one
+                 */
+                private String holderOverload(String owner, String name, String descriptor) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    Type returned = Type.getReturnType(descriptor);
+                    String found = null;
+
+                    for (String candidate : lookup.overloads(owner, name)) {
+                        Type[] parameters = Type.getArgumentTypes(candidate);
+
+                        if (parameters.length != arguments.length) {
+                            continue;
+                        }
+
+                        boolean fits = true;
+                        boolean differs = false;
+
+                        for (int i = 0; i < parameters.length && fits; i++) {
+                            if (parameters[i].equals(arguments[i])) {
+                                continue;
+                            }
+
+                            if (parameters[i].getDescriptor().equals(HOLDER_D) && isHeldValue(arguments[i])) {
+                                differs = true;
+                            } else {
+                                fits = false;
+                            }
+                        }
+
+                        Type answers = Type.getReturnType(candidate);
+
+                        if (fits && !answers.equals(returned)) {
+                            if (name.charAt(0) != '<' && answers.getDescriptor().equals(HOLDER_D)
+                                    && isHeldValue(returned)) {
+                                differs = true;
+                            } else {
+                                fits = false;
+                            }
+                        }
+
+                        if (!fits || !differs || inaccessible(owner, name, candidate)) {
+                            continue;
+                        }
+
+                        if (found != null) {
+                            return null;
+                        }
+
+                        found = candidate;
+                    }
+
+                    return found;
+                }
+
+                /** The arguments put away, handed back with each one a holder is wanted for made one, and the call made. */
+                private void callThroughHolders(int opcode, String owner, String name, String descriptor,
+                        String held, boolean isInterface) {
+                    Type[] arguments = Type.getArgumentTypes(descriptor);
+                    Type[] parameters = Type.getArgumentTypes(held);
+                    int[] slots = new int[arguments.length];
+                    int slot = nextFree;
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        slots[i] = slot;
+                        slot += arguments[i].getSize();
+                    }
+
+                    for (int i = arguments.length - 1; i >= 0; i--) {
+                        super.visitVarInsn(arguments[i].getOpcode(Opcodes.ISTORE), slots[i]);
+                    }
+
+                    nextFree = slot;
+
+                    for (int i = 0; i < arguments.length; i++) {
+                        super.visitVarInsn(arguments[i].getOpcode(Opcodes.ILOAD), slots[i]);
+
+                        if (!parameters[i].equals(arguments[i])) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "studios/milkdromeda/octo/bridge/Holders", "of",
+                                    "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                            super.visitTypeInsn(Opcodes.CHECKCAST, HOLDER);
+                        }
+                    }
+
+                    if (name.charAt(0) == '<') {
+                        super.visitMethodInsn(opcode, owner, name, held, isInterface);
+                        return;
+                    }
+
+                    repairShape(opcode, owner, name, held, isInterface);
+                    Type returned = Type.getReturnType(descriptor);
+
+                    if (!Type.getReturnType(held).equals(returned)) {
+                        super.visitMethodInsn(Opcodes.INVOKEINTERFACE, HOLDER, "value", "()Ljava/lang/Object;", true);
+                        super.visitTypeInsn(Opcodes.CHECKCAST, returned.getInternalName());
+                    }
                 }
 
                 private boolean convertedConstructorCall(String owner, String descriptor) {
@@ -1961,6 +2124,24 @@ public final class MissingMemberTransformer implements Transformer {
                         record(context, owner, name, className, "it is " + (owner + "s").replace('/', '.') + "."
                                 + name + " now");
                         return;
+                    }
+
+                    // A constant that is a holder of what it was since 1.20.5:
+                    // MobEffects.POISON, Attributes.MAX_HEALTH. Read as the
+                    // holder it is, and what it holds handed on.
+                    if (opcode == Opcodes.GETSTATIC && isHeldValue(Type.getType(descriptor))) {
+                        for (String holderType : new String[] { HOLDER_D, "L" + HOLDER + "$Reference;" }) {
+                            if (Boolean.TRUE.equals(lookup.hasField(owner, name, holderType))
+                                    && !fieldInaccessible(owner, name, holderType)) {
+                                super.visitFieldInsn(Opcodes.GETSTATIC, owner, name, holderType);
+                                super.visitMethodInsn(Opcodes.INVOKEINTERFACE, HOLDER, "value",
+                                        "()Ljava/lang/Object;", true);
+                                super.visitTypeInsn(Opcodes.CHECKCAST, Type.getType(descriptor).getInternalName());
+                                changed = true;
+                                record(context, owner, name, className, "it is a holder now, so what it holds is read");
+                                return;
+                            }
+                        }
                     }
 
                     Type type = Type.getType(descriptor);

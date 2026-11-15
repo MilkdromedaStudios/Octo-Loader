@@ -19,11 +19,29 @@ public final class ModAttributes {
     private static volatile Method view;
     private static volatile boolean absent;
 
+    /** What Forge mods gave their mobs, when Forge's own event was put to them. */
+    private static final Map<Object, Object> FORGE = new java.util.concurrent.ConcurrentHashMap<>();
+
     private ModAttributes() {
+    }
+
+    /** Takes the attributes Forge mods answered {@code EntityAttributeCreationEvent} with. */
+    public static void addForge(Map<?, ?> attributes) {
+        attributes.forEach((type, supplier) -> {
+            if (type != null && supplier != null) {
+                FORGE.put(type, supplier);
+            }
+        });
     }
 
     /** The attributes a mod gave this entity type, or {@code null}. */
     public static Object supplierFor(Object entityType) {
+        Object forge = entityType == null ? null : FORGE.get(entityType);
+
+        if (forge != null) {
+            return forge;
+        }
+
         Map<?, ?> attributes = attributes(entityType);
         return attributes == null ? null : attributes.get(entityType);
     }

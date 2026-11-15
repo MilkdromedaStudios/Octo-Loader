@@ -29,6 +29,16 @@ public final class Registries {
         }
     }
 
+    /**
+     * Called first thing in {@code MappedRegistry.validateWrite}: whether an
+     * entry may still go into this registry though it is frozen. Only while a
+     * mod is taking its turn in start-up, and only into a registry whose
+     * entries do not make their own holders, which a frozen one has no map for.
+     */
+    public static boolean allowsLateWrite(Object registry) {
+        return ForgeBuses.isModActive() && !hasIntrusiveHolders(registry);
+    }
+
     /** Called from the {@code unfreeze} added to {@code MappedRegistry}. */
     public static boolean hasIntrusiveHolders(Object registry) {
         if (BUILT_INTRUSIVE.contains(registry)) {

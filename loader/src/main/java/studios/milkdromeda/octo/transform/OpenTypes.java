@@ -29,13 +29,23 @@ public final class OpenTypes implements Transformer {
     private static final OctoLog LOG = OctoLog.of(OpenTypes.class);
     private static final ByteScan SEALED = new ByteScan(List.of("PermittedSubclasses"));
 
-    private final Set<String> extended;
-    private final ByteScan extendedNames;
+    private final Set<String> extended = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** @param extended the classes some mod's class extends, by internal name */
     public OpenTypes(Set<String> extended) {
-        this.extended = Set.copyOf(extended);
-        this.extendedNames = new ByteScan(extended);
+        this.extended.addAll(extended);
+    }
+
+    /**
+     * Adds a class something is known to extend: the superclass of a game
+     * class added back from an older release, which the game may have made
+     * final since. 1.20.1's SimpleWeightedRandomList extends WeightedList,
+     * final in 26.x, and could not be defined.
+     */
+    public void open(String internalName) {
+        if (internalName != null) {
+            extended.add(internalName);
+        }
     }
 
     @Override
@@ -51,7 +61,7 @@ public final class OpenTypes implements Transformer {
     @Override
     public byte[] transform(String className, byte[] bytes, TransformContext context) {
         boolean sealed = SEALED.matches(bytes);
-        boolean subclassed = extended.contains(className) && extendedNames.matches(bytes);
+        boolean subclassed = extended.contains(className);
 
         if (!sealed && !subclassed) {
             return bytes;
@@ -68,6 +78,22 @@ public final class OpenTypes implements Transformer {
                     String[] interfaces) {
                 super.visit(version, opensFinal ? access & ~Opcodes.ACC_FINAL : access, name, signature, superName,
                         interfaces);
+            }
+
+            /**
+             * A subclass has to reach a constructor: one the game has made
+             * private since, with a factory in its place, is one its old
+             * subclass still calls.
+             */
+            @Override
+            public org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if (subclassed && name.equals("<init>") && (access & Opcodes.ACC_PRIVATE) != 0) {
+                    changed[0] = true;
+                    access = access & ~Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED;
+                }
+
+                return super.visitMethod(access, name, descriptor, signature, exceptions);
             }
 
             @Override

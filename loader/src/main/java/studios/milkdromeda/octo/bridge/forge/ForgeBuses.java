@@ -28,6 +28,11 @@ public final class ForgeBuses {
     private ForgeBuses() {
     }
 
+    /** Whether a mod is taking its turn on this thread right now. */
+    public static boolean isModActive() {
+        return ACTIVE.get() != null;
+    }
+
     public static String activeModId() {
         String active = ACTIVE.get();
         return active == null ? "minecraft" : active;
