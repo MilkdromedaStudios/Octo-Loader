@@ -50,6 +50,7 @@ public final class FinalOverrides implements Transformer {
 
         ClassWriter writer = new ClassWriter(reader, 0);
         boolean[] changed = { false };
+        java.util.Set<String> moved = new java.util.HashSet<>();
 
         reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
             @Override
@@ -58,6 +59,15 @@ public final class FinalOverrides implements Transformer {
                 if ((access & (Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)) == 0 && !name.startsWith("<")
                         && overridesFinal(superName, name, descriptor)) {
                     changed[0] = true;
+
+                    // The method and the bridge the compiler wrote for it,
+                    // or two names the game has since made one: both would
+                    // land on the same new name, and a class cannot have
+                    // that. The first keeps it; the other goes.
+                    if (!moved.add(name + descriptor)) {
+                        return null;
+                    }
+
                     LOG.info("{}.{} overrides a method this Minecraft has made final; it is kept under another "
                             + "name and the game's own answers", className.replace('/', '.'), name);
                     return super.visitMethod(access, PREFIX + name, descriptor, signature, exceptions);

@@ -402,6 +402,8 @@ public final class OctoLauncher {
             // patched client loads with the game's.
             if (context.side() == Side.CLIENT) {
                 classLoader.addGlobalTransformer(new ExtraModelHooks());
+                // One renderer that cannot be made costs only itself.
+                classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.RendererProviderGuard());
                 // And the model layers their mobs' models are built from.
                 classLoader.addGlobalTransformer(new studios.milkdromeda.octo.transform.ModLayersHook());
             }

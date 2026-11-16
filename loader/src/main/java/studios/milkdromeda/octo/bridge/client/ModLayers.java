@@ -36,8 +36,35 @@ public final class ModLayers {
 
             for (String hooks : HOOKS) {
                 try {
-                    Method load = Class.forName(hooks, true, loader).getMethod("loadLayerDefinitions", builderType);
-                    load.invoke(null, builder);
+                    Class<?> type = Class.forName(hooks, true, loader);
+                    Method put = builderType.getMethod("put", Object.class, Object.class);
+
+                    // One at a time where the loader's own table can be read:
+                    // a layer whose definition cannot be made here costs that
+                    // layer, where through the loader's method it cost them all.
+                    try {
+                        java.lang.reflect.Field table = type.getDeclaredField("layerDefinitions");
+                        table.setAccessible(true);
+
+                        for (Map.Entry<?, ?> entry : ((Map<?, ?>) table.get(null)).entrySet()) {
+                            try {
+                                Object definition = ((java.util.function.Supplier<?>) entry.getValue()).get();
+
+                                if (definition == null) {
+                                    throw new IllegalStateException("its supplier made nothing");
+                                }
+
+                                put.invoke(builder, entry.getKey(), definition);
+                            } catch (Throwable e) {
+                                Failures.rethrowIfFatal(e);
+                                LOG.warn("the model layer {} could not be made: {}", entry.getKey(),
+                                        Failures.describe(Failures.unwrap(e)));
+                            }
+                        }
+                    } catch (NoSuchFieldException e) {
+                        type.getMethod("loadLayerDefinitions", builderType).invoke(null, builder);
+                    }
+
                     any = true;
                 } catch (ClassNotFoundException | NoSuchMethodException e) {
                     // That loader's API is not here.
