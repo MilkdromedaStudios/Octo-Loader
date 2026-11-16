@@ -72,6 +72,14 @@ public final class Shims {
             // bus group instead, and Octo fills the register itself.
             Map.entry("net/minecraftforge/registries/DeferredRegister.register(Lnet/minecraftforge/eventbus/api/"
                     + "IEventBus;)V", "forgeDeferredRegister"),
+            // Forge's channel of 1.13 to 1.20.1, which Octo carries.
+            Map.entry("net/minecraftforge/network/NetworkRegistry.newSimpleChannel(Lnet/minecraft/resources/Identifier;"
+                    + "Ljava/util/function/Supplier;Ljava/util/function/Predicate;Ljava/util/function/Predicate;)"
+                    + "Lnet/minecraftforge/network/simple/SimpleChannel;", "forgeSimpleChannel"),
+            Map.entry("net/minecraftforge/network/PacketDistributor$TargetPoint.p(DDDDLnet/minecraft/resources/"
+                    + "ResourceKey;)Ljava/util/function/Supplier;", "forgeTargetPoint"),
+            Map.entry("net/minecraftforge/network/NetworkDirection.getReceptionSide()"
+                    + "Lnet/minecraftforge/fml/LogicalSide;", "forgeReceptionSide"),
             // An entity's synced data, defined on the data itself until 1.20.5.
             Map.entry("net/minecraft/network/syncher/SynchedEntityData.define(Lnet/minecraft/network/syncher/"
                     + "EntityDataAccessor;Ljava/lang/Object;)V", "entityDataDefine"),
@@ -491,6 +499,29 @@ public final class Shims {
         }
 
         return Map.copyOf(out);
+    }
+
+    /** {@code NetworkRegistry.newSimpleChannel(name, version, clientAccepts, serverAccepts)}. */
+    public static Object forgeSimpleChannel(Object name, Object version, Object clientAccepts, Object serverAccepts,
+            Class<?> owner) {
+        try {
+            return Class.forName("net.minecraftforge.network.simple.SimpleChannel", true, owner.getClassLoader())
+                    .getConstructor(Object.class).newInstance(name);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            throw new IllegalStateException("Forge's simple channel could not be made for " + name, e);
+        }
+    }
+
+    /** A point messages were sent near: the channel Octo carries hands them to the one client there is. */
+    public static Object forgeTargetPoint(double x, double y, double z, double radius, Object dimension,
+            Class<?> owner) {
+        return (Supplier<Object>) () -> null;
+    }
+
+    /** {@code direction.getReceptionSide()}: the side a message going that way arrives on. */
+    public static Object forgeReceptionSide(Object direction) {
+        return String.valueOf(direction).contains("CLIENTBOUND") ? net.minecraftforge.fml.LogicalSide.CLIENT
+                : net.minecraftforge.fml.LogicalSide.SERVER;
     }
 
     /** {@code entityData.define(key, value)}, from an entity's old {@code defineSynchedData()}. */
